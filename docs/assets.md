@@ -3,6 +3,12 @@
 - **Music:** original sample-free algorithms in `Stillroom.Synthesis`, MIT.
   No bundled recordings or third-party samples.
 - **Scenery:** original static geometry in `Runtime.Render`, MIT.
+- **Wallpapers:** four assets created with the built-in OpenAI image generation
+  tool on 2026-10-11. No reference images or third-party source material were
+  supplied. Prompts are in [background-prompts.md](background-prompts.md).
+  Included under this project's MIT grant to the extent applicable.
+- **Icon:** original window-and-horizon geometry, MIT. SVG source and PNG/ICO
+  outputs are in `assets/icon/`; regenerate with `tools/make-icon.ps1`.
 - **Font:** unmodified Noto Sans CJK JP Regular, renamed on disk to
   `NotoSansJP.otf`. SIL Open Font License 1.1, separate from MIT.
   [Upstream file](https://github.com/notofonts/noto-cjk/blob/f8d157532fbfaeda587e826d4cd5b21a49186f7c/Sans/OTF/Japanese/NotoSansCJKjp-Regular.otf)

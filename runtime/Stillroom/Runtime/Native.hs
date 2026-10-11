@@ -13,6 +13,7 @@ module Stillroom.Runtime.Native
     borderlessMatches,
     isUnclipped,
     pickFolder,
+    pickPicture,
     showProblem,
   )
 where
@@ -47,6 +48,8 @@ foreign import ccall unsafe "sr_borderless_matches" borderlessRaw :: Ptr () -> C
 foreign import ccall unsafe "sr_is_unclipped" unclippedRaw :: Ptr () -> IO CInt
 
 foreign import ccall safe "sr_pick_folder" pickRaw :: Ptr () -> CWString -> CWString -> CInt -> IO CInt
+
+foreign import ccall safe "sr_pick_picture" pickPictureRaw :: Ptr () -> CWString -> CInt -> IO CInt
 
 foreign import ccall safe "sr_message" messageRaw :: CWString -> IO ()
 
@@ -119,3 +122,11 @@ pickFolder owner initial = withCWString (maybe "" id initial) $ \start -> alloca
 
 showProblem :: String -> IO ()
 showProblem message = withCWString message messageRaw
+
+pickPicture :: Ptr () -> IO (Either String (Maybe FilePath))
+pickPicture owner = allocaArray 32768 $ \buffer -> do
+  status <- pickPictureRaw owner buffer 32768
+  case status of
+    0 -> pure (Right Nothing)
+    1 -> Right . Just <$> peekCWString buffer
+    _ -> pure (Left "The image picker could not open.")

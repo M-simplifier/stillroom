@@ -13,6 +13,10 @@ module Stillroom.Domain
     ValueError (..),
     Transport (..),
     Background (..),
+    PictureShade (..),
+    nextShade,
+    shadeOpacity,
+    PictureDirection (..),
     WindowMode (..),
     Language (..),
     Preset (..),
@@ -68,7 +72,21 @@ zeroSeconds = Seconds 0
 
 data Transport = Playing | Paused deriving (Eq, Show)
 
-data Background = Forest | Slate | Black | Lake deriving (Eq, Enum, Bounded, Show, Read)
+data Background = Forest | Slate | Black | Lake | Picture deriving (Eq, Enum, Bounded, Show, Read)
+
+data PictureShade = Original | Soft | Dim deriving (Eq, Enum, Bounded, Show, Read)
+
+nextShade :: PictureShade -> PictureShade
+nextShade Original = Soft
+nextShade Soft = Dim
+nextShade Dim = Original
+
+shadeOpacity :: PictureShade -> Int
+shadeOpacity Original = 0
+shadeOpacity Soft = 64
+shadeOpacity Dim = 128
+
+data PictureDirection = PreviousPicture | NextPicture deriving (Eq, Show)
 
 data WindowMode = Fullscreen | Compact deriving (Eq, Show, Read)
 

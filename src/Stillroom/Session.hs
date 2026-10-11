@@ -15,6 +15,7 @@ data Session = Session
   { transport :: !Transport,
     loudness :: !Volume,
     background :: !Background,
+    pictureShade :: !PictureShade,
     windowMode :: !WindowMode,
     language :: !Language,
     settingsOpen :: !Bool,
@@ -28,6 +29,10 @@ data Event
   | SetVolume Volume
   | NextTrack
   | ChooseBackground Background
+  | OpenPicture
+  | BrowsePicture PictureDirection
+  | RemovePicture
+  | CyclePictureShade
   | ToggleWindow
   | Escape
   | ToggleSettings
@@ -48,10 +53,13 @@ data Effect
   | PickMusicFolder
   | SelectPresets
   | MoveScreen
+  | PickPicture
+  | SelectPicture PictureDirection
+  | DeletePicture
   deriving (Eq, Show)
 
 initialSession :: Volume -> Session
-initialSession v = Session Playing v Forest Fullscreen English False 0
+initialSession v = Session Playing v Forest Original Fullscreen English False 0
 
 step :: Event -> Session -> (Session, [Effect])
 step event original = case event of
@@ -64,6 +72,10 @@ step event original = case event of
   SetVolume v -> (awake {loudness = v}, [ApplyVolume v, Persist])
   NextTrack -> (awake, [SkipTrack])
   ChooseBackground b -> (awake {background = b}, [Persist])
+  OpenPicture -> (awake, [PickPicture])
+  BrowsePicture direction -> (awake, [SelectPicture direction])
+  RemovePicture -> (awake, [DeletePicture])
+  CyclePictureShade -> (awake {pictureShade = nextShade (pictureShade original)}, [Persist])
   ToggleWindow -> (awake {windowMode = opposite (windowMode original), settingsOpen = False}, [PlaceWindow, Persist])
   Escape
     | settingsOpen original -> (awake {settingsOpen = False}, [])

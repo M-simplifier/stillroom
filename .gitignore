@@ -16,6 +16,8 @@
 !/cbits/
 !/cbits/*.c
 !/cbits/*.h
+!/cbits/*.rc
+!/cbits/*.manifest
 !/test/
 !/test/*.hs
 !/tools/
@@ -32,6 +34,12 @@
 !/assets/fonts/
 !/assets/fonts/NotoSansJP.otf
 !/assets/fonts/OFL.txt
+!/assets/backgrounds/
+!/assets/backgrounds/*.png
+!/assets/icon/
+!/assets/icon/*.png
+!/assets/icon/*.ico
+!/assets/icon/*.svg
 !/.github/
 !/.github/**/
 !/.github/**/*.yml

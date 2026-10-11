@@ -66,6 +66,17 @@ updates. Only the enabled MP3, WAV and OGG formats are exposed.
 
 ## Verification
 
+`Runtime.Pictures` owns the image library. File IDs resolve only against discovered
+bundled assets and private imported copies. CPU decoding uses native memory on a
+worker; texture uploads stay on the rendering thread. `ForeignPtr` owns decoded
+pixels until upload, and window resources own GPU textures. Replacements load
+before the old texture is released. Image controls are separate reducer events
+and cannot reconfigure playback or window placement. Preferences version 2 adds
+image and shade fields while accepting version 1 unchanged.
+
+The PNG/ICO icon is generated from editable geometry. The packaging build embeds
+the icon and an `asInvoker` manifest; the runtime also assigns its window icon.
+
 Properties exercise shuffle conservation and boundaries, rejected-candidate
 progress, volume validation, pause/resume, visibility, synthesis chunk independence,
 finite signal bounds and crossfades with short tracks.

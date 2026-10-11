@@ -14,6 +14,9 @@ leave it alone and the controls disappear into a quiet, static screen.
 - Shuffle without immediate repeats when at least two playable tracks exist.
 - Continuous playback with equal-power crossfades limited by both track lengths.
 - Static green, slate, black or illustrated lake backgrounds. No visual animation.
+- Four quiet image backgrounds, or import your own PNG, JPEG or BMP. Choose
+  an image and its brightness; neither track changes nor time switch it for you.
+- A native app icon for Explorer, shortcuts and the taskbar.
 - Choose a display; use fullscreen or a small window. Settings persist.
 - English and Japanese controls. No network requests, analytics or updater.
 

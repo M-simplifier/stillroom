@@ -1,12 +1,14 @@
 # Status
 
-Stillroom 0.1.1 is an early Windows x64 release, tested on Windows 11 with GHC
+Stillroom 0.2.0 is a local Windows x64 update, tested on Windows 11 with GHC
 9.6.7 and h-raylib 5.6.0.0. It is a small utility with best-effort maintenance,
 not a medical device or a measured productivity intervention.
 
 Implemented: procedural music; MP3/WAV/OGG folder playback; shuffle, crossfade,
 pause and next; saved settings; static backgrounds; monitor choice; fullscreen
 and compact mode; English/Japanese controls; single-instance activation.
+Image import and a persistent local library, four bundled wallpapers, manual
+selection, brightness control, and an embedded Windows icon are included.
 
 Release verification includes properties, independent source review and native
 muted checks with procedural music, MP3, Unicode/mixed-case WAV paths, invalid

@@ -4,8 +4,9 @@ $root = Split-Path -Parent $PSScriptRoot
 $OutputDirectory = [IO.Path]::GetFullPath($OutputDirectory)
 Push-Location $root
 try {
-    $executable = (& $Cabal list-bin exe:stillroom | Select-Object -Last 1).Trim()
-    if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $executable)) { throw 'Build the executable first.' }
+    $plan = Get-Content -LiteralPath (Join-Path $root 'dist-newstyle/cache/plan.json') -Raw -Encoding UTF8 | ConvertFrom-Json
+    $executable = ($plan.'install-plan' | Where-Object { $_.'component-name' -eq 'exe:stillroom' }).'bin-file'
+    if (-not $executable -or -not (Test-Path -LiteralPath $executable)) { throw 'Build the executable first.' }
     $ghcLib = (& ghc --print-libdir).Trim()
     $objdump = Join-Path (Split-Path -Parent $ghcLib) 'mingw/bin/objdump.exe'
     $imports = & $objdump -p $executable
@@ -27,7 +28,7 @@ try {
             throw 'GMP binary/source mismatch. Run tools/build.ps1 before packaging.'
         }
     }
-    $bundle = Join-Path $OutputDirectory 'stillroom-0.1.1-windows-x64'
+    $bundle = Join-Path $OutputDirectory 'stillroom-0.2.0-windows-x64'
     if (Test-Path -LiteralPath $bundle) { throw "Choose an empty destination: $bundle" }
     New-Item -ItemType Directory -Force -Path (Join-Path $bundle 'assets/fonts') | Out-Null
     Copy-Item -LiteralPath $executable -Destination (Join-Path $bundle 'stillroom.exe')
@@ -38,18 +39,20 @@ try {
     foreach ($name in @('NotoSansJP.otf','OFL.txt')) {
         Copy-Item -LiteralPath (Join-Path $root "assets/fonts/$name") -Destination (Join-Path $bundle 'assets/fonts')
     }
+    Copy-Item -LiteralPath (Join-Path $root 'assets/backgrounds') -Destination (Join-Path $bundle 'assets') -Recurse
+    Copy-Item -LiteralPath (Join-Path $root 'assets/icon') -Destination (Join-Path $bundle 'assets') -Recurse
     Copy-Item -LiteralPath (Join-Path $root 'licenses') -Destination $bundle -Recurse
     foreach ($name in @('LICENSE','README.md','STATUS.md','CONTRIBUTING.md')) {
         Copy-Item -LiteralPath (Join-Path $root $name) -Destination $bundle
     }
     New-Item -ItemType Directory -Path (Join-Path $bundle 'docs') | Out-Null
-    foreach ($name in @('guide.md','music-licensing.md','assets.md','architecture.md','gmp.md','player.png')) {
+    foreach ($name in @('guide.md','music-licensing.md','assets.md','background-prompts.md','architecture.md','gmp.md','player.png')) {
         Copy-Item -LiteralPath (Join-Path $root "docs/$name") -Destination (Join-Path $bundle 'docs')
     }
-    $archive = Join-Path $OutputDirectory 'stillroom-0.1.1-windows-x64.zip'
+    $archive = Join-Path $OutputDirectory 'stillroom-0.2.0-windows-x64.zip'
     if (Test-Path -LiteralPath $archive) { throw 'Archive already exists.' }
     Compress-Archive -LiteralPath $bundle -DestinationPath $archive -CompressionLevel Optimal
     $hash = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant()
-    [IO.File]::WriteAllText((Join-Path $OutputDirectory 'SHA256SUMS.txt'), "$hash  stillroom-0.1.1-windows-x64.zip`n")
+    [IO.File]::WriteAllText((Join-Path $OutputDirectory 'SHA256SUMS.txt'), "$hash  stillroom-0.2.0-windows-x64.zip`n")
     Write-Output $archive
 } finally { Pop-Location }

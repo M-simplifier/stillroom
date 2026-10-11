@@ -37,27 +37,31 @@ data Preferences = Preferences
     savedLanguage :: !Language,
     savedScreen :: !String,
     savedFolder :: !(Maybe FilePath),
-    previousFolder :: !(Maybe FilePath)
+    previousFolder :: !(Maybe FilePath),
+    savedPicture :: !(Maybe String),
+    savedPictureShade :: !PictureShade
   }
   deriving (Eq, Show)
 
 instance ToJSON Preferences where
   toJSON p =
     object
-      [ "version" .= (1 :: Int),
+      [ "version" .= (2 :: Int),
         "volume" .= savedVolume p,
         "background" .= show (savedBackground p),
         "window" .= show (savedWindow p),
         "language" .= show (savedLanguage p),
         "screen" .= savedScreen p,
         "musicFolder" .= savedFolder p,
-        "lastMusicFolder" .= previousFolder p
+        "lastMusicFolder" .= previousFolder p,
+        "picture" .= savedPicture p,
+        "pictureShade" .= show (savedPictureShade p)
       ]
 
 instance FromJSON Preferences where
   parseJSON = withObject "preferences" $ \o -> do
     version <- o .:? "version" .!= (1 :: Int)
-    when (version /= 1) (fail "unsupported preference version")
+    when (version /= 1 && version /= 2) (fail "unsupported preference version")
     v <- o .:? "volume" .!= 0.35
     b <- o .:? "background" .!= "Forest"
     w <- o .:? "window" .!= "Fullscreen"
@@ -65,14 +69,16 @@ instance FromJSON Preferences where
     screen <- o .:? "screen" .!= ""
     folder <- o .:? "musicFolder"
     previous <- o .:? "lastMusicFolder"
+    picture <- o .:? "picture"
+    shade <- o .:? "pictureShade" .!= "Original"
     parsedVolume <- either (const (fail "invalid volume")) pure (volume v)
-    case (readMaybe b, readMaybe w, readMaybe l) of
-      (Just backgroundValue, Just windowValue, Just languageValue) ->
-        pure (Preferences (volumeValue parsedVolume) backgroundValue windowValue languageValue screen folder previous)
+    case (readMaybe b, readMaybe w, readMaybe l, readMaybe shade) of
+      (Just backgroundValue, Just windowValue, Just languageValue, Just shadeValue) ->
+        pure (Preferences (volumeValue parsedVolume) backgroundValue windowValue languageValue screen folder previous picture shadeValue)
       _ -> fail "unknown preference value"
 
 defaults :: Language -> Preferences
-defaults languageValue = Preferences 0.35 Forest Fullscreen languageValue "" Nothing Nothing
+defaults languageValue = Preferences 0.35 Forest Fullscreen languageValue "" Nothing Nothing Nothing Original
 
 readPreferences :: FilePath -> Language -> IO (Preferences, Maybe String)
 readPreferences file languageValue = do
@@ -97,6 +103,7 @@ restoreSession :: Preferences -> Session
 restoreSession p =
   (initialSession (either (const defaultVolume) id (volume (savedVolume p))))
     { background = savedBackground p,
+      pictureShade = savedPictureShade p,
       windowMode = savedWindow p,
       language = savedLanguage p
     }
@@ -106,6 +113,7 @@ fromSession s p =
   p
     { savedVolume = volumeValue (loudness s),
       savedBackground = background s,
+      savedPictureShade = pictureShade s,
       savedWindow = windowMode s,
       savedLanguage = language s
     }

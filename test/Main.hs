@@ -35,7 +35,10 @@ main = do
         law "saved preferences round-trip" propPreferences,
         law "unknown preference versions are rejected" (once propVersion),
         law "ordinary controls never reconfigure the window" (once propWindowEffects),
-        law "built-in music preserves the user's previous folder" (once propRememberFolder)
+        law "built-in music preserves the user's previous folder" (once propRememberFolder),
+        law "version 1 settings migrate without losing music or display" (once propMigrate),
+        law "picture controls preserve playback and window state" (once propPictureControls),
+        law "picture shading cycles through bounded levels" (once propPictureShade)
       ]
   unless (all isSuccess results) exitFailure
   where
@@ -134,13 +137,15 @@ propPreferences (NonNegative n) =
   let p =
         (defaults Japanese)
           { savedVolume = fromIntegral (n `mod` 101) / 100,
-            savedBackground = toEnum (n `mod` 4),
-            savedFolder = Just "音楽/静かな部屋"
+            savedBackground = toEnum (n `mod` 5),
+            savedFolder = Just "音楽/静かな部屋",
+            savedPicture = Just "user:静かな画像.png",
+            savedPictureShade = toEnum (n `mod` 3)
           }
    in eitherDecode (encode p) == Right p
 
 propVersion :: Bool
-propVersion = case (eitherDecode (encode (object ["version" .= (2 :: Int)])) :: Either String Preferences) of
+propVersion = case (eitherDecode (encode (object ["version" .= (3 :: Int)])) :: Either String Preferences) of
   Left _ -> True
   Right _ -> False
 
@@ -165,3 +170,31 @@ propRememberFolder =
         && previousFolder (useBuiltInMusic presets) == Just folder
         && savedFolder selected == Just "other"
         && previousFolder selected == Just "other"
+
+propMigrate :: Bool
+propMigrate =
+  let legacy = object ["version" .= (1 :: Int), "volume" .= (0.42 :: Double),
+        "background" .= ("Lake" :: String), "language" .= ("Japanese" :: String),
+        "musicFolder" .= ("音楽/自分の曲" :: String), "screen" .= ("display-2" :: String)]
+   in case eitherDecode (encode legacy) of
+        Right p -> savedVolume p == 0.42 && savedBackground p == Lake
+          && savedLanguage p == Japanese && savedFolder p == Just "音楽/自分の曲"
+          && savedScreen p == "display-2" && savedPicture p == Nothing
+          && savedPictureShade p == Original
+        Left _ -> False
+
+propPictureControls :: Bool
+propPictureControls = and
+  [ let (after, effects) = step event before
+     in transport after == transport before && loudness after == loudness before
+       && windowMode after == windowMode before
+       && all (`notElem` effects) [PlaceWindow, MoveScreen, SkipTrack]
+  | mode <- [Fullscreen, Compact], playing <- [Playing, Paused],
+    let before = (initialSession defaultVolume) {windowMode = mode, transport = playing},
+    event <- [OpenPicture, BrowsePicture PreviousPicture, BrowsePicture NextPicture,
+      RemovePicture, ChooseBackground Picture, CyclePictureShade]
+  ]
+
+propPictureShade :: Bool
+propPictureShade = all (\shade -> nextShade (nextShade (nextShade shade)) == shade
+  && shadeOpacity shade >= 0 && shadeOpacity shade <= 128) [Original, Soft, Dim]
