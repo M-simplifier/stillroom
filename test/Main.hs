@@ -33,7 +33,9 @@ main = do
         law "short incoming tracks remain alive at handover" propShortIncoming,
         law "a rejected draw preserves the last accepted item" propAcceptedHistory,
         law "saved preferences round-trip" propPreferences,
-        law "unknown preference versions are rejected" (once propVersion)
+        law "unknown preference versions are rejected" (once propVersion),
+        law "ordinary controls never reconfigure the window" (once propWindowEffects),
+        law "built-in music preserves the user's previous folder" (once propRememberFolder)
       ]
   unless (all isSuccess results) exitFailure
   where
@@ -141,3 +143,25 @@ propVersion :: Bool
 propVersion = case (eitherDecode (encode (object ["version" .= (2 :: Int)])) :: Either String Preferences) of
   Left _ -> True
   Right _ -> False
+
+propWindowEffects :: Bool
+propWindowEffects =
+  and
+    [ let (updated, effects) = step event ((initialSession defaultVolume) {windowMode = mode})
+       in windowMode updated == mode && PlaceWindow `notElem` effects && MoveScreen `notElem` effects
+    | mode <- [Fullscreen, Compact],
+      event <- [TogglePlayback, ChangeVolume 0.1, NextTrack, ChooseBackground Lake, ToggleSettings, OpenMusic, UsePresets, ToggleLanguage, Activity]
+    ]
+
+propRememberFolder :: Bool
+propRememberFolder =
+  let folder = "音楽/静かな部屋"
+      legacy = (defaults Japanese) {savedFolder = Just folder}
+      presets = useBuiltInMusic legacy
+      selected = useMusicFolder "other" presets
+   in savedFolder presets == Nothing
+        && previousFolder presets == Just folder
+        && eitherDecode (encode presets) == Right presets
+        && previousFolder (useBuiltInMusic presets) == Just folder
+        && savedFolder selected == Just "other"
+        && previousFolder selected == Just "other"

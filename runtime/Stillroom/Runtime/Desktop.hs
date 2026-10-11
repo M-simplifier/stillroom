@@ -3,7 +3,8 @@
 
 module Stillroom.Runtime.Desktop (runDesktop) where
 
-import Control.Concurrent (forkOS, threadDelay)
+import Control.Applicative ((<|>))
+import Control.Concurrent (forkOS)
 import Control.Concurrent.MVar
 import Control.Exception hiding (handle)
 import Control.Monad (forM_, unless, when)
@@ -51,10 +52,13 @@ runDesktop statePath checkDirectory overrideFolder = do
   let tracks = either (const presetTracks) id tracksResult
       notice = either (const (Just "Music folder unavailable; built-in music is playing.")) (const initialNotice) tracksResult
   R.setTraceLogLevel LogWarning
-  R.setConfigFlags ([WindowAlwaysRun, WindowResizable] ++ [WindowHidden | isJust checkDirectory])
+  R.setConfigFlags ([VsyncHint, WindowAlwaysRun, WindowResizable] ++ [WindowHidden | isJust checkDirectory])
   bracket (R.initWindow 760 500 "Stillroom") (R.closeWindow . Just) $ \window -> do
     R.setExitKey KeyNull
     R.setWindowMinSize 700 490
+    -- Keep presentation synchronized; do not alternate short frames with an
+    -- unrelated Haskell sleep while a borderless window covers a display.
+    R.setTargetFPS 60
     -- A normal native title bar is available in compact mode; the full-screen
     -- mode uses an undecorated, non-topmost window on exactly one display.
     font <- View.loadTypeface window (map trackTitle (NE.toList tracks))
@@ -103,18 +107,27 @@ place desktop moveNext = do
       afterCurrent = dropWhile ((/= Native.monitorName currentScreen) . Native.monitorName) screens
       chosen = if moveNext then fromMaybe preferred (safeFirst (drop 1 afterCurrent ++ screens)) else currentScreen
       (w, h, x, y) = case windowMode s of
-        Fullscreen -> (Native.monitorWidth chosen, Native.monitorHeight chosen, Native.monitorX chosen, Native.monitorY chosen)
+        -- Exact monitor-sized OpenGL windows can be promoted to fullscreen by
+        -- the driver. Overscan by one pixel, then clip to this display in Win32.
+        Fullscreen -> (Native.monitorWidth chosen + 2, Native.monitorHeight chosen + 2, Native.monitorX chosen - 1, Native.monitorY chosen - 1)
         Compact ->
           ( 760,
             500,
             Native.monitorX chosen + (Native.monitorWidth chosen - 760) `div` 2,
             Native.monitorY chosen + (Native.monitorHeight chosen - 500) `div` 2
           )
-  if windowMode s == Fullscreen then R.setWindowState [WindowUndecorated] else R.clearWindowState [WindowUndecorated]
-  R.setWindowSize w h
-  R.setWindowPosition x y
   handle <- R.getWindowHandle
-  when (windowMode s == Fullscreen) (Native.positionWindow handle x y w h)
+  if windowMode s == Fullscreen
+    then do
+      R.setWindowState [WindowUndecorated]
+      -- Set the clip before the single native resize/move. Its WM_SIZE
+      -- callback updates raylib's surface size without an intermediate spill.
+      Native.positionWindow handle x y w h
+    else do
+      R.clearWindowState [WindowUndecorated]
+      R.setWindowSize w h
+      R.setWindowPosition x y
+      Native.unclipWindow handle
   writeIORef (preferencesRef desktop) prefs {savedScreen = Native.monitorName chosen}
   Native.setPower (transport s) (windowMode s)
   where
@@ -148,15 +161,16 @@ apply desktop event = do
     SelectPresets -> do
       seed <- round . (* 1000000) <$> getPOSIXTime
       Audio.replaceLibrary (engine desktop) presetTracks seed
-      modifyIORef' (preferencesRef desktop) (\p -> p {savedFolder = Nothing})
+      modifyIORef' (preferencesRef desktop) useBuiltInMusic
       writeIORef (noticeRef desktop) Nothing
     PickMusicFolder -> do
       busy <- readIORef (pickerBusy desktop)
       unless busy $ do
         writeIORef (pickerBusy desktop) True
         handle <- R.getWindowHandle
+        prefs <- readIORef (preferencesRef desktop)
         _ <- forkOS $ do
-          result <- Native.pickFolder handle
+          result <- Native.pickFolder handle (savedFolder prefs <|> previousFolder prefs)
           putMVar (pickerResult desktop) result
         pure ()
 
@@ -229,7 +243,7 @@ loop window desktop checkDirectory checkPhase checks pausePosition began previou
                   newFont <- View.loadTypeface window (map trackTitle (NE.toList tracks))
                   oldFont <- atomicModifyIORef' (fontRef desktop) (\old -> (newFont, old))
                   unloadFont oldFont window
-                  modifyIORef' (preferencesRef desktop) (\p -> p {savedFolder = Just folder})
+                  modifyIORef' (preferencesRef desktop) (useMusicFolder folder)
                   writeIORef (noticeRef desktop) Nothing
                   save desktop
           apply desktop Activity
@@ -243,9 +257,14 @@ loop window desktop checkDirectory checkPhase checks pausePosition began previou
   notice <- readIORef (noticeRef desktop)
   let shown = controlsVisible state
   focused <- R.isWindowFocused
-  if shown || not focused || not onScreen then R.showCursor else R.hideCursor
+  hidden <- R.isCursorHidden
+  let hide = not shown && focused && onScreen
+  when (hidden /= hide) (if hide then R.hideCursor else R.showCursor)
+  -- A mode/monitor action may have resized the surface since hit testing.
+  drawWidth <- R.getScreenWidth
+  drawHeight <- R.getScreenHeight
   R.beginDrawing
-  View.render font w h state (Audio.title sound) (notice `orElse` Audio.audioWarning sound) (mx, my)
+  View.render font drawWidth drawHeight state (Audio.title sound) (notice `orElse` Audio.audioWarning sound) (mx, my)
   R.endDrawing
   closed <- R.windowShouldClose
   if closed || click == Just View.Quit || finished
@@ -255,12 +274,7 @@ loop window desktop checkDirectory checkPhase checks pausePosition began previou
       Native.setPower Paused Compact
       results <- readIORef checks
       pure (all snd results)
-    else do
-      -- There is no animation. Thirty small polls per second keep audio
-      -- streaming and controls responsive without a busy render loop.
-      spent <- (subtract now) <$> R.getTime
-      threadDelay (max 0 (round ((1 / 30 - spent) * 1000000)))
-      loop window desktop checkDirectory checkPhase checks pausePosition began now (frame + 1)
+    else loop window desktop checkDirectory checkPhase checks pausePosition began now (frame + 1)
   where
     orElse (Just x) _ = Just x
     orElse Nothing y = y
@@ -302,6 +316,12 @@ checkStep desktop folder phaseRef checks pausePosition elapsed = do
     5 | elapsed > 8 -> do
       record "automatic next track" (Audio.transitionCount sound >= 1)
       apply desktop ToggleWindow
+      handle <- R.getWindowHandle
+      prefs <- readIORef (preferencesRef desktop)
+      screens <- Native.monitors
+      matches <- maybe (pure False) (Native.borderlessMatches handle) (find ((== savedScreen prefs) . Native.monitorName) screens)
+      exclusive <- R.isWindowFullscreen
+      record "borderless surface clips exactly to the chosen display" (matches && not exclusive)
       modifyIORef' (sessionRef desktop) (\s -> s {idleSeconds = 10})
       state <- readIORef (sessionRef desktop)
       record "fullscreen hides idle controls" (not (controlsVisible state))
@@ -320,6 +340,8 @@ checkStep desktop folder phaseRef checks pausePosition elapsed = do
     7 | elapsed > 9.3 -> do
       state <- readIORef (sessionRef desktop)
       record "compact mode stays operable" (windowMode state == Compact && controlsVisible state)
+      handle <- R.getWindowHandle
+      Native.isUnclipped handle >>= record "compact mode removes the fullscreen clip"
       results <- reverse <$> readIORef checks
       BL.writeFile
         (folder </> "native-check.json")

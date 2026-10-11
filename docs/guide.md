@@ -10,6 +10,9 @@ is static dark green. Move the mouse over it to reveal controls. In fullscreen,
 controls disappear after 4.5 seconds without activity. The Display menu stays
 visible until closed. Compact mode always keeps controls visible.
 
+Fullscreen uses a borderless desktop window and does not request a resolution
+or refresh-rate change. Its visible area is confined to the selected display.
+
 | Control | Action |
 |---|---|
 | Space | Pause or resume |
@@ -25,6 +28,9 @@ visible until closed. Compact mode always keeps controls visible.
 | x / Alt+F4 | Exit |
 
 Choose **Music folder** to use MP3, WAV or OGG files. The folder is read directly,
+and the picker opens at your current or last selected folder. Switching to
+built-in music remembers that location for next time. You can also enter a
+folder path in the picker's text field. Music is loaded
 without copying or changing files. Subfolders are not scanned. The limits are
 1,000 candidate files and 128 MiB per file. Corrupt recordings are skipped; an
 unavailable library falls back to built-in music at startup. Removing files during
