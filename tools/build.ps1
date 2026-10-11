@@ -16,9 +16,9 @@ function Get-VerifiedFile([string]$Uri, [string]$Hash, [string]$File) {
 
 # Use a replaceable native DLL instead of GHC's bundled static GMP objects.
 # Pin both the binary package and its complete corresponding source recipe.
-Get-VerifiedFile 'https://mirror.msys2.org/mingw/ucrt64/mingw-w64-ucrt-x86_64-gmp-6.3.0-2-any.pkg.tar.zst' `
+Get-VerifiedFile 'https://repo.msys2.org/mingw/ucrt64/mingw-w64-ucrt-x86_64-gmp-6.3.0-2-any.pkg.tar.zst' `
     'e82a75968a556484a50084578238a84eb60fb93e34986fd6695c537975bd39ea' (Join-Path $vendor 'gmp.pkg.tar.zst')
-Get-VerifiedFile 'https://mirror.msys2.org/mingw/sources/mingw-w64-gmp-6.3.0-2.src.tar.zst' `
+Get-VerifiedFile 'https://repo.msys2.org/mingw/sources/mingw-w64-gmp-6.3.0-2.src.tar.zst' `
     'f288f944fd9609db220bcf6a8dd0703a5674eeb906ef35eb8485bb8192135994' (Join-Path $vendor 'gmp.src.tar.zst')
 foreach ($archive in @('gmp.pkg.tar.zst','gmp.src.tar.zst')) {
     tar -xf (Join-Path $vendor $archive) -C $vendor
