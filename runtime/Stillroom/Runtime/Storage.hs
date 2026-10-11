@@ -6,6 +6,8 @@ module Stillroom.Runtime.Storage
     readPreferences,
     writePreferences,
     fromSession,
+    useBuiltInMusic,
+    useMusicFolder,
     restoreSession,
     scanFolder,
     presetTracks,
@@ -13,6 +15,7 @@ module Stillroom.Runtime.Storage
   )
 where
 
+import Control.Applicative ((<|>))
 import Control.Exception (IOException, try)
 import Control.Monad (filterM, when)
 import Data.Aeson
@@ -33,7 +36,8 @@ data Preferences = Preferences
     savedWindow :: !WindowMode,
     savedLanguage :: !Language,
     savedScreen :: !String,
-    savedFolder :: !(Maybe FilePath)
+    savedFolder :: !(Maybe FilePath),
+    previousFolder :: !(Maybe FilePath)
   }
   deriving (Eq, Show)
 
@@ -46,7 +50,8 @@ instance ToJSON Preferences where
         "window" .= show (savedWindow p),
         "language" .= show (savedLanguage p),
         "screen" .= savedScreen p,
-        "musicFolder" .= savedFolder p
+        "musicFolder" .= savedFolder p,
+        "lastMusicFolder" .= previousFolder p
       ]
 
 instance FromJSON Preferences where
@@ -59,14 +64,15 @@ instance FromJSON Preferences where
     l <- o .:? "language" .!= "English"
     screen <- o .:? "screen" .!= ""
     folder <- o .:? "musicFolder"
+    previous <- o .:? "lastMusicFolder"
     parsedVolume <- either (const (fail "invalid volume")) pure (volume v)
     case (readMaybe b, readMaybe w, readMaybe l) of
       (Just backgroundValue, Just windowValue, Just languageValue) ->
-        pure (Preferences (volumeValue parsedVolume) backgroundValue windowValue languageValue screen folder)
+        pure (Preferences (volumeValue parsedVolume) backgroundValue windowValue languageValue screen folder previous)
       _ -> fail "unknown preference value"
 
 defaults :: Language -> Preferences
-defaults languageValue = Preferences 0.35 Forest Fullscreen languageValue "" Nothing
+defaults languageValue = Preferences 0.35 Forest Fullscreen languageValue "" Nothing Nothing
 
 readPreferences :: FilePath -> Language -> IO (Preferences, Maybe String)
 readPreferences file languageValue = do
@@ -103,6 +109,14 @@ fromSession s p =
       savedWindow = windowMode s,
       savedLanguage = language s
     }
+
+-- Choosing built-in music changes the source, not knowledge of the user's
+-- library. This also migrates older settings with only musicFolder present.
+useBuiltInMusic :: Preferences -> Preferences
+useBuiltInMusic p = p {savedFolder = Nothing, previousFolder = savedFolder p <|> previousFolder p}
+
+useMusicFolder :: FilePath -> Preferences -> Preferences
+useMusicFolder folder p = p {savedFolder = Just folder, previousFolder = Just folder}
 
 data LibraryError = FolderUnavailable | NoSupportedFiles | TooManyFiles deriving (Eq, Show)
 

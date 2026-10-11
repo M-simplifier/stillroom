@@ -27,7 +27,7 @@ try {
             throw 'GMP binary/source mismatch. Run tools/build.ps1 before packaging.'
         }
     }
-    $bundle = Join-Path $OutputDirectory 'stillroom-0.1.0-windows-x64'
+    $bundle = Join-Path $OutputDirectory 'stillroom-0.1.1-windows-x64'
     if (Test-Path -LiteralPath $bundle) { throw "Choose an empty destination: $bundle" }
     New-Item -ItemType Directory -Force -Path (Join-Path $bundle 'assets/fonts') | Out-Null
     Copy-Item -LiteralPath $executable -Destination (Join-Path $bundle 'stillroom.exe')
@@ -46,10 +46,10 @@ try {
     foreach ($name in @('guide.md','music-licensing.md','assets.md','architecture.md','gmp.md','player.png')) {
         Copy-Item -LiteralPath (Join-Path $root "docs/$name") -Destination (Join-Path $bundle 'docs')
     }
-    $archive = Join-Path $OutputDirectory 'stillroom-0.1.0-windows-x64.zip'
+    $archive = Join-Path $OutputDirectory 'stillroom-0.1.1-windows-x64.zip'
     if (Test-Path -LiteralPath $archive) { throw 'Archive already exists.' }
     Compress-Archive -LiteralPath $bundle -DestinationPath $archive -CompressionLevel Optimal
     $hash = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant()
-    [IO.File]::WriteAllText((Join-Path $OutputDirectory 'SHA256SUMS.txt'), "$hash  stillroom-0.1.0-windows-x64.zip`n")
+    [IO.File]::WriteAllText((Join-Path $OutputDirectory 'SHA256SUMS.txt'), "$hash  stillroom-0.1.1-windows-x64.zip`n")
     Write-Output $archive
 } finally { Pop-Location }

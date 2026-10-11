@@ -65,15 +65,50 @@ int sr_monitor(int index, int *values, WCHAR *name, int capacity) {
     values[3]=query.bounds.bottom-query.bounds.top; values[4]=query.primary;
     lstrcpynW(name,query.name,capacity); return 1;
 }
-void sr_position(HWND window,int x,int y,int width,int height) {
-    SetWindowPos(window,NULL,x,y,width,height,SWP_NOZORDER|SWP_NOACTIVATE);
+int sr_position(HWND window,int x,int y,int width,int height) {
+    /* The GL surface is one pixel larger on every edge. Clip the overscan to
+       this display so it never covers neighboring monitors. Windows owns a
+       successfully assigned region; only failed assignments are freed here. */
+    HRGN clip=CreateRectRgn(1,1,width-1,height-1);
+    if(!clip) return 0;
+    if(!SetWindowRgn(window,clip,FALSE)) { DeleteObject(clip); return 0; }
+    return SetWindowPos(window,NULL,x,y,width,height,SWP_NOZORDER|SWP_NOACTIVATE)!=0;
 }
-int sr_pick_folder(HWND owner,WCHAR *result,int capacity) {
+int sr_unclip(HWND window) { return SetWindowRgn(window,NULL,TRUE)!=0; }
+int sr_borderless_matches(HWND window,int x,int y,int width,int height) {
+    RECT outer,visible;
+    HRGN clip=CreateRectRgn(0,0,0,0);
+    if(!clip) return 0;
+    int kind=GetWindowRgn(window,clip);
+    int ok=GetWindowRect(window,&outer) && kind==SIMPLEREGION;
+    if(ok) {
+        GetRgnBox(clip,&visible);
+        ok=outer.left==x-1 && outer.top==y-1 &&
+           outer.right==x+width+1 && outer.bottom==y+height+1 &&
+           visible.left==1 && visible.top==1 &&
+           visible.right==width+1 && visible.bottom==height+1;
+    }
+    DeleteObject(clip); return ok;
+}
+int sr_is_unclipped(HWND window) {
+    HRGN clip=CreateRectRgn(0,0,0,0);
+    if(!clip) return 0;
+    int kind=GetWindowRgn(window,clip);
+    DeleteObject(clip); return IsWindow(window) && kind==ERROR;
+}
+static int CALLBACK folder_cb(HWND dialog,UINT message,LPARAM value,LPARAM initial) {
+    (void)value;
+    if(message==BFFM_INITIALIZED && initial && *((const WCHAR*)initial))
+        SendMessageW(dialog,BFFM_SETSELECTIONW,TRUE,initial);
+    return 0;
+}
+int sr_pick_folder(HWND owner,const WCHAR *initial,WCHAR *result,int capacity) {
     HRESULT initialized=OleInitialize(NULL);
     if(FAILED(initialized)) return -1;
     BROWSEINFOW info; ZeroMemory(&info,sizeof(info));
     info.hwndOwner=owner; info.lpszTitle=L"Choose your music folder";
-    info.ulFlags=BIF_RETURNONLYFSDIRS|BIF_USENEWUI;
+    info.ulFlags=BIF_RETURNONLYFSDIRS|BIF_USENEWUI|BIF_NONEWFOLDERBUTTON;
+    info.lpfn=folder_cb; info.lParam=(LPARAM)initial;
     PIDLIST_ABSOLUTE chosen=SHBrowseForFolderW(&info);
     int status=0;
     if(chosen) {

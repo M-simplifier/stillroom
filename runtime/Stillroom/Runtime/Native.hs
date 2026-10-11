@@ -9,12 +9,16 @@ module Stillroom.Runtime.Native
     Monitor (..),
     monitors,
     positionWindow,
+    unclipWindow,
+    borderlessMatches,
+    isUnclipped,
     pickFolder,
     showProblem,
   )
 where
 
-import Control.Monad (forM)
+import Control.Exception (throwIO)
+import Control.Monad (forM, when)
 import Data.Maybe (catMaybes)
 import Foreign
 import Foreign.C
@@ -34,9 +38,15 @@ foreign import ccall unsafe "sr_monitors" monitorCountRaw :: IO CInt
 
 foreign import ccall unsafe "sr_monitor" monitorRaw :: CInt -> Ptr CInt -> CWString -> CInt -> IO CInt
 
-foreign import ccall unsafe "sr_position" positionRaw :: Ptr () -> CInt -> CInt -> CInt -> CInt -> IO ()
+foreign import ccall unsafe "sr_position" positionRaw :: Ptr () -> CInt -> CInt -> CInt -> CInt -> IO CInt
 
-foreign import ccall safe "sr_pick_folder" pickRaw :: Ptr () -> CWString -> CInt -> IO CInt
+foreign import ccall unsafe "sr_unclip" unclipRaw :: Ptr () -> IO CInt
+
+foreign import ccall unsafe "sr_borderless_matches" borderlessRaw :: Ptr () -> CInt -> CInt -> CInt -> CInt -> IO CInt
+
+foreign import ccall unsafe "sr_is_unclipped" unclippedRaw :: Ptr () -> IO CInt
+
+foreign import ccall safe "sr_pick_folder" pickRaw :: Ptr () -> CWString -> CWString -> CInt -> IO CInt
 
 foreign import ccall safe "sr_message" messageRaw :: CWString -> IO ()
 
@@ -84,11 +94,24 @@ monitors = do
       )
 
 positionWindow :: Ptr () -> Int -> Int -> Int -> Int -> IO ()
-positionWindow handle x y w h = positionRaw handle (fromIntegral x) (fromIntegral y) (fromIntegral w) (fromIntegral h)
+positionWindow handle x y w h = do
+  ok <- positionRaw handle (fromIntegral x) (fromIntegral y) (fromIntegral w) (fromIntegral h)
+  when (ok == 0) (throwIO (userError "Could not place the borderless window."))
 
-pickFolder :: Ptr () -> IO (Either String (Maybe FilePath))
-pickFolder owner = allocaArray 32768 $ \buffer -> do
-  status <- pickRaw owner buffer 32768
+unclipWindow :: Ptr () -> IO ()
+unclipWindow handle = do
+  ok <- unclipRaw handle
+  when (ok == 0) (throwIO (userError "Could not restore the compact window."))
+
+borderlessMatches :: Ptr () -> Monitor -> IO Bool
+borderlessMatches handle m = (/= 0) <$> borderlessRaw handle (fromIntegral (monitorX m)) (fromIntegral (monitorY m)) (fromIntegral (monitorWidth m)) (fromIntegral (monitorHeight m))
+
+isUnclipped :: Ptr () -> IO Bool
+isUnclipped handle = (/= 0) <$> unclippedRaw handle
+
+pickFolder :: Ptr () -> Maybe FilePath -> IO (Either String (Maybe FilePath))
+pickFolder owner initial = withCWString (maybe "" id initial) $ \start -> allocaArray 32768 $ \buffer -> do
+  status <- pickRaw owner start buffer 32768
   case status of
     0 -> pure (Right Nothing)
     1 -> Right . Just <$> peekCWString buffer

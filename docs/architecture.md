@@ -41,11 +41,23 @@ Synchronous decoding failures remove candidates; asynchronous cancellation
 propagates. Native EOF detection is separate from position, since raylib resets
 its position at the end of a recording.
 
-`Desktop` interprets effects at 30 Hz. `Render` draws static geometry and shares
+`Desktop` requests VSync and uses raylib's 60 FPS pacing. `Render` draws static geometry and shares
 button bounds with hit testing. `Storage` validates JSON and replaces settings
 through a temporary file. `Native` is a small Win32 FFI for monitors, a folder
 dialog, sleep requests and a single-instance signal. The folder dialog runs on a
-bound worker thread while the audio loop continues.
+bound worker thread while the audio loop continues. The selected and previously
+used folder are stored separately, so choosing procedural music does not discard
+the user's location. Render dimensions are queried after window-changing effects.
+
+Fullscreen keeps GLFW's monitor association null. The OpenGL surface overscans
+each monitor edge by one pixel; a Win32 window region clips it to exactly the
+selected display. This avoids exact surface/display dimensions while leaving
+adjacent displays untouched. Compact mode removes the region. Native checks
+read back both the outer rectangle and clip rather than relying on application
+state alone. The workaround follows [GLFW's explanation of driver fullscreen
+promotion](https://discourse.glfw.org/t/fullscreen-window-mode-but-not-the-current-way/2595)
+and [Win32 region ownership](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-setwindowrgn).
+Driver behavior still requires visual verification on the affected system.
 
 h-raylib is pinned to 5.6.0.0. The font loader detects raylib's borrowed fallback
 before transferring glyph ownership. WAV cleanup also frees the context omitted
