@@ -1,0 +1,128 @@
+{-# LANGUAGE OverloadedStrings #-}
+
+module Stillroom.Runtime.Storage
+  ( Preferences (..),
+    defaults,
+    readPreferences,
+    writePreferences,
+    fromSession,
+    restoreSession,
+    scanFolder,
+    presetTracks,
+    LibraryError (..),
+  )
+where
+
+import Control.Exception (IOException, try)
+import Control.Monad (filterM, when)
+import Data.Aeson
+import Data.ByteString.Lazy qualified as BL
+import Data.Char (toLower)
+import Data.List (sort)
+import Data.List.NonEmpty (NonEmpty (..))
+import Data.List.NonEmpty qualified as NE
+import Stillroom.Domain
+import Stillroom.Session
+import System.Directory
+import System.FilePath
+import Text.Read (readMaybe)
+
+data Preferences = Preferences
+  { savedVolume :: !Double,
+    savedBackground :: !Background,
+    savedWindow :: !WindowMode,
+    savedLanguage :: !Language,
+    savedScreen :: !String,
+    savedFolder :: !(Maybe FilePath)
+  }
+  deriving (Eq, Show)
+
+instance ToJSON Preferences where
+  toJSON p =
+    object
+      [ "version" .= (1 :: Int),
+        "volume" .= savedVolume p,
+        "background" .= show (savedBackground p),
+        "window" .= show (savedWindow p),
+        "language" .= show (savedLanguage p),
+        "screen" .= savedScreen p,
+        "musicFolder" .= savedFolder p
+      ]
+
+instance FromJSON Preferences where
+  parseJSON = withObject "preferences" $ \o -> do
+    version <- o .:? "version" .!= (1 :: Int)
+    when (version /= 1) (fail "unsupported preference version")
+    v <- o .:? "volume" .!= 0.35
+    b <- o .:? "background" .!= "Forest"
+    w <- o .:? "window" .!= "Fullscreen"
+    l <- o .:? "language" .!= "English"
+    screen <- o .:? "screen" .!= ""
+    folder <- o .:? "musicFolder"
+    parsedVolume <- either (const (fail "invalid volume")) pure (volume v)
+    case (readMaybe b, readMaybe w, readMaybe l) of
+      (Just backgroundValue, Just windowValue, Just languageValue) ->
+        pure (Preferences (volumeValue parsedVolume) backgroundValue windowValue languageValue screen folder)
+      _ -> fail "unknown preference value"
+
+defaults :: Language -> Preferences
+defaults languageValue = Preferences 0.35 Forest Fullscreen languageValue "" Nothing
+
+readPreferences :: FilePath -> Language -> IO (Preferences, Maybe String)
+readPreferences file languageValue = do
+  exists <- doesFileExist file
+  if not exists
+    then pure (defaults languageValue, Nothing)
+    else do
+      result <- try (BL.readFile file >>= \bytes -> pure $! eitherDecode bytes)
+      pure $ case result of
+        Right (Right p) -> (p, Nothing)
+        Right (Left _) -> (defaults languageValue, Just "Settings could not be read; defaults are in use.")
+        Left (_ :: IOException) -> (defaults languageValue, Just "Settings are unavailable; defaults are in use.")
+
+writePreferences :: FilePath -> Preferences -> IO (Either IOException ())
+writePreferences file prefs = try $ do
+  createDirectoryIfMissing True (takeDirectory file)
+  let temporary = file <.> "tmp"
+  BL.writeFile temporary (encode prefs)
+  renameFile temporary file
+
+restoreSession :: Preferences -> Session
+restoreSession p =
+  (initialSession (either (const defaultVolume) id (volume (savedVolume p))))
+    { background = savedBackground p,
+      windowMode = savedWindow p,
+      language = savedLanguage p
+    }
+
+fromSession :: Session -> Preferences -> Preferences
+fromSession s p =
+  p
+    { savedVolume = volumeValue (loudness s),
+      savedBackground = background s,
+      savedWindow = windowMode s,
+      savedLanguage = language s
+    }
+
+data LibraryError = FolderUnavailable | NoSupportedFiles | TooManyFiles deriving (Eq, Show)
+
+scanFolder :: FilePath -> IO (Either LibraryError (NonEmpty Track))
+scanFolder folder = do
+  result <- try $ do
+    names <- sort <$> listDirectory folder
+    let supported = [folder </> n | n <- names, map toLower (takeExtension n) `elem` [".mp3", ".wav", ".ogg"]]
+    files <- filterM doesFileExist (take 1001 supported)
+    pure files
+  pure $ case result of
+    Left (_ :: IOException) -> Left FolderUnavailable
+    Right [] -> Left NoSupportedFiles
+    Right files
+      | length files > 1000 -> Left TooManyFiles
+      | otherwise -> case NE.nonEmpty (zipWith make [0 ..] files) of
+          Just tracks -> Right tracks
+          Nothing -> Left NoSupportedFiles
+  where
+    make i file = Track (TrackId i) (take 120 (takeBaseName file)) (LocalFile file)
+
+presetTracks :: NonEmpty Track
+presetTracks = NE.zipWith (\i p -> Track (TrackId i) (presetName p) (Procedural p)) (0 :| [1 ..]) allPresets

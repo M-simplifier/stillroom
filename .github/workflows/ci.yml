@@ -1,0 +1,35 @@
+name: CI
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  windows:
+    name: Windows build and laws
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: haskell-actions/setup@0f7370ccbc65f22514ec3e094f6601b8d61fbbf7 # v2.12.1
+        id: setup
+        with:
+          ghc-version: '9.6.7'
+          cabal-version: '3.12.1.0'
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ steps.setup.outputs.cabal-store }}
+          key: ${{ runner.os }}-ghc-9.6.7-${{ hashFiles('cabal.project.freeze') }}
+      - name: Build pinned source
+        shell: pwsh
+        run: ./tools/build.ps1
+      - name: Package
+        shell: pwsh
+        run: ./tools/package.ps1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: stillroom-windows
+          path: |
+            release/*.zip
+            release/SHA256SUMS.txt
