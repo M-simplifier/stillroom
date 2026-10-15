@@ -37,27 +37,37 @@ data Preferences = Preferences
     savedLanguage :: !Language,
     savedScreen :: !String,
     savedFolder :: !(Maybe FilePath),
-    previousFolder :: !(Maybe FilePath)
+    previousFolder :: !(Maybe FilePath),
+    savedPicture :: !(Maybe String),
+    savedPictureShade :: !PictureShade,
+    savedRestScene :: !RestScene,
+    savedRestMotion :: !RestMotion,
+    savedRestShade :: !PictureShade
   }
   deriving (Eq, Show)
 
 instance ToJSON Preferences where
   toJSON p =
     object
-      [ "version" .= (1 :: Int),
+      [ "version" .= (6 :: Int),
         "volume" .= savedVolume p,
         "background" .= show (savedBackground p),
         "window" .= show (savedWindow p),
         "language" .= show (savedLanguage p),
         "screen" .= savedScreen p,
         "musicFolder" .= savedFolder p,
-        "lastMusicFolder" .= previousFolder p
+        "lastMusicFolder" .= previousFolder p,
+        "picture" .= savedPicture p,
+        "pictureShade" .= show (savedPictureShade p),
+        "restScene" .= show (savedRestScene p),
+        "restMotion" .= show (savedRestMotion p),
+        "restShade" .= show (savedRestShade p)
       ]
 
 instance FromJSON Preferences where
   parseJSON = withObject "preferences" $ \o -> do
     version <- o .:? "version" .!= (1 :: Int)
-    when (version /= 1) (fail "unsupported preference version")
+    when (version `notElem` [1, 2, 3, 4, 5, 6]) (fail "unsupported preference version")
     v <- o .:? "volume" .!= 0.35
     b <- o .:? "background" .!= "Forest"
     w <- o .:? "window" .!= "Fullscreen"
@@ -65,14 +75,26 @@ instance FromJSON Preferences where
     screen <- o .:? "screen" .!= ""
     folder <- o .:? "musicFolder"
     previous <- o .:? "lastMusicFolder"
+    picture <- o .:? "picture"
+    shade <- o .:? "pictureShade" .!= "Original"
+    scene <- o .:? "restScene" .!= "TidalLight"
+    motion <- o .:? "restMotion" .!= "Gentle"
+    restBrightness <- o .:? "restShade" .!= "Soft"
     parsedVolume <- either (const (fail "invalid volume")) pure (volume v)
-    case (readMaybe b, readMaybe w, readMaybe l) of
-      (Just backgroundValue, Just windowValue, Just languageValue) ->
-        pure (Preferences (volumeValue parsedVolume) backgroundValue windowValue languageValue screen folder previous)
+    case (readMaybe b, readMaybe w, readMaybe l, readMaybe shade, readRestScene scene, readMaybe motion, readMaybe restBrightness) of
+      (Just backgroundValue, Just windowValue, Just languageValue, Just shadeValue, Just sceneValue, Just motionValue, Just restShadeValue) ->
+        pure (Preferences (volumeValue parsedVolume) backgroundValue windowValue languageValue screen folder previous picture shadeValue sceneValue motionValue restShadeValue)
       _ -> fail "unknown preference value"
 
+-- Retired local photo experiments migrate at the boundary, without retaining
+-- image-specific scenes in the domain or discarding unrelated preferences.
+readRestScene :: String -> Maybe RestScene
+readRestScene "AfternoonLake" = Just TidalLight
+readRestScene "WoodlandPond" = Just Shallows
+readRestScene name = readMaybe name
+
 defaults :: Language -> Preferences
-defaults languageValue = Preferences 0.35 Forest Fullscreen languageValue "" Nothing Nothing
+defaults languageValue = Preferences 0.35 Forest Fullscreen languageValue "" Nothing Nothing Nothing Original TidalLight Gentle Soft
 
 readPreferences :: FilePath -> Language -> IO (Preferences, Maybe String)
 readPreferences file languageValue = do
@@ -97,6 +119,10 @@ restoreSession :: Preferences -> Session
 restoreSession p =
   (initialSession (either (const defaultVolume) id (volume (savedVolume p))))
     { background = savedBackground p,
+      pictureShade = savedPictureShade p,
+      restScene = savedRestScene p,
+      restMotion = savedRestMotion p,
+      restShade = savedRestShade p,
       windowMode = savedWindow p,
       language = savedLanguage p
     }
@@ -106,6 +132,10 @@ fromSession s p =
   p
     { savedVolume = volumeValue (loudness s),
       savedBackground = background s,
+      savedPictureShade = pictureShade s,
+      savedRestScene = restScene s,
+      savedRestMotion = restMotion s,
+      savedRestShade = restShade s,
       savedWindow = windowMode s,
       savedLanguage = language s
     }

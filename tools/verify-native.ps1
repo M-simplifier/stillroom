@@ -20,7 +20,7 @@ $process = Start-Process -FilePath $Executable -ArgumentList $arguments `
     -WorkingDirectory (Split-Path -Parent $Executable) -WindowStyle Hidden `
     -RedirectStandardOutput (Join-Path $OutputDirectory 'stdout.txt') `
     -RedirectStandardError (Join-Path $OutputDirectory 'stderr.txt') -PassThru
-if (-not $process.WaitForExit(25000)) {
+if (-not $process.WaitForExit(59000)) {
     Stop-Process -Id $process.Id
     throw 'Native acceptance timed out.'
 }
@@ -29,5 +29,5 @@ if ($process.ExitCode -ne 0) {
     throw "Native acceptance failed with exit code $($process.ExitCode). See $OutputDirectory."
 }
 $report = Get-Content -LiteralPath $reportFile -Raw | ConvertFrom-Json
-if (-not $report.passed -or $report.checks.Count -ne 10) { throw 'Native acceptance is incomplete or failed.' }
+if (-not $report.passed -or $report.checks.Count -ne 42) { throw 'Native acceptance is incomplete or failed.' }
 $report.checks | Format-Table name, passed

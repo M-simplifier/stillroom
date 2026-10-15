@@ -13,6 +13,17 @@ module Stillroom.Domain
     ValueError (..),
     Transport (..),
     Background (..),
+    PictureShade (..),
+    nextShade,
+    shadeOpacity,
+    PictureDirection (..),
+    ViewingMode (..),
+    RestScene (..),
+    RestMotion (..),
+    SettingsPage (..),
+    restSceneName,
+    restSceneDescription,
+    restMotionName,
     WindowMode (..),
     Language (..),
     Preset (..),
@@ -68,7 +79,72 @@ zeroSeconds = Seconds 0
 
 data Transport = Playing | Paused deriving (Eq, Show)
 
-data Background = Forest | Slate | Black | Lake deriving (Eq, Enum, Bounded, Show, Read)
+data Background = Forest | Slate | Black | Lake | Picture deriving (Eq, Enum, Bounded, Show, Read)
+
+data PictureShade = Original | Soft | Dim deriving (Eq, Enum, Bounded, Show, Read)
+
+nextShade :: PictureShade -> PictureShade
+nextShade Original = Soft
+nextShade Soft = Dim
+nextShade Dim = Original
+
+shadeOpacity :: PictureShade -> Int
+shadeOpacity Original = 0
+shadeOpacity Soft = 64
+shadeOpacity Dim = 128
+
+data PictureDirection = PreviousPicture | NextPicture deriving (Eq, Show)
+
+data ViewingMode = Working | Resting deriving (Eq, Show)
+
+data RestScene = TidalLight | LightVeil | StarryNight | AmberSea | Shallows | CloudSea | Aurora | InkFlow
+  deriving (Eq, Enum, Bounded, Show, Read)
+
+data RestMotion = Still | Gentle deriving (Eq, Enum, Bounded, Show, Read)
+
+data SettingsPage = DisplaySettings | RestSettings deriving (Eq, Show)
+
+restSceneName :: Language -> RestScene -> String
+restSceneName Japanese TidalLight = "水と光"
+restSceneName Japanese LightVeil = "光のヴェール"
+restSceneName Japanese StarryNight = "星の夜"
+restSceneName English TidalLight = "Water and light"
+restSceneName English LightVeil = "Light veil"
+restSceneName English StarryNight = "Starry night"
+restSceneName Japanese AmberSea = "琥珀の海"
+restSceneName Japanese Shallows = "浅瀬の光"
+restSceneName Japanese CloudSea = "雲の海"
+restSceneName Japanese Aurora = "極夜のオーロラ"
+restSceneName Japanese InkFlow = "墨の流れ"
+restSceneName English AmberSea = "Amber sea"
+restSceneName English Shallows = "Sunlit shallows"
+restSceneName English CloudSea = "Sea of clouds"
+restSceneName English Aurora = "Northern lights"
+restSceneName English InkFlow = "Flowing ink"
+
+restSceneDescription :: Language -> RestScene -> String
+restSceneDescription Japanese TidalLight = "青い水面。重なる波と空の反射。"
+restSceneDescription Japanese LightVeil = "光の薄布。ゆっくりほどける色の層。"
+restSceneDescription Japanese StarryNight = "動かない星々と、かすかな銀河の光。"
+restSceneDescription Japanese AmberSea = "夕暮れの海。波に伸びる琥珀色の光。"
+restSceneDescription Japanese Shallows = "澄んだ浅瀬。砂底に揺れる光の網。"
+restSceneDescription Japanese CloudSea = "雲の上。やわらかな陰影と遠い空。"
+restSceneDescription Japanese Aurora = "極夜の空。ゆらめく緑の光のカーテン。"
+restSceneDescription Japanese InkFlow = "墨と青磁。ゆっくり溶け合う流れ。"
+restSceneDescription English TidalLight = "Blue water, layered waves and reflected sky."
+restSceneDescription English LightVeil = "Soft, slowly unfolding layers of colored light."
+restSceneDescription English StarryNight = "Fixed stars and a faint galactic glow."
+restSceneDescription English AmberSea = "Evening waves carrying a warm amber reflection."
+restSceneDescription English Shallows = "Clear water and light moving across the sand."
+restSceneDescription English CloudSea = "Above the clouds, with soft shadows and open sky."
+restSceneDescription English Aurora = "Quiet curtains of light in the polar night."
+restSceneDescription English InkFlow = "Slow currents of ink and celadon."
+
+restMotionName :: Language -> RestMotion -> String
+restMotionName Japanese Still = "静止"
+restMotionName Japanese Gentle = "ゆっくり動く"
+restMotionName English Still = "Still"
+restMotionName English Gentle = "Gentle motion"
 
 data WindowMode = Fullscreen | Compact deriving (Eq, Show, Read)
 

@@ -4,6 +4,7 @@
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <shlobj.h>
+#include <commdlg.h>
 #include <wchar.h>
 
 static HANDLE instance_mutex = NULL;
@@ -118,3 +119,14 @@ int sr_pick_folder(HWND owner,const WCHAR *initial,WCHAR *result,int capacity) {
     OleUninitialize(); return status;
 }
 void sr_message(const WCHAR *message) { MessageBoxW(NULL,message,L"Stillroom",MB_OK|MB_ICONINFORMATION); }
+
+int sr_pick_picture(HWND owner,WCHAR *result,int capacity) {
+    OPENFILENAMEW info; ZeroMemory(&info,sizeof(info));
+    result[0]=0; info.lStructSize=sizeof(info); info.hwndOwner=owner;
+    info.lpstrFilter=L"Images (PNG, JPEG, BMP)\0*.png;*.jpg;*.jpeg;*.bmp\0\0";
+    info.lpstrFile=result; info.nMaxFile=(DWORD)capacity;
+    info.lpstrTitle=L"Add a Stillroom background";
+    info.Flags=OFN_FILEMUSTEXIST|OFN_PATHMUSTEXIST|OFN_NOCHANGEDIR|OFN_EXPLORER;
+    if(GetOpenFileNameW(&info)) return 1;
+    return CommDlgExtendedError()==0 ? 0 : -1;
+}
