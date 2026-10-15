@@ -28,7 +28,7 @@ try {
             throw 'GMP binary/source mismatch. Run tools/build.ps1 before packaging.'
         }
     }
-    $bundle = Join-Path $OutputDirectory 'stillroom-0.5.0-windows-x64'
+    $bundle = Join-Path $OutputDirectory 'stillroom-0.6.0-windows-x64'
     if (Test-Path -LiteralPath $bundle) { throw "Choose an empty destination: $bundle" }
     New-Item -ItemType Directory -Force -Path (Join-Path $bundle 'assets/fonts') | Out-Null
     Copy-Item -LiteralPath $executable -Destination (Join-Path $bundle 'stillroom.exe')
@@ -48,7 +48,7 @@ try {
         Copy-Item -LiteralPath (Join-Path $root $name) -Destination $bundle
     }
     New-Item -ItemType Directory -Path (Join-Path $bundle 'docs') | Out-Null
-    foreach ($name in @('guide.md','rest-mode.md','shader-research.md','music-licensing.md','assets.md','background-prompts.md','architecture.md','gmp.md','player.png','rest-gallery.png','rest-water.png')) {
+    foreach ($name in @('guide.md','rest-mode.md','shader-research.md','music-licensing.md','assets.md','background-prompts.md','architecture.md','performance.md','design.md','gmp.md','player.png','rest-gallery.png','rest-water.png')) {
         Copy-Item -LiteralPath (Join-Path $root "docs/$name") -Destination (Join-Path $bundle 'docs')
     }
     $archiveName = (Split-Path -Leaf $bundle) + '.zip'

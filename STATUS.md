@@ -1,6 +1,6 @@
 # Status
 
-Stillroom 0.5.0 targets Windows x64, tested on Windows 11 with GHC
+Stillroom 0.6.0 targets Windows x64, tested on Windows 11 with GHC
 9.6.7 and h-raylib 5.6.0.0. It is a small utility with best-effort maintenance,
 not a medical device or a measured productivity intervention.
 
@@ -15,9 +15,17 @@ Eight procedural scenes generate water, sunset, shallows, clouds, aurora, ink,
 light veils and stars in a shader. The thumbnail gallery provides a live preview,
 motion and brightness controls. Rest itself is exit-only, including keyboard input.
 
-The current source passes 29 property/regression groups. The native harness has
-42 assertions covering procedural/MP3 playback, audio clocks, transitions,
-visibility, preferences, generated thumbnails, shader uniforms and normal exit.
+Three settings pages separate rest, working backgrounds and music/display.
+A larger scene preview, direct motion/brightness choices, a slimmer player and
+Tab/Shift-Tab focus navigation share one pure interface description. Native font
+ownership and frozen-surface reuse reduce rendering overhead; see the
+[controlled measurements](docs/performance.md) and [design rationale](docs/design.md).
+
+The current source passes 33 property/regression groups. The native harness has
+43 assertions covering procedural/MP3 playback, audio clocks, transitions,
+visibility, preferences, generated thumbnails, shader uniforms and normal exit, including font replacement followed by a failed
+library and a fresh rendering session. English/Japanese captures cover every
+settings page at the minimum 700×500 window size.
 Captured frames compare all eight procedural scenes and verify a frozen frame
 over different working backgrounds. Retired local image-based rest settings
 migrate to procedural scenes while preserving music and display preferences.
@@ -39,6 +47,6 @@ other display and driver combinations remain unverified.
 
 Limits: these checks do not certify perceived audio quality, attention effects,
 every audio device, every monitor arrangement, or all-day stability. The binary
-is unsigned. Custom-drawn controls have keyboard shortcuts but no complete
+is unsigned. Custom-drawn controls have keyboard focus navigation and shortcuts but no complete
 screen-reader control tree. No loudness normalization, FLAC, recursive folders,
 streaming service, installer or automatic updater.

@@ -8,6 +8,7 @@ import Data.List (sort)
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Vector.Storable qualified as V
 import Stillroom.Domain
+import Stillroom.Interface qualified as UI
 import Stillroom.Runtime.Storage
 import Stillroom.Session
 import Stillroom.Shuffle
@@ -47,7 +48,11 @@ main = do
         law "still mode freezes scene time without pausing music" propFreezeScene,
         law "versions 3-5 migrate retired scenes without losing preferences" (once propMigrateRestV3),
         law "rest accepts only elapsed time and exit" propRestExitOnly,
-        law "preview and rest use the same motion clock rules" (once propPreviewClock)
+        law "preview and rest use the same motion clock rules" (once propPreviewClock),
+        law "every displayed target is on screen, distinct and clickable" propInterfaceTargets,
+        law "Tab and Shift-Tab visit every visible action and wrap" propFocusOrder,
+        law "rest exposes no pointer or keyboard controls except exit" propRestInterface,
+        law "direct selectors preserve playback and choose the requested value" (once propDirectChoices)
       ]
   unless (all isSuccess results) exitFailure
   where
@@ -356,9 +361,12 @@ propRestExitOnly :: NonNegative Int -> Bool
 propRestExitOnly (NonNegative n) =
   let resting = (initialSession defaultVolume) {viewingMode = Resting, restSeconds = fromIntegral n, restScene = toEnum (n `mod` (1 + fromEnum (maxBound :: RestScene)))}
       blocked =
-        [TogglePlayback, ChangeVolume 0.2, SetVolume defaultVolume, NextTrack, OpenPicture, BrowsePicture NextPicture, RemovePicture, CyclePictureShade, ToggleRestMotion, CycleRestShade, ToggleWindow, ToggleSettings, ShowRestSettings, ShowDisplaySettings, NextScreen, OpenMusic, UsePresets, ToggleLanguage, Activity]
+        [TogglePlayback, ChangeVolume 0.2, SetVolume defaultVolume, NextTrack, OpenPicture, BrowsePicture NextPicture, RemovePicture, CyclePictureShade, ToggleRestMotion, CycleRestShade, ToggleWindow, ToggleSettings, ShowRestSettings, ShowDisplaySettings, ShowMusicSettings, NextScreen, OpenMusic, UsePresets, ToggleLanguage, Activity]
           ++ map ChooseBackground [minBound .. maxBound]
           ++ map ChooseRestScene [minBound .. maxBound]
+          ++ map ChooseRestMotion [Still, Gentle]
+          ++ map ChooseRestShade [Original, Soft, Dim]
+          ++ map ChoosePictureShade [Original, Soft, Dim]
    in all (\event -> step event resting == (resting, [])) blocked
         && all (\event -> let (after, effects) = step event resting in viewingMode after == Working && effects == [] && transport after == Playing) [Escape, LeaveRest, ToggleRest]
 
@@ -378,3 +386,37 @@ propPreviewClock =
         && restMotion heldRest == Still
         && transport heldRest == Playing
         && viewingMode heldRest == Resting
+
+interfaceStates :: [Session]
+interfaceStates = [(initialSession defaultVolume) {settingsOpen = opened, settingsPage = page, language = lang, windowMode = Compact} | opened <- [False, True], page <- [RestSettings, DisplaySettings, MusicSettings], lang <- [English, Japanese]]
+
+propInterfaceTargets :: Property
+propInterfaceTargets = forAll ((,) <$> chooseInt (700, 3840) <*> chooseInt (500, 2160)) $ \(w, h) ->
+  let valid s = let cs = UI.controls w h s in all (target s) cs && and [not (overlap (UI.bounds a) (UI.bounds b)) | (i, a) <- zip [0 :: Int ..] cs, b <- drop (i + 1) cs]
+      target s c = let UI.Bounds x y cw ch = UI.bounds c in cw >= 24 && ch >= 24 && x >= 0 && y >= 0 && x + cw <= fromIntegral w && y + ch <= fromIntegral h && UI.hitTest w h s (x + cw / 2, y + ch / 2) == Just (UI.action c)
+      overlap (UI.Bounds x y cw ch) (UI.Bounds a b aw ah) = min (x + cw) (a + aw) > max x a && min (y + ch) (b + ah) > max y b
+   in all valid interfaceStates
+
+propFocusOrder :: NonNegative Int -> Bool
+propFocusOrder (NonNegative n) = all valid interfaceStates
+  where
+    valid s =
+      let cs = UI.controls 700 500 s
+          expected = map (Just . UI.action) cs
+          forward = take (length cs) (tail (iterate (UI.nextFocus False cs) Nothing))
+          backward = take (length cs) (tail (iterate (UI.nextFocus True cs) Nothing))
+          point = forward !! (n `mod` length cs)
+       in forward == expected && backward == reverse expected && UI.nextFocus True cs (UI.nextFocus False cs point) == point
+
+propRestInterface :: Float -> Float -> Bool
+propRestInterface x y =
+  let s = (initialSession defaultVolume) {viewingMode = Resting, settingsOpen = True}
+   in null (UI.controls 700 500 s) && UI.nextFocus False (UI.controls 700 500 s) Nothing == Nothing && UI.hitTest 700 500 s (x, y) == Just (UI.Intent LeaveRest)
+
+propDirectChoices :: Bool
+propDirectChoices =
+  and [valid (ChooseRestMotion m) (\s -> restMotion s == m) | m <- [Still, Gentle]]
+    && and [valid (ChooseRestShade v) (\s -> restShade s == v) && valid (ChoosePictureShade v) (\s -> pictureShade s == v) | v <- [Original, Soft, Dim]]
+  where
+    before = (initialSession defaultVolume) {transport = Paused, background = Picture, windowMode = Compact}
+    valid event chosen = let (after, _) = step event before in chosen after && transport after == Paused && loudness after == loudness before && background after == Picture && windowMode after == Compact

@@ -1,6 +1,6 @@
 cabal-version: 3.8
 name: stillroom
-version: 0.5.0.0
+version: 0.6.0.0
 synopsis: A quiet, local-first listening room
 description: A Windows listening room with a pure Haskell core and procedural music.
 license: MIT
@@ -23,7 +23,7 @@ common shared
 library
   import: shared
   hs-source-dirs: src
-  exposed-modules: Stillroom.Domain, Stillroom.Shuffle, Stillroom.Session, Stillroom.Synthesis
+  exposed-modules: Stillroom.Domain, Stillroom.Shuffle, Stillroom.Session, Stillroom.Synthesis, Stillroom.Interface
   build-depends: base >=4.18 && <4.19, containers >=0.6 && <0.7,
     vector >=0.13 && <0.14, random >=1.2 && <1.4
 
@@ -33,7 +33,8 @@ executable stillroom
   hs-source-dirs: app, runtime
   other-modules: Stillroom.Runtime.Audio, Stillroom.Runtime.Desktop,
     Stillroom.Runtime.Storage, Stillroom.Runtime.Native, Stillroom.Runtime.Render,
-    Stillroom.Runtime.Pictures, Stillroom.Runtime.Rest, Paths_stillroom
+    Stillroom.Runtime.Pictures, Stillroom.Runtime.Rest, Stillroom.Runtime.Benchmark,
+    Stillroom.Runtime.Typeface, Paths_stillroom
   autogen-modules: Paths_stillroom
   build-depends: base >=4.18 && <4.19, stillroom, h-raylib ==5.6.0.0,
     aeson >=2.2 && <2.4, bytestring >=0.11 && <0.12, containers >=0.6 && <0.7,

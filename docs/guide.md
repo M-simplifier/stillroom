@@ -15,7 +15,9 @@ or refresh-rate change. Its visible area is confined to the selected display.
 
 | Control | Action |
 |---|---|
-| Space | Pause or resume |
+| Tab / Shift-Tab | Focus the next / previous visible action |
+| Enter / Space with a focused control | Activate that action |
+| Space without control focus | Pause or resume |
 | N | Next track |
 | + / - | Adjust volume |
 | Click volume bar | Set volume |
@@ -30,9 +32,9 @@ or refresh-rate change. Its visible area is confined to the selected display.
 | [ / ] | Previous / next background image |
 | B (while working) | Cycle brightness; in the rest gallery, change rest brightness |
 | A (in rest gallery) | Freeze / resume the preview |
-| x / Alt+F4 | Exit |
+| Music & app → Quit Stillroom / Alt+F4 | Exit |
 
-Choose **Music folder** to use MP3, WAV or OGG files. The folder is read directly,
+In **Settings → Music & app**, choose **Choose a music folder** to use MP3, WAV or OGG files. The folder is read directly,
 and the picker opens at your current or last selected folder. Switching to
 built-in music remembers that location for next time. You can also enter a
 folder path in the picker's text field. Music is loaded
@@ -46,29 +48,32 @@ Linen, Moss, Orbit and Night are three-minute algorithmic scores with soft tones
 and a restrained pulse. They are generated in small buffers, not downloaded or
 stored as recordings. Choose a comfortable volume for your listening environment.
 
-In **Settings**, choose **Show image** to see the image library. Four static
+In **Settings → Background**, choose **My images** to see the image library. Four static
 wallpapers are included: Mist lake, Quiet forest, Soft dunes and Night field.
 Use **Previous / Next** to choose one. Images keep their aspect ratio and fill
 the window by cropping the edges; there is no automatic slideshow or animation.
 
 Use **Add image** for your own PNG, JPEG or BMP. Images are copied into
 `%APPDATA%/Stillroom/backgrounds/`, so moving the original does not break the
-registration. **Remove imported image** removes the currently displayed managed
+registration. **Remove imported copy** removes the currently displayed managed
 copy; it never deletes your original or bundled backgrounds. The decoder accepts
 up to 32 MiB, 8192 pixels per edge and 32 megapixels, then limits the display copy
 to 3840 pixels on its longest edge. Animated formats are not offered.
 
-**Image brightness** cycles between 100%, 75% and 50%. Image, brightness and
+**Image brightness** offers direct choices of 100%, 75% and 50%. Image, brightness and
 music choices are independent. The included images use restrained palettes and
 mostly broad shapes; choose the one you find least distracting, or use a plain
 color. These are design choices, not tested ADHD treatment effects.
 
-For a short pause, click the background outside the controls, click **Rest**, or
+For a short pause, click the background outside the controls, click **Take a pause**, or
 press **R**. The scene appears immediately and the hint disappears after three
 seconds. Choose the scene, motion and brightness beforehand under **Settings →
-Rest settings**. The gallery shows eight actual scene thumbnails and a live preview.
-Click a thumbnail, set motion and brightness, then choose **Start resting**.
+Rest** (the first page). The gallery shows eight actual scene thumbnails and a live preview.
+Click a thumbnail, set motion and brightness, then choose **Rest in this scene**.
 These choices are saved immediately, including when closing the gallery.
+The three flat tabs are Rest, Background, and Music & app. Use the close icon or
+Esc to return to the player. Tab reveals controls when they are hidden; pointer
+movement returns navigation to the mouse. The focused control has a light outline.
 Rest uses its own scenery and brightness, preserving the working view.
 Click, press **Esc/R**, or switch to another application to leave rest. The first
 Esc restores the background without shrinking the window. Music keeps playing;

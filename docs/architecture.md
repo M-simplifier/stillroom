@@ -22,7 +22,12 @@ It knows nothing about raylib, Windows or files. Inactivity controls visibility.
 `ViewingMode` separates Working/Resting from transport and window state; rest
 scene, motion and shade are independent of the working picture. Leaving rest has
 no audio/window effect. There is no countdown or feed. The only animation is
-optional water motion in rest mode.
+optional procedural motion in rest and its preview.
+
+`Interface` is a pure description of bounds, labels, actions and visual roles.
+Drawing, hit testing and keyboard traversal consume it. A stable action identifies
+keyboard focus across page changes. Layout properties check supported sizes,
+distinct targets, complete traversal and exit-only rest.
 
 `Shuffle` uses a seeded generator and a nonempty catalogue. A normal cycle is a
 permutation, and cycle boundaries avoid immediate repeats. Excluding a failed
@@ -44,8 +49,7 @@ Synchronous decoding failures remove candidates; asynchronous cancellation
 propagates. Native EOF detection is separate from position, since raylib resets
 its position at the end of a recording.
 
-`Desktop` requests VSync and uses raylib's 60 FPS pacing. `Render` draws static geometry and shares
-button bounds with hit testing. `Storage` validates JSON and replaces settings
+`Desktop` requests VSync and uses raylib's 60 FPS pacing. `Render` consumes the pure interface and draws the scene, controls and focus ring. `Storage` validates JSON and replaces settings
 through a temporary file. `Native` is a small Win32 FFI for monitors, a folder
 dialog, sleep requests and a single-instance signal. The folder dialog runs on a
 bound worker thread while the audio loop continues. The selected and previously
@@ -62,8 +66,12 @@ promotion](https://discourse.glfw.org/t/fullscreen-window-mode-but-not-the-curre
 and [Win32 region ownership](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-setwindowrgn).
 Driver behavior still requires visual verification on the affected system.
 
-h-raylib is pinned to 5.6.0.0. The font loader detects raylib's borrowed fallback
-before transferring glyph ownership. WAV cleanup also frees the context omitted
+h-raylib is pinned to 5.6.0.0. `Typeface` retains the native font and detects raylib's borrowed fallback
+before transferring glyph ownership. CPU glyph data has a `ForeignPtr` owner;
+the window owns the GPU atlas. Finalizers never delete GPU resources. Drawing
+avoids per-label glyph-array marshalling, and text metrics have a bounded cache.
+Each audio-session attempt acquires a new font reference and closes its current
+font before retry or window shutdown. See [performance](performance.md). WAV cleanup also frees the context omitted
 by that bundled raylib destructor. Recheck both boundaries before dependency
 updates. Only the enabled MP3, WAV and OGG formats are exposed.
 
@@ -105,6 +113,8 @@ the preview without affecting audio; each new rest begins at time zero. Large
 procedural views render into a reusable, window-owned target with bounded size
 (1920×1200, or width1120 for clouds), then scale to the window. Shade is applied
 after compositing the opaque target so its alpha cannot expose the wallpaper.
+Scene, dimensions and time invalidate the target; a frozen frame reuses it.
+An opaque rest view skips the hidden working-background pass.
 
 Both keyboard routing and the pure reducer enforce exit-only rest. Only Elapse,
 LeaveRest, ToggleRest and Escape are admitted while Resting; every other event

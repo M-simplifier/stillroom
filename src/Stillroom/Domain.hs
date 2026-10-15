@@ -102,7 +102,7 @@ data RestScene = TidalLight | LightVeil | StarryNight | AmberSea | Shallows | Cl
 
 data RestMotion = Still | Gentle deriving (Eq, Enum, Bounded, Show, Read)
 
-data SettingsPage = DisplaySettings | RestSettings deriving (Eq, Show)
+data SettingsPage = DisplaySettings | RestSettings | MusicSettings deriving (Eq, Show)
 
 restSceneName :: Language -> RestScene -> String
 restSceneName Japanese TidalLight = "水と光"

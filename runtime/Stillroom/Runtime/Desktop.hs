@@ -19,12 +19,12 @@ import Data.Time.Clock.POSIX (getPOSIXTime)
 import Foreign (alloca, castPtr, free, nullPtr, peek)
 import Foreign.C (withCString)
 import Raylib.Core qualified as R
-import Raylib.Core.Text (unloadFont)
 import Raylib.Core.Textures (c'exportImageToMemory, c'loadImageFromScreen, unloadTexture)
 import Raylib.Internal (WindowResources)
 import Raylib.Internal.Foreign (c'free)
 import Raylib.Types
 import Stillroom.Domain
+import Stillroom.Interface qualified as UI
 import Stillroom.Runtime.Audio qualified as Audio
 import Stillroom.Runtime.Native qualified as Native
 import Stillroom.Runtime.Pictures qualified as Pictures
@@ -42,7 +42,7 @@ data Desktop = Desktop
     pickerBusy :: !(IORef Bool),
     pickerGeneration :: !(IORef Integer),
     pickerResult :: !(MVar (Integer, Either String (Maybe FilePath))),
-    fontRef :: !(IORef Font),
+    fontRef :: !(IORef View.Typeface),
     fontTitlesRef :: !(IORef [String]),
     picturesRef :: !(IORef [Pictures.PictureEntry]),
     pictureRef :: !(IORef (Maybe (Pictures.PictureEntry, Texture))),
@@ -51,6 +51,7 @@ data Desktop = Desktop
     pictureResult :: !(MVar (Integer, Either Pictures.PictureError (Maybe (Pictures.PictureEntry, Pictures.PreparedPicture)))),
     restAssets :: !Rest.RestAssets,
     focusedRef :: !(IORef Bool),
+    controlFocusRef :: !(IORef (Maybe UI.UIAction)),
     checkFrameTimes :: !(IORef [(RestScene, Double)]),
     engine :: !Audio.Engine,
     preferencesPath :: !FilePath,
@@ -78,11 +79,14 @@ runDesktop statePath checkDirectory overrideFolder = do
     -- A normal native title bar is available in compact mode; the full-screen
     -- mode uses an undecorated, non-topmost window on exactly one display.
     pictures <- Pictures.discoverPictures (takeDirectory statePath </> "backgrounds")
-    let trackTitles = map trackTitle (NE.toList tracks)
-    font <- View.loadTypeface window (trackTitles ++ map Pictures.pictureName pictures)
     rests <- Rest.loadRestAssets window
     seed <- round . (* 1000000) <$> getPOSIXTime
-    let start chosen startupNotice = Audio.withEngine chosen seed (loudness (restoreSession prefs)) $ \audio -> do
+    let start chosen startupNotice =
+          -- A failed library restarts the audio session. Acquire a fresh font
+          -- too: an earlier picture/music change may have released the first
+          -- font. The current font is always closed before the GL context.
+          withSessionFont window (map trackTitle (NE.toList chosen) ++ map Pictures.pictureName pictures)
+            $ \liveFont -> Audio.withEngine chosen seed (loudness (restoreSession prefs)) $ \audio -> do
           desktop <-
             Desktop
               <$> newIORef (restoreSession prefs)
@@ -91,8 +95,8 @@ runDesktop statePath checkDirectory overrideFolder = do
               <*> newIORef False
               <*> newIORef 0
               <*> newEmptyMVar
-              <*> newIORef font
-              <*> newIORef trackTitles
+              <*> pure liveFont
+              <*> newIORef (map trackTitle (NE.toList chosen))
               <*> newIORef pictures
               <*> newIORef Nothing
               <*> newIORef False
@@ -100,6 +104,7 @@ runDesktop statePath checkDirectory overrideFolder = do
               <*> newEmptyMVar
               <*> pure rests
               <*> newIORef False
+              <*> newIORef Nothing
               <*> newIORef []
               <*> pure audio
               <*> pure statePath
@@ -132,6 +137,11 @@ runDesktop statePath checkDirectory overrideFolder = do
   where
     onlyLibraryFailure Audio.NoPlayableTracks = Just ()
     onlyLibraryFailure _ = Nothing
+
+withSessionFont :: WindowResources -> [String] -> (IORef View.Typeface -> IO a) -> IO a
+withSessionFont window titles = bracket
+  (View.loadTypeface window titles >>= newIORef)
+  (\ref -> readIORef ref >>= View.unloadTypeface window)
 
 place :: Desktop -> Bool -> IO ()
 place desktop moveNext = do
@@ -294,7 +304,7 @@ receivePicture window desktop = do
                 titles <- readIORef (fontTitlesRef desktop)
                 newFont <- View.loadTypeface window (titles ++ map Pictures.pictureName entries)
                 oldFont <- atomicModifyIORef' (fontRef desktop) (\old -> (newFont, old))
-                unloadFont oldFont window
+                View.unloadTypeface window oldFont
               modifyIORef' (preferencesRef desktop) (\p -> p {savedPicture = Just (Pictures.pictureKey entry)})
               writeIORef (noticeRef desktop) Nothing
               apply desktop (ChooseBackground Picture)
@@ -324,7 +334,7 @@ receiveMusic window desktop = do
                 entries <- readIORef (picturesRef desktop)
                 newFont <- View.loadTypeface window (titles ++ map Pictures.pictureName entries)
                 oldFont <- atomicModifyIORef' (fontRef desktop) (\old -> (newFont, old))
-                unloadFont oldFont window
+                View.unloadTypeface window oldFont
                 modifyIORef' (preferencesRef desktop) (useMusicFolder folder)
                 writeIORef (noticeRef desktop) Nothing
                 save desktop
@@ -332,15 +342,15 @@ receiveMusic window desktop = do
   where
     synchronous e = case fromException e :: Maybe AsyncException of Just _ -> Nothing; Nothing -> Just e
 
-keyboard :: Session -> IO [Event]
-keyboard s | viewingMode s == Resting = do
+keyboard :: Session -> Bool -> IO [Event]
+keyboard s _ | viewingMode s == Resting = do
   leave <- or <$> mapM R.isKeyPressed [KeyEscape, KeyR]
   pure [LeaveRest | leave]
-keyboard s = do
+keyboard s hasFocus = do
   ordinary <-
     pressed
-      [ (KeySpace, TogglePlayback),
-        (KeyR, ToggleRest),
+      ([(KeySpace, TogglePlayback) | not hasFocus] ++
+      [ (KeyR, ToggleRest),
         (KeyN, NextTrack),
         (KeyF11, ToggleWindow),
         (KeyEscape, Escape),
@@ -354,7 +364,7 @@ keyboard s = do
         (KeyB, if restControls then CycleRestShade else CyclePictureShade),
         (KeyEqual, ChangeVolume 0.025),
         (KeyMinus, ChangeVolume (-0.025))
-      ]
+      ])
   restActions <-
     if restControls
       then
@@ -397,13 +407,28 @@ loop window desktop checkDirectory checkPhase checks pausePosition began previou
   sBefore <- readIORef (sessionRef desktop)
   Vector2 dx dy <- R.getMouseDelta
   onScreen <- R.isCursorOnScreen
-  when (onScreen && (abs dx + abs dy) > 0) (apply desktop Activity)
-  actions <- keyboard sBefore
-  mapM_ (apply desktop) actions
-  Vector2 mx my <- R.getMousePosition
+  when (onScreen && (abs dx + abs dy) > 0) $ do
+    apply desktop Activity
+    writeIORef (controlFocusRef desktop) Nothing
   w <- R.getScreenWidth
   h <- R.getScreenHeight
+  tabbed <- R.isKeyPressed KeyTab
+  when (tabbed && viewingMode sBefore == Working) $ do
+    apply desktop Activity
+    awake <- readIORef (sessionRef desktop)
+    backwards <- (||) <$> R.isKeyDown KeyLeftShift <*> R.isKeyDown KeyRightShift
+    modifyIORef' (controlFocusRef desktop) (UI.nextFocus backwards (UI.controls w h awake))
+  focus <- readIORef (controlFocusRef desktop)
+  current <- readIORef (sessionRef desktop)
+  let activeFocus = focus >>= (\value -> if any ((== value) . UI.action) (UI.controls w h current) then Just value else Nothing)
+  activated <- (||) <$> R.isKeyPressed KeyEnter <*> R.isKeyPressed KeySpace
+  let keyboardAction = if activated then activeFocus else Nothing
+  actions <- keyboard sBefore (isJust activeFocus)
+  mapM_ (apply desktop) actions
+  forM_ keyboardAction $ \action -> case action of UI.Intent event -> apply desktop event; UI.Quit -> pure ()
+  Vector2 mx my <- R.getMousePosition
   clicked <- R.isMouseButtonPressed MouseButtonLeft
+  when clicked (writeIORef (controlFocusRef desktop) Nothing)
   let click = if clicked then View.hitTest w h sBefore (mx, my) else Nothing
   case click of
     Just (View.Intent event) -> apply desktop event
@@ -415,6 +440,8 @@ loop window desktop checkDirectory checkPhase checks pausePosition began previou
     Nothing -> pure False
     Just directory -> checkStep window desktop directory checkPhase checks pausePosition (now - began)
   state <- readIORef (sessionRef desktop)
+  when (viewingMode state == Resting) (writeIORef (controlFocusRef desktop) Nothing)
+  drawFocus <- readIORef (controlFocusRef desktop)
   sound <- Audio.snapshot (engine desktop)
   font <- readIORef (fontRef desktop)
   notice <- readIORef (noticeRef desktop)
@@ -439,10 +466,10 @@ loop window desktop checkDirectory checkPhase checks pausePosition began previou
                 "bundled:04-night-field.png" -> if language state == Japanese then "夜の抽象画" else "Night field"
                 _ -> Pictures.pictureName entry
            in show position ++ " / " ++ show (length entries) ++ "   " ++ name
-  View.render font (restAssets desktop) drawWidth drawHeight state (snd <$> picture) caption (Audio.title sound) (notice `orElse` Audio.audioWarning sound) (mx, my)
+  View.renderWithFocus font (restAssets desktop) drawWidth drawHeight state (snd <$> picture) caption (Audio.title sound) (notice `orElse` Audio.audioWarning sound) (mx, my) drawFocus
   R.endDrawing
   closed <- R.windowShouldClose
-  if closed || click == Just View.Quit || finished
+  if closed || click == Just View.Quit || keyboardAction == Just View.Quit || finished
     then do
       save desktop
       R.showCursor
@@ -594,12 +621,13 @@ checkStep window desktop folder phaseRef checks pausePosition elapsed = do
       prefs <- readIORef (preferencesRef desktop)
       (reloaded, warning) <- readPreferences (preferencesPath desktop) English
       record "image choice and brightness survive settings reload" (warning == Nothing && reloaded == prefs && savedBackground reloaded == Picture && savedPictureShade reloaded == Soft)
-      apply desktop ToggleSettings
+      apply desktop ShowDisplaySettings
       apply desktop ToggleLanguage
       advance
       pure False
     10 | elapsed > 11.4 -> do
       screenshot (folder </> "pictures-settings.png")
+      checkFontRestart window desktop >>= record "font replacement followed by a failed library can restart and draw"
       checkLateSelections window desktop folder >>= mapM_ (uncurry record)
       record "all eight rest thumbnails are preloaded" (Rest.thumbnailsReady (restAssets desktop))
       state <- readIORef (sessionRef desktop)
@@ -609,6 +637,7 @@ checkStep window desktop folder phaseRef checks pausePosition elapsed = do
       pure False
     11 | elapsed > 11.9 -> do
       screenshot (folder </> "rest-settings.png")
+      checkInterface desktop folder
       gallery <- readIORef (sessionRef desktop)
       let cardsWork (width, height) = all (\(scene, Rectangle x y rw rh) -> View.hitTest width height gallery (x + rw / 2, y + rh / 2) == Just (View.Intent (ChooseRestScene scene))) (View.galleryCards width height)
       record "all eight gallery thumbnails select their scene at compact and desktop sizes" (all cardsWork [(760, 500), (1920, 1080), (2562, 1442)])
@@ -832,3 +861,47 @@ screenshot file = bracket c'loadImageFromScreen release $ \picture ->
     -- Keep the native pixels/encoded bytes out of h-raylib 5.6's linked byte
     -- lists, just as Pictures does. Both allocations are released on exceptions.
     release raw = (c'free . castPtr =<< peek (p'image'data raw)) `finally` free raw
+
+-- Exercise the real renderer at the minimum supported size in both languages.
+-- These are inspection artifacts; no owner preferences are changed.
+checkFontRestart :: WindowResources -> Desktop -> IO Bool
+checkFontRestart window desktop = do
+  failed <- tryJust (\failure -> case failure of Audio.NoPlayableTracks -> Just (); _ -> Nothing) $
+    withSessionFont window ["Before"] $ \ref -> do
+      replacement <- View.loadTypeface window ["After 置換"]
+      previousFont <- atomicModifyIORef' ref (\old -> (replacement, old))
+      View.unloadTypeface window previousFont
+      throwIO Audio.NoPlayableTracks
+  case failed of
+    Right () -> pure False
+    Left () -> withSessionFont window ["Fallback 復帰"] $ \ref -> do
+      font <- readIORef ref
+      w <- R.getScreenWidth
+      h <- R.getScreenHeight
+      R.beginDrawing
+      View.render font (restAssets desktop) w h ((initialSession defaultVolume) {windowMode = Compact}) Nothing "" "Fallback 復帰" Nothing (-1, -1)
+      R.endDrawing
+      pure True
+
+checkInterface :: Desktop -> FilePath -> IO ()
+checkInterface desktop folder = do
+  originalWidth <- R.getScreenWidth
+  originalHeight <- R.getScreenHeight
+  font <- readIORef (fontRef desktop)
+  state <- readIORef (sessionRef desktop)
+  picture <- readIORef (pictureRef desktop)
+  sound <- Audio.snapshot (engine desktop)
+  let restore = R.setWindowSize originalWidth originalHeight >> R.setTargetFPS 60
+  flip finally restore $ do
+    R.setTargetFPS 0
+    forM_ [(lang, name, page, opened) | (lang, name) <- [(English, "en"), (Japanese, "ja")], (page, opened) <- [(RestSettings, True), (DisplaySettings, True), (MusicSettings, True), (RestSettings, False)]] $ \(lang, name, page, opened) -> do
+      R.setWindowSize 700 500
+      let shown = state {language = lang, settingsPage = page, settingsOpen = opened, windowMode = Compact, idleSeconds = 0}
+          draw = R.beginDrawing >> View.renderWithFocus font (restAssets desktop) 700 500 shown (snd <$> picture) "2 / 4   Quiet forest" (Audio.title sound) Nothing (-1,-1) (if page == MusicSettings then Just (UI.Intent OpenMusic) else Nothing) >> R.endDrawing
+      draw >> draw
+      screenshot (folder </> ("ui-" ++ name ++ "-" ++ (if opened then show page else "player") ++ ".png"))
+    R.setWindowSize 1280 800
+    let shown = state {language = Japanese, settingsPage = RestSettings, settingsOpen = True, windowMode = Compact}
+        draw = R.beginDrawing >> View.render font (restAssets desktop) 1280 800 shown (snd <$> picture) "" (Audio.title sound) Nothing (-1,-1) >> R.endDrawing
+    draw >> draw
+    screenshot (folder </> "ui-desktop-gallery.png")
