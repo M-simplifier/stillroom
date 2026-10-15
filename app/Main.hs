@@ -2,6 +2,7 @@ module Main (main) where
 
 import Control.Exception
 import GHC.IO.Encoding (setForeignEncoding, utf8)
+import Stillroom.Runtime.Benchmark (runBenchmark)
 import Stillroom.Runtime.Desktop (runDesktop)
 import Stillroom.Runtime.Native
 import System.Directory (XdgDirectory (XdgConfig), createDirectoryIfMissing, getXdgDirectory)
@@ -21,12 +22,13 @@ main = do
     Left (problem :: SomeException) -> case fromException problem :: Maybe AsyncException of
       Just _ -> throwIO problem
       Nothing -> do
-        if take 1 args == ["--check"]
+        if take 1 args `elem` [["--check"], ["--benchmark"]]
           then hPutStrLn stderr (displayException problem)
           else showProblem (displayException problem)
         exitFailure
 
 dispatch :: [String] -> IO Bool
+dispatch ["--benchmark", directory] = runBenchmark directory
 dispatch ["--check", directory] = runDesktop (directory </> "settings.json") (Just directory) Nothing
 dispatch ["--check", directory, "--music", folder] = runDesktop (directory </> "settings.json") (Just directory) (Just folder)
 dispatch [] = do

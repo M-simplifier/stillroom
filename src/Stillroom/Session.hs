@@ -40,16 +40,20 @@ data Event
   | BrowsePicture PictureDirection
   | RemovePicture
   | CyclePictureShade
+  | ChoosePictureShade PictureShade
   | ToggleRest
   | LeaveRest
   | ChooseRestScene RestScene
   | ToggleRestMotion
+  | ChooseRestMotion RestMotion
   | CycleRestShade
+  | ChooseRestShade PictureShade
   | ToggleWindow
   | Escape
   | ToggleSettings
   | ShowRestSettings
   | ShowDisplaySettings
+  | ShowMusicSettings
   | NextScreen
   | OpenMusic
   | UsePresets
@@ -73,7 +77,7 @@ data Effect
   deriving (Eq, Show)
 
 initialSession :: Volume -> Session
-initialSession v = Session Playing v Forest Original Fullscreen English False DisplaySettings Working TidalLight Gentle Soft 0 0 0
+initialSession v = Session Playing v Forest Original Fullscreen English False RestSettings Working TidalLight Gentle Soft 0 0 0
 
 step :: Event -> Session -> (Session, [Effect])
 step event original
@@ -113,7 +117,9 @@ stepAllowed event original = case event of
     | otherwise -> (original {viewingMode = Working, restSeconds = 0, restHintSeconds = 0, idleSeconds = 10}, [])
   ChooseRestScene scene -> (original {restScene = scene, restSeconds = 0, restHintSeconds = 2}, [Persist])
   ToggleRestMotion -> (original {restMotion = if restMotion original == Still then Gentle else Still, restHintSeconds = 2}, [Persist])
+  ChooseRestMotion motion -> (original {restMotion = motion}, [Persist])
   CycleRestShade -> (original {restShade = nextShade (restShade original), restHintSeconds = 2}, [Persist])
+  ChooseRestShade shade -> (original {restShade = shade}, [Persist])
   TogglePlayback ->
     let p = if transport original == Playing then Paused else Playing
      in (awake {transport = p}, [ApplyTransport p])
@@ -125,6 +131,7 @@ stepAllowed event original = case event of
   BrowsePicture direction -> (awake, [SelectPicture direction])
   RemovePicture -> (awake, [DeletePicture])
   CyclePictureShade -> (awake {pictureShade = nextShade (pictureShade original)}, [Persist])
+  ChoosePictureShade shade -> (awake {pictureShade = shade}, [Persist])
   ToggleWindow -> (awake {windowMode = opposite (windowMode original), settingsOpen = False, viewingMode = Working}, [PlaceWindow, Persist])
   Escape
     | viewingMode original == Resting -> step LeaveRest original
@@ -134,6 +141,7 @@ stepAllowed event original = case event of
   ToggleSettings -> (awake {settingsOpen = not (settingsOpen original), viewingMode = Working}, [])
   ShowRestSettings -> (awake {settingsOpen = True, settingsPage = RestSettings, viewingMode = Working}, [])
   ShowDisplaySettings -> (awake {settingsOpen = True, settingsPage = DisplaySettings, viewingMode = Working}, [])
+  ShowMusicSettings -> (awake {settingsOpen = True, settingsPage = MusicSettings, viewingMode = Working}, [])
   NextScreen -> (awake, [MoveScreen, Persist])
   OpenMusic -> (awake, [PickMusicFolder])
   UsePresets -> (awake, [SelectPresets, Persist])

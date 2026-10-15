@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.6.0 — 2026-10-15
+
+- Keep native font glyphs resident and cache measurements instead of rebuilding
+  font data for each label; retain safe FFI calls and explicit CPU/GPU ownership.
+- Reuse frozen rest frames and skip wallpaper drawing beneath opaque rest.
+- Rebuild settings around Rest, Background and Music & app, with a large preview,
+  all eight scenes visible, and direct motion and brightness choices.
+- Reduce the player panel height from 160 to 98 pixels; keep the primary rest
+  action and a consistent, readable palette.
+- Add Tab/Shift-Tab traversal, visible focus and Enter/Space activation. Rest
+  remains exit-only.
+- Add rendering benchmarks, interface properties, English/Japanese minimum-size
+  captures, and a font replacement / library recovery regression check.
+- Document performance evidence and the interface research and design decisions.
+
 ## 0.5.0 — 2026-10-15
 
 - Add eight procedural rest scenes: Water and light, Amber sea, Sunlit shallows,

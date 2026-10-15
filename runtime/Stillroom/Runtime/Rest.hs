@@ -15,9 +15,10 @@ module Stillroom.Runtime.Rest
 where
 
 import Control.Exception (IOException, bracket_, catch)
-import Control.Monad (forM)
+import Control.Monad (forM, when)
 import Data.ByteString.Char8 qualified as BSC
 import Data.Maybe (isJust)
+import Data.IORef
 import Raylib.Core qualified as R
 import Raylib.Core.Shapes (drawRectangleRec)
 import Raylib.Core.Textures (drawTexturePro, loadRenderTexture, setTextureFilter)
@@ -30,7 +31,7 @@ import System.FilePath ((</>))
 
 data ProceduralShader = ProceduralShader !Shader !Int !Int !Int !Int
 
-data RestAssets = RestAssets (Maybe ProceduralShader) [(RestScene, Texture)] RenderTexture
+data RestAssets = RestAssets (Maybe ProceduralShader) [(RestScene, Texture)] RenderTexture (IORef (Maybe (RestScene, Int, Int, Double)))
 
 proceduralIndex :: RestScene -> Int
 proceduralIndex TidalLight = 0
@@ -66,38 +67,45 @@ loadRestAssets window = do
   -- the identical scene; only the raster size changes. No history accumulation.
   surface <- managed window (loadRenderTexture 1920 1200)
   _ <- setTextureFilter (renderTexture'texture surface) TextureFilterBilinear
-  let assets = RestAssets procedural [] surface
+  rendered <- newIORef Nothing
+  let assets = RestAssets procedural [] surface rendered
   thumbs <- forM [minBound .. maxBound] $ \scene -> do
     target <- managed window (loadRenderTexture 320 180)
     _ <- setTextureFilter (renderTexture'texture target) TextureFilterBilinear
     bracket_ (R.beginTextureMode target) R.endTextureMode $
       renderPreview assets 180 (Rectangle 0 0 320 180) ((initialSession defaultVolume) {restScene = scene, restShade = Original})
     pure (scene, renderTexture'texture target)
-  pure (RestAssets procedural thumbs surface)
+  pure (RestAssets procedural thumbs surface rendered)
 
 thumbnailsReady :: RestAssets -> Bool
-thumbnailsReady (RestAssets _ thumbs _) = all ready [minBound .. maxBound]
+thumbnailsReady (RestAssets _ thumbs _ _) = all ready [minBound .. maxBound]
   where
     ready scene = maybe False ((> 0) . texture'id) (lookup scene thumbs)
 
 proceduralReady :: RestAssets -> Bool
-proceduralReady (RestAssets shader _ _) = isJust shader
+proceduralReady (RestAssets shader _ _ _) = isJust shader
 
 restIssue :: RestAssets -> Session -> Maybe String
-restIssue (RestAssets procedural _ _) s
+restIssue (RestAssets procedural _ _ _) s
   | not (isJust procedural) = Just (local "Rest rendering unavailable. Click or Esc to return." "休息の景色を描画できません。クリックかEscで戻ります。")
   | otherwise = Nothing
   where
     local en ja = if language s == Japanese then ja else en
 
 renderRest :: RestAssets -> Int -> Int -> Session -> IO ()
-renderRest assets@(RestAssets _ _ target) w h s = do
+renderRest assets@(RestAssets _ _ target rendered) w h s = do
   let limit = if restScene s == CloudSea then 1120 else 1920 :: Float
       ratio = min 1 (min (limit / fromIntegral w) (1200 / fromIntegral h))
       rw = max 1 (floor (fromIntegral w * ratio)) :: Int
       rh = max 1 (floor (fromIntegral h * ratio)) :: Int
-  bracket_ (R.beginTextureMode target) R.endTextureMode $
-    renderPreview assets 1200 (Rectangle 0 0 (fromIntegral rw) (fromIntegral rh)) s {restShade = Original}
+      signature = (restScene s, rw, rh, restSeconds s)
+  previous <- readIORef rendered
+  -- Frozen means no new scene, not the same expensive shader run every frame.
+  -- Dimensions and scene are part of the key; shade is composited afterward.
+  when (previous /= Just signature) $ do
+    bracket_ (R.beginTextureMode target) R.endTextureMode $
+      renderPreview assets 1200 (Rectangle 0 0 (fromIntegral rw) (fromIntegral rh)) s {restShade = Original}
+    writeIORef rendered (Just signature)
   drawTexturePro
     (renderTexture'texture target)
     -- Sample inside the used subrectangle's texel centers. Bilinear reads
@@ -113,11 +121,11 @@ renderRest assets@(RestAssets _ _ target) w h s = do
   drawRectangleRec (Rectangle 0 0 (fromIntegral w) (fromIntegral h)) (Color 0 0 0 (fromIntegral (shadeOpacity (restShade s))))
 
 renderThumbnail :: RestAssets -> RestScene -> Rectangle -> IO ()
-renderThumbnail (RestAssets _ thumbs _) scene rectangle =
+renderThumbnail (RestAssets _ thumbs _ _) scene rectangle =
   forM (lookup scene thumbs) (\texture -> drawTexturePro texture (Rectangle 0 0 320 (-180)) rectangle (Vector2 0 0) 0 (Color 255 255 255 255)) >> pure ()
 
 renderPreview :: RestAssets -> Int -> Rectangle -> Session -> IO ()
-renderPreview (RestAssets procedural _ _) viewportHeight rectangle@(Rectangle x y wf hf) s = do
+renderPreview (RestAssets procedural _ _ _) viewportHeight rectangle@(Rectangle x y wf hf) s = do
   drawRectangleRec rectangle (Color 5 13 18 255)
   case procedural of
     Nothing -> pure ()

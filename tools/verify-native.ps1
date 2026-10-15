@@ -29,5 +29,5 @@ if ($process.ExitCode -ne 0) {
     throw "Native acceptance failed with exit code $($process.ExitCode). See $OutputDirectory."
 }
 $report = Get-Content -LiteralPath $reportFile -Raw | ConvertFrom-Json
-if (-not $report.passed -or $report.checks.Count -ne 42) { throw 'Native acceptance is incomplete or failed.' }
+if (-not $report.passed -or $report.checks.Count -ne 43) { throw 'Native acceptance is incomplete or failed.' }
 $report.checks | Format-Table name, passed
