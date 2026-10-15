@@ -22,6 +22,7 @@
 !/test/*.hs
 !/tools/
 !/tools/*.ps1
+!/tools/verify-rest-frames.py
 !/docs/
 !/docs/*.md
 !/docs/*.html
@@ -36,6 +37,8 @@
 !/assets/fonts/OFL.txt
 !/assets/backgrounds/
 !/assets/backgrounds/*.png
+!/assets/rest/
+!/assets/rest/procedural.fs
 !/assets/icon/
 !/assets/icon/*.png
 !/assets/icon/*.ico

@@ -6,7 +6,7 @@ Stillroom separates decisions from their execution.
 input / time -> Event -> step -> Session + [Effect]
                            |              |
                            v              v
-                      static view     Windows / audio / JSON
+                      scene view      Windows / audio / JSON
 ```
 
 ## Pure modules
@@ -18,8 +18,11 @@ runtime. Its overlap is at most six seconds and half the length of either track,
 so a short incoming track cannot finish before the handover.
 
 `Session` reduces input and elapsed time to the next state and explicit effects.
-It knows nothing about raylib, Windows or files. Inactivity controls visibility;
-there is no countdown, feed or animated focus object.
+It knows nothing about raylib, Windows or files. Inactivity controls visibility.
+`ViewingMode` separates Working/Resting from transport and window state; rest
+scene, motion and shade are independent of the working picture. Leaving rest has
+no audio/window effect. There is no countdown or feed. The only animation is
+optional water motion in rest mode.
 
 `Shuffle` uses a seeded generator and a nonempty catalogue. A normal cycle is a
 permutation, and cycle boundaries avoid immediate repeats. Excluding a failed
@@ -71,8 +74,47 @@ bundled assets and private imported copies. CPU decoding uses native memory on a
 worker; texture uploads stay on the rendering thread. `ForeignPtr` owns decoded
 pixels until upload, and window resources own GPU textures. Replacements load
 before the old texture is released. Image controls are separate reducer events
-and cannot reconfigure playback or window placement. Preferences version 2 adds
-image and shade fields while accepting version 1 unchanged.
+and cannot reconfigure playback or window placement. Preferences version 6 accepts
+versions 1–5, mapping retired local photo choices to procedural scenes at the
+JSON boundary without discarding other settings. Working view is always restored at
+startup, independently of the saved scene and motion preference.
+
+Image and music-picker requests carry generation numbers. Selecting a background,
+switching to built-in music, or entering rest invalidates the relevant pending
+work. Stale completions release prepared pixels and clear the busy flag without
+replacing textures, audio or saved choices. Native checks inject delayed results
+at the real completion boundary to verify this ordering.
+
+`Runtime.Rest` loads one fragment shader before starting playback. Window resources
+own the program, output surface and generated thumbnails. A missing shader or
+required uniform shows an opaque dark field with an explanation and an exit route.
+The runtime exits rest on a focused-to-unfocused edge. Hit testing uses the view
+from before mouse activity, preventing hidden buttons from consuming the first click.
+
+All eight `RestScene` constructors use this texture-free program.
+Resolution, viewport origin, scene choice and a bounded phase are passed to GLSL.
+The fragment shader derives coordinates from `gl_FragCoord`, independently of the
+working image. Heightfield intersections, analytic wave derivatives, reflected
+sky, refracted sand, integrated cloud density, folded light and deterministic
+stars are separate functions. All temporal frequencies share a 240-second cycle.
+No new random data is sampled each frame.
+
+The gallery renders actual 320×180 thumbnails once at startup and one live
+preview. The rest clock also advances while this gallery is open. Still freezes
+the preview without affecting audio; each new rest begins at time zero. Large
+procedural views render into a reusable, window-owned target with bounded size
+(1920×1200, or width1120 for clouds), then scale to the window. Shade is applied
+after compositing the opaque target so its alpha cannot expose the wallpaper.
+
+Both keyboard routing and the pure reducer enforce exit-only rest. Only Elapse,
+LeaveRest, ToggleRest and Escape are admitted while Resting; every other event
+leaves both state and effects unchanged. The gallery hides the transport panel,
+and its hit testing cannot reach the hidden volume bar.
+
+The native check also captures the same frozen procedural scene over two different
+working backgrounds. Pixel equality checks that a texture is not leaking through.
+Diagnostic frame timings include capture frames and report sample count, median
+and p95; they are observations of the test machine, not universal performance bounds.
 
 The PNG/ICO icon is generated from editable geometry. The packaging build embeds
 the icon and an `asInvoker` manifest; the runtime also assigns its window icon.

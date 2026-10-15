@@ -28,7 +28,7 @@ try {
             throw 'GMP binary/source mismatch. Run tools/build.ps1 before packaging.'
         }
     }
-    $bundle = Join-Path $OutputDirectory 'stillroom-0.2.0-windows-x64'
+    $bundle = Join-Path $OutputDirectory 'stillroom-0.5.0-windows-x64'
     if (Test-Path -LiteralPath $bundle) { throw "Choose an empty destination: $bundle" }
     New-Item -ItemType Directory -Force -Path (Join-Path $bundle 'assets/fonts') | Out-Null
     Copy-Item -LiteralPath $executable -Destination (Join-Path $bundle 'stillroom.exe')
@@ -41,18 +41,21 @@ try {
     }
     Copy-Item -LiteralPath (Join-Path $root 'assets/backgrounds') -Destination (Join-Path $bundle 'assets') -Recurse
     Copy-Item -LiteralPath (Join-Path $root 'assets/icon') -Destination (Join-Path $bundle 'assets') -Recurse
+    New-Item -ItemType Directory -Path (Join-Path $bundle 'assets/rest') | Out-Null
+    Copy-Item -LiteralPath (Join-Path $root 'assets/rest/procedural.fs') -Destination (Join-Path $bundle 'assets/rest')
     Copy-Item -LiteralPath (Join-Path $root 'licenses') -Destination $bundle -Recurse
     foreach ($name in @('LICENSE','README.md','STATUS.md','CONTRIBUTING.md')) {
         Copy-Item -LiteralPath (Join-Path $root $name) -Destination $bundle
     }
     New-Item -ItemType Directory -Path (Join-Path $bundle 'docs') | Out-Null
-    foreach ($name in @('guide.md','music-licensing.md','assets.md','background-prompts.md','architecture.md','gmp.md','player.png')) {
+    foreach ($name in @('guide.md','rest-mode.md','shader-research.md','music-licensing.md','assets.md','background-prompts.md','architecture.md','gmp.md','player.png','rest-gallery.png','rest-water.png')) {
         Copy-Item -LiteralPath (Join-Path $root "docs/$name") -Destination (Join-Path $bundle 'docs')
     }
-    $archive = Join-Path $OutputDirectory 'stillroom-0.2.0-windows-x64.zip'
+    $archiveName = (Split-Path -Leaf $bundle) + '.zip'
+    $archive = Join-Path $OutputDirectory $archiveName
     if (Test-Path -LiteralPath $archive) { throw 'Archive already exists.' }
     Compress-Archive -LiteralPath $bundle -DestinationPath $archive -CompressionLevel Optimal
     $hash = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant()
-    [IO.File]::WriteAllText((Join-Path $OutputDirectory 'SHA256SUMS.txt'), "$hash  stillroom-0.2.0-windows-x64.zip`n")
+    [IO.File]::WriteAllText((Join-Path $OutputDirectory 'SHA256SUMS.txt'), "$hash  $archiveName`n")
     Write-Output $archive
 } finally { Pop-Location }

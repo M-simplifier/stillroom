@@ -5,7 +5,8 @@ leave it alone and the controls disappear into a quiet, static screen.
 
 [Download for Windows](https://github.com/M-simplifier/stillroom/releases/latest)
 · [Website](https://m-simplifier.github.io/stillroom/)
-· [Guide](docs/guide.md) · [Architecture](docs/architecture.md)
+· [Guide](docs/guide.md) · [休息モードの使い方](docs/rest-mode.md)
+· [Architecture](docs/architecture.md)
 
 ![Stillroom in compact mode](docs/player.png)
 
@@ -13,15 +14,23 @@ leave it alone and the controls disappear into a quiet, static screen.
 - Or choose a folder of your own MP3, WAV or OGG files.
 - Shuffle without immediate repeats when at least two playable tracks exist.
 - Continuous playback with equal-power crossfades limited by both track lengths.
-- Static green, slate, black or illustrated lake backgrounds. No visual animation.
+- Static green, slate, black or illustrated lake backgrounds while working.
 - Four quiet image backgrounds, or import your own PNG, JPEG or BMP. Choose
   an image and its brightness; neither track changes nor time switch it for you.
+- Choose from eight procedural rest scenes in a thumbnail gallery with a live preview:
+  blue water, sunset sea, clear shallows, clouds, aurora, flowing ink, light veil,
+  and stars. Set motion and brightness before resting. The scenes are drawn locally
+  by a shader, without image or video assets.
+- Click the background or press **R** to rest. Only leaving the scene is possible
+  during rest; click or press **Esc/R** to return. Music continues throughout.
 - A native app icon for Explorer, shortcuts and the taskbar.
 - Choose a display; use fullscreen or a small window. Settings persist.
 - English and Japanese controls. No network requests, analytics or updater.
 
 Extract the ZIP and open **stillroom.exe**. No Haskell toolchain or .NET installation
 is needed to use the Windows binary. The executable is unsigned.
+
+![Choose a procedural rest scene before entering rest](docs/rest-gallery.png)
 
 ## A functional core
 

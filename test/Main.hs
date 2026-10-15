@@ -38,7 +38,16 @@ main = do
         law "built-in music preserves the user's previous folder" (once propRememberFolder),
         law "version 1 settings migrate without losing music or display" (once propMigrate),
         law "picture controls preserve playback and window state" (once propPictureControls),
-        law "picture shading cycles through bounded levels" (once propPictureShade)
+        law "picture shading cycles through bounded levels" (once propPictureShade),
+        law "rest round-trip preserves music, picture and window" propRestRoundTrip,
+        law "mouse activity does not expose rest controls" propRestActivity,
+        law "rest comparisons cannot change normal background or audio" (once propRestChoices),
+        law "Esc leaves rest before resizing the window" (once propRestEscape),
+        law "version 2 settings migrate and resting is never resumed at startup" (once propMigrateRest),
+        law "still mode freezes scene time without pausing music" propFreezeScene,
+        law "versions 3-5 migrate retired scenes without losing preferences" (once propMigrateRestV3),
+        law "rest accepts only elapsed time and exit" propRestExitOnly,
+        law "preview and rest use the same motion clock rules" (once propPreviewClock)
       ]
   unless (all isSuccess results) exitFailure
   where
@@ -140,12 +149,15 @@ propPreferences (NonNegative n) =
             savedBackground = toEnum (n `mod` 5),
             savedFolder = Just "音楽/静かな部屋",
             savedPicture = Just "user:静かな画像.png",
-            savedPictureShade = toEnum (n `mod` 3)
+            savedPictureShade = toEnum (n `mod` 3),
+            savedRestScene = toEnum (n `mod` (1 + fromEnum (maxBound :: RestScene))),
+            savedRestMotion = toEnum ((n `div` 2) `mod` 2),
+            savedRestShade = toEnum ((n `div` 3) `mod` 3)
           }
    in eitherDecode (encode p) == Right p
 
 propVersion :: Bool
-propVersion = case (eitherDecode (encode (object ["version" .= (3 :: Int)])) :: Either String Preferences) of
+propVersion = case (eitherDecode (encode (object ["version" .= (7 :: Int)])) :: Either String Preferences) of
   Left _ -> True
   Right _ -> False
 
@@ -173,28 +185,196 @@ propRememberFolder =
 
 propMigrate :: Bool
 propMigrate =
-  let legacy = object ["version" .= (1 :: Int), "volume" .= (0.42 :: Double),
-        "background" .= ("Lake" :: String), "language" .= ("Japanese" :: String),
-        "musicFolder" .= ("音楽/自分の曲" :: String), "screen" .= ("display-2" :: String)]
+  let legacy =
+        object
+          [ "version" .= (1 :: Int),
+            "volume" .= (0.42 :: Double),
+            "background" .= ("Lake" :: String),
+            "language" .= ("Japanese" :: String),
+            "musicFolder" .= ("音楽/自分の曲" :: String),
+            "screen" .= ("display-2" :: String)
+          ]
    in case eitherDecode (encode legacy) of
-        Right p -> savedVolume p == 0.42 && savedBackground p == Lake
-          && savedLanguage p == Japanese && savedFolder p == Just "音楽/自分の曲"
-          && savedScreen p == "display-2" && savedPicture p == Nothing
-          && savedPictureShade p == Original
+        Right p ->
+          savedVolume p == 0.42
+            && savedBackground p == Lake
+            && savedLanguage p == Japanese
+            && savedFolder p == Just "音楽/自分の曲"
+            && savedScreen p == "display-2"
+            && savedPicture p == Nothing
+            && savedPictureShade p == Original
         Left _ -> False
 
 propPictureControls :: Bool
-propPictureControls = and
-  [ let (after, effects) = step event before
-     in transport after == transport before && loudness after == loudness before
-       && windowMode after == windowMode before
-       && all (`notElem` effects) [PlaceWindow, MoveScreen, SkipTrack]
-  | mode <- [Fullscreen, Compact], playing <- [Playing, Paused],
-    let before = (initialSession defaultVolume) {windowMode = mode, transport = playing},
-    event <- [OpenPicture, BrowsePicture PreviousPicture, BrowsePicture NextPicture,
-      RemovePicture, ChooseBackground Picture, CyclePictureShade]
-  ]
+propPictureControls =
+  and
+    [ let (after, effects) = step event before
+       in transport after == transport before
+            && loudness after == loudness before
+            && windowMode after == windowMode before
+            && all (`notElem` effects) [PlaceWindow, MoveScreen, SkipTrack]
+    | mode <- [Fullscreen, Compact],
+      playing <- [Playing, Paused],
+      let before = (initialSession defaultVolume) {windowMode = mode, transport = playing},
+      event <-
+        [ OpenPicture,
+          BrowsePicture PreviousPicture,
+          BrowsePicture NextPicture,
+          RemovePicture,
+          ChooseBackground Picture,
+          CyclePictureShade
+        ]
+    ]
 
 propPictureShade :: Bool
-propPictureShade = all (\shade -> nextShade (nextShade (nextShade shade)) == shade
-  && shadeOpacity shade >= 0 && shadeOpacity shade <= 128) [Original, Soft, Dim]
+propPictureShade =
+  all
+    ( \shade ->
+        nextShade (nextShade (nextShade shade)) == shade
+          && shadeOpacity shade >= 0
+          && shadeOpacity shade <= 128
+    )
+    [Original, Soft, Dim]
+
+propRestRoundTrip :: NonNegative Int -> Bool
+propRestRoundTrip (NonNegative n) =
+  let before =
+        (initialSession defaultVolume)
+          { background = toEnum (n `mod` 5),
+            pictureShade = toEnum (n `mod` 3),
+            windowMode = if even n then Fullscreen else Compact,
+            transport = if n `mod` 3 == 0 then Paused else Playing
+          }
+      (resting, enterEffects) = step ToggleRest before
+      (after, exitEffects) = step ToggleRest resting
+   in viewingMode resting == Resting
+        && viewingMode after == Working
+        && fromSession after (defaults Japanese) == fromSession before (defaults Japanese)
+        && transport after == transport before
+        && enterEffects == []
+        && exitEffects == []
+
+propRestActivity :: NonNegative Int -> Bool
+propRestActivity (NonNegative n) =
+  let resting = fst (step ToggleRest ((initialSession defaultVolume) {windowMode = if even n then Fullscreen else Compact}))
+      elapsed = either (const zeroSeconds) id (seconds (fromIntegral n))
+      after = fst (step Activity (fst (step (Elapse elapsed) resting)))
+   in viewingMode after == Resting && not (controlsVisible after)
+
+propRestChoices :: Bool
+propRestChoices =
+  and
+    [ let original = (initialSession defaultVolume) {background = Picture, pictureShade = Dim, viewingMode = mode}
+          (after, effects) = step action original
+       in background after == Picture
+            && pictureShade after == Dim
+            && transport after == transport original
+            && loudness after == loudness original
+            && windowMode after == windowMode original
+            && effects == (if mode == Resting then [] else [Persist])
+    | mode <- [Working, Resting],
+      action <- map ChooseRestScene [minBound .. maxBound] ++ [ToggleRestMotion, CycleRestShade]
+    ]
+
+propRestEscape :: Bool
+propRestEscape =
+  let rest = fst (step ToggleRest (initialSession defaultVolume))
+      (after, effects) = step Escape rest
+      (compact, nextEffects) = step Escape after
+   in viewingMode after == Working
+        && windowMode after == Fullscreen
+        && effects == []
+        && windowMode compact == Compact
+        && PlaceWindow `elem` nextEffects
+
+propMigrateRest :: Bool
+propMigrateRest =
+  let legacy =
+        object
+          [ "version" .= (2 :: Int),
+            "volume" .= (0.42 :: Double),
+            "background" .= ("Picture" :: String),
+            "picture" .= ("user:my.png" :: String),
+            "pictureShade" .= ("Dim" :: String),
+            "musicFolder" .= ("my music" :: String)
+          ]
+   in case eitherDecode (encode legacy) of
+        Right p ->
+          savedVolume p == 0.42
+            && savedPicture p == Just "user:my.png"
+            && savedPictureShade p == Dim
+            && savedFolder p == Just "my music"
+            && savedRestScene p == TidalLight
+            && savedRestMotion p == Gentle
+            && viewingMode (restoreSession (fromSession (fst (step ToggleRest (restoreSession p))) p)) == Working
+        Left _ -> False
+
+propFreezeScene :: NonNegative Int -> Bool
+propFreezeScene (NonNegative n) =
+  let duration = either (const zeroSeconds) id (seconds (fromIntegral (1 + n `mod` 10000)))
+      playing = (initialSession defaultVolume) {settingsOpen = True, settingsPage = RestSettings, restScene = toEnum (n `mod` (1 + fromEnum (maxBound :: RestScene)))}
+      advance = fst . step (Elapse duration)
+      moved = advance playing
+      frozen = fst (step ToggleRestMotion moved)
+      (held, effects) = step (Elapse duration) frozen
+      resumed = advance (fst (step ToggleRestMotion held))
+   in restSeconds held == restSeconds moved
+        && restSeconds resumed > restSeconds held
+        && transport held == Playing
+        && effects == []
+
+propMigrateRestV3 :: Bool
+propMigrateRestV3 = and [migrates version name expected | version <- [3, 4, 5], (name, expected) <- [("AfternoonLake", TidalLight), ("WoodlandPond", Shallows), ("Aurora", Aurora)]]
+  where
+    migrates version name expected =
+      let old =
+            object
+              [ "version" .= (version :: Int),
+                "restScene" .= (name :: String),
+                "restMotion" .= ("Still" :: String),
+                "restShade" .= ("Dim" :: String),
+                "volume" .= (0.42 :: Double),
+                "screen" .= ("saved display" :: String),
+                "language" .= ("Japanese" :: String),
+                "picture" .= ("user:my.png" :: String),
+                "musicFolder" .= ("my music" :: String)
+              ]
+       in case eitherDecode (encode old) of
+            Right p ->
+              savedRestScene p == expected
+                && savedVolume p == 0.42
+                && savedScreen p == "saved display"
+                && savedLanguage p == Japanese
+                && savedRestMotion p == Still
+                && savedRestShade p == Dim
+                && savedPicture p == Just "user:my.png"
+                && savedFolder p == Just "my music"
+                && viewingMode (restoreSession p) == Working
+            Left _ -> False
+
+propRestExitOnly :: NonNegative Int -> Bool
+propRestExitOnly (NonNegative n) =
+  let resting = (initialSession defaultVolume) {viewingMode = Resting, restSeconds = fromIntegral n, restScene = toEnum (n `mod` (1 + fromEnum (maxBound :: RestScene)))}
+      blocked =
+        [TogglePlayback, ChangeVolume 0.2, SetVolume defaultVolume, NextTrack, OpenPicture, BrowsePicture NextPicture, RemovePicture, CyclePictureShade, ToggleRestMotion, CycleRestShade, ToggleWindow, ToggleSettings, ShowRestSettings, ShowDisplaySettings, NextScreen, OpenMusic, UsePresets, ToggleLanguage, Activity]
+          ++ map ChooseBackground [minBound .. maxBound]
+          ++ map ChooseRestScene [minBound .. maxBound]
+   in all (\event -> step event resting == (resting, [])) blocked
+        && all (\event -> let (after, effects) = step event resting in viewingMode after == Working && effects == [] && transport after == Playing) [Escape, LeaveRest, ToggleRest]
+
+propPreviewClock :: Bool
+propPreviewClock =
+  let dt = either (const zeroSeconds) id (seconds 3)
+      start = initialSession defaultVolume
+      preview = fst (step ShowRestSettings start)
+      elapsed = fst (step (Elapse dt) preview)
+      still = fst (step ToggleRestMotion elapsed)
+      held = fst (step (Elapse dt) still)
+      resting = fst (step ToggleRest held)
+      heldRest = fst (step (Elapse dt) resting)
+   in restSeconds elapsed == 3
+        && restSeconds held == 3
+        && restSeconds heldRest == 0
+        && restMotion heldRest == Still
+        && transport heldRest == Playing
+        && viewingMode heldRest == Resting
