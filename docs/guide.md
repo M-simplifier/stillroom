@@ -68,7 +68,8 @@ color. These are design choices, not tested ADHD treatment effects.
 For a short pause, click the background outside the controls, click **Take a pause**, or
 press **R**. The scene appears immediately and the hint disappears after three
 seconds. Choose the scene, motion and brightness beforehand under **Settings →
-Rest** (the first page). The gallery shows eight actual scene thumbnails and a live preview.
+Rest** (the first page). The gallery has three **Landscapes** and eight **Light &
+sky** scenes, with actual thumbnails and a live preview.
 Click a thumbnail, set motion and brightness, then choose **Rest in this scene**.
 These choices are saved immediately, including when closing the gallery.
 The three flat tabs are Rest, Background, and Music & app. Use the close icon or

@@ -19,7 +19,7 @@ def pixels(path):
 
 folder = Path(sys.argv[1])
 report = {}
-scenes = ["water", "amber", "shallows", "clouds", "aurora", "ink", "veil", "stars", "still"]
+scenes = ["water", "amber", "shallows", "clouds", "aurora", "ink", "veil", "stars", "birch", "alpine", "stream", "still"]
 for scene in scenes:
     a = pixels(folder / f"procedural-{scene}-a.png")
     b = pixels(folder / f"procedural-{scene}-b.png")

@@ -8,6 +8,7 @@ leave it alone and the controls disappear into a quiet, static screen.
 · [Guide](docs/guide.md) · [休息モードの使い方](docs/rest-mode.md)
 · [Architecture](docs/architecture.md) · [Performance](docs/performance.md)
 · [Interface design](docs/design.md)
+· [Procedural landscapes](docs/procedural-landscapes.md)
 
 ![Stillroom in compact mode](docs/player.png)
 
@@ -18,10 +19,11 @@ leave it alone and the controls disappear into a quiet, static screen.
 - Static green, slate, black or illustrated lake backgrounds while working.
 - Four quiet image backgrounds, or import your own PNG, JPEG or BMP. Choose
   an image and its brightness; neither track changes nor time switch it for you.
-- Choose from eight procedural rest scenes in a thumbnail gallery with a live preview:
-  blue water, sunset sea, clear shallows, clouds, aurora, flowing ink, light veil,
-  and stars. Set motion and brightness before resting. The scenes are drawn locally
-  by a shader, without image or video assets.
+- Choose from eleven procedural rest scenes in a thumbnail gallery with a live
+  preview: three landscapes with trees, grass and water, plus eight scenes of
+  water, sunset, shallows, clouds, aurora, ink, light and stars. Set motion and
+  brightness before resting. Scenery is generated locally from geometry and
+  shaders, without landscape image, model or video assets.
 - Click the background or press **R** to rest. Only leaving the scene is possible
   during rest; click or press **Esc/R** to return. Music continues throughout.
 - Three clear settings pages, a large scene preview, direct motion/brightness
@@ -34,6 +36,8 @@ Extract the ZIP and open **stillroom.exe**. No Haskell toolchain or .NET install
 is needed to use the Windows binary. The executable is unsigned.
 
 ![Choose a procedural rest scene before entering rest](docs/rest-gallery.png)
+
+![A lake, birches and moving grass generated locally](docs/rest-landscape.png)
 
 ## A functional core
 
@@ -49,7 +53,7 @@ On Windows x64, install GHC **9.6.7**, Cabal **3.12.1.0** and GHCup's MSYS2 tool
 
 ```powershell
 ./tools/dev.ps1 Build -Online  # First build: fetch pinned dependencies
-./tools/dev.ps1 Capture       # Incremental build + nine UI screenshots
+./tools/dev.ps1 Capture       # Incremental build + 18 UI/landscape screenshots
 ```
 
 The entrypoint finds the pinned tools, sets up GMP and development assets, then

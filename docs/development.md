@@ -20,9 +20,9 @@ No action reads or writes your normal Stillroom settings.
 | Action | Purpose and evidence |
 | --- | --- |
 | `Build` | Build, metadata/linkage checks and the complete law/regression suite. |
-| `Capture` | Nine deterministic PNGs through the production renderer, with no audio device or native acceptance sequence. |
-| `Check` | The real native loop: 43 assertions for state, input/effects, audio, persistence, shader resources, font replacement/restart and shutdown. |
-| `Benchmark` | The existing 18 renderer samples with RTS allocation/GC statistics; no audio. |
+| `Capture` | 18 deterministic UI/landscape PNGs through the production renderer, with no audio device or native acceptance sequence. |
+| `Check` | The real native loop: 49 assertions for state, input/effects, audio, persistence, shader resources, font replacement/restart and shutdown. Startup/switch timing and peak process working set are recorded. |
+| `Benchmark` | 18 interface/procedural samples plus 36 synchronized landscape samples and four cache contracts, with RTS allocation statistics; no audio. |
 | `CheckPackage` | Check an extracted executable with only its own assets/DLL and a restricted Windows PATH. No build or development toolchain. |
 
 Each run gets a unique directory under `scratch/dev`. To choose a location, pass
@@ -38,11 +38,13 @@ the binary was built from that exact commit.
 
 `Capture` writes `capture-ui/ui-capture.json` and PNGs for the player and all
 three settings pages in English and Japanese at 700×500, plus the Japanese rest
-gallery at 1280×800. It uses a fixed scene time, bundled forest background and
+gallery at 1280×800. It adds all three landscapes at 1280×720 and 1920×1080,
+and the landscape gallery in both languages at minimum size plus desktop size.
+It uses a fixed scene time, bundled forest background and
 original preset title. It requires a real graphics context and fails if the
 procedural shader or thumbnails cannot load. It opens no audio device, picker
 or personal library. Inspect the PNGs for layout, clipping and legibility;
-producing nine files alone does not certify a good interface.
+producing the files alone does not certify a good interface.
 
 The executable also accepts `--capture-ui OUTPUT` directly. For a source build,
 prefer the wrapper so that it cannot accidentally inspect a stale binary or
@@ -81,7 +83,7 @@ afterward. `tools/verify-native.ps1` enforces the same package boundary by defau
 only the development `Check` action opts into `-DevelopmentAssetRoot`.
 
 For shader work, run `tools/verify-rest-frames.py` on a native check directory
-with Pillow and NumPy installed. It compares moving/still frames for all eight
+with Pillow and NumPy installed. It compares moving/still frames for all eleven
 scenes and the frozen scene over different wallpapers. Native checks still need
 an available audio device and graphics driver; they do not certify perceived
 audio quality or every device configuration.

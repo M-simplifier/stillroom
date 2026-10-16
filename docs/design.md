@@ -14,7 +14,7 @@ application, not a universal formula or evidence of improved attention.
 Visual simplicity is only one part of aesthetics. Moshagen and Thielsch's
 VisAWI research distinguishes simplicity, diversity, colorfulness and craftsmanship.
 We use those as complementary lenses: reduce competing controls, retain variety
-in the eight landscapes, constrain the interface palette, and make alignment and
+in the scene catalogue, constrain the interface palette, and make alignment and
 state feedback consistent. Their instrument was developed for websites; this
 native app has not been validated with that scale.
 [Original study](https://www.uni-muenster.de/OWMS/uploads/drafts_thielsch/pdf/moshagen_2010.pdf).
@@ -50,8 +50,10 @@ and [Rams's account of the whole product](https://www.vitsoe.com/eu/voice/design
 - A 98-pixel player panel replaces the previous 160-pixel panel. Playback, volume,
   a pause in the scenery, and settings remain immediately available. Quit lives
   in Music & app and the normal window close control.
-- The selected landscape has the largest preview. All eight alternatives remain
-  visible together; the catalogue never scrolls or changes order automatically.
+- The selected landscape has the largest preview. Two named collections keep
+  three landscapes and eight light/sky scenes readable at 700×500. Each collection
+  stays fully visible; the catalogue never scrolls or changes order automatically.
+  Browsing a collection preserves the selected preview until a scene is chosen.
 - Motion and brightness are explicit choices. There is no need to cycle a button
   repeatedly to discover the current or available setting.
 - Working backgrounds have their own preview. Plain colors, the illustrated lake

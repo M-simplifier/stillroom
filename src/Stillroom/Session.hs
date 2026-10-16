@@ -22,6 +22,7 @@ data Session = Session
     settingsPage :: !SettingsPage,
     viewingMode :: !ViewingMode,
     restScene :: !RestScene,
+    restCollection :: !RestCollection,
     restMotion :: !RestMotion,
     restShade :: !PictureShade,
     restSeconds :: !Double,
@@ -44,6 +45,7 @@ data Event
   | ToggleRest
   | LeaveRest
   | ChooseRestScene RestScene
+  | ShowRestCollection RestCollection
   | ToggleRestMotion
   | ChooseRestMotion RestMotion
   | CycleRestShade
@@ -77,7 +79,7 @@ data Effect
   deriving (Eq, Show)
 
 initialSession :: Volume -> Session
-initialSession v = Session Playing v Forest Original Fullscreen English False RestSettings Working TidalLight Gentle Soft 0 0 0
+initialSession v = Session Playing v Forest Original Fullscreen English False RestSettings Working TidalLight Atmospheres Gentle Soft 0 0 0
 
 step :: Event -> Session -> (Session, [Effect])
 step event original
@@ -115,7 +117,8 @@ stepAllowed event original = case event of
   LeaveRest
     | viewingMode original == Working -> (original, [])
     | otherwise -> (original {viewingMode = Working, restSeconds = 0, restHintSeconds = 0, idleSeconds = 10}, [])
-  ChooseRestScene scene -> (original {restScene = scene, restSeconds = 0, restHintSeconds = 2}, [Persist])
+  ChooseRestScene scene -> (original {restScene = scene, restCollection = sceneCollection scene, restSeconds = 0, restHintSeconds = 2}, [Persist])
+  ShowRestCollection collection -> (awake {restCollection = collection}, [])
   ToggleRestMotion -> (original {restMotion = if restMotion original == Still then Gentle else Still, restHintSeconds = 2}, [Persist])
   ChooseRestMotion motion -> (original {restMotion = motion}, [Persist])
   CycleRestShade -> (original {restShade = nextShade (restShade original), restHintSeconds = 2}, [Persist])

@@ -364,6 +364,7 @@ propRestExitOnly (NonNegative n) =
         [TogglePlayback, ChangeVolume 0.2, SetVolume defaultVolume, NextTrack, OpenPicture, BrowsePicture NextPicture, RemovePicture, CyclePictureShade, ToggleRestMotion, CycleRestShade, ToggleWindow, ToggleSettings, ShowRestSettings, ShowDisplaySettings, ShowMusicSettings, NextScreen, OpenMusic, UsePresets, ToggleLanguage, Activity]
           ++ map ChooseBackground [minBound .. maxBound]
           ++ map ChooseRestScene [minBound .. maxBound]
+          ++ map ShowRestCollection [Landscapes, Atmospheres]
           ++ map ChooseRestMotion [Still, Gentle]
           ++ map ChooseRestShade [Original, Soft, Dim]
           ++ map ChoosePictureShade [Original, Soft, Dim]
@@ -388,7 +389,7 @@ propPreviewClock =
         && viewingMode heldRest == Resting
 
 interfaceStates :: [Session]
-interfaceStates = [(initialSession defaultVolume) {settingsOpen = opened, settingsPage = page, language = lang, windowMode = Compact} | opened <- [False, True], page <- [RestSettings, DisplaySettings, MusicSettings], lang <- [English, Japanese]]
+interfaceStates = [(initialSession defaultVolume) {settingsOpen = opened, settingsPage = page, language = lang, windowMode = Compact, restCollection = collection} | opened <- [False, True], page <- [RestSettings, DisplaySettings, MusicSettings], lang <- [English, Japanese], collection <- [Landscapes, Atmospheres]]
 
 propInterfaceTargets :: Property
 propInterfaceTargets = forAll ((,) <$> chooseInt (700, 3840) <*> chooseInt (500, 2160)) $ \(w, h) ->

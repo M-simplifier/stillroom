@@ -38,6 +38,8 @@ try {
     $required = @((Join-Path $binaryRoot 'libgmp-10.dll'))
     foreach ($file in @(
         'fonts/NotoSansJP.otf','fonts/OFL.txt','rest/procedural.fs',
+        'rest/nature/common.glsl','rest/nature/land.vs','rest/nature/land.fs',
+        'rest/nature/water.vs','rest/nature/water.fs','rest/nature/sky.fs','rest/nature/post.fs',
         'backgrounds/01-mist-lake.png','backgrounds/02-quiet-forest.png',
         'backgrounds/03-soft-dunes.png','backgrounds/04-night-field.png','icon/stillroom.png'
     )) { $required += Join-Path $assetRoot "assets/$file" }
@@ -52,10 +54,17 @@ try {
         -RedirectStandardOutput (Join-Path $OutputDirectory 'stdout.txt') `
         -RedirectStandardError (Join-Path $OutputDirectory 'stderr.txt') -PassThru
     try {
-        if (-not $process.WaitForExit(59000)) {
-            Stop-Process -Id $process.Id
-            throw 'Native acceptance timed out.'
+        $nativeTimer = [Diagnostics.Stopwatch]::StartNew()
+        $peakWorkingSet = 0L
+        while (-not $process.WaitForExit(200)) {
+            $process.Refresh()
+            if (-not $process.HasExited) { $peakWorkingSet = [Math]::Max($peakWorkingSet, $process.PeakWorkingSet64) }
+            if ($nativeTimer.Elapsed.TotalSeconds -gt 59) {
+                Stop-Process -Id $process.Id
+                throw 'Native acceptance timed out.'
+            }
         }
+        $result.peakWorkingSetBytes = $peakWorkingSet
         $process.Refresh()
         if ($process.ExitCode -ne 0) {
             throw "Native acceptance failed with exit code $($process.ExitCode). See $OutputDirectory."
@@ -64,7 +73,7 @@ try {
     $report = Get-Content -LiteralPath $reportFile -Raw -Encoding UTF8 | ConvertFrom-Json
     $result.checks = @($report.checks).Count
     $result.failures = @($report.checks | Where-Object { -not $_.passed } | ForEach-Object { $_.name })
-    if (-not $report.passed -or $result.checks -ne 43 -or $result.failures.Count -gt 0) {
+    if (-not $report.passed -or $result.checks -ne 49 -or $result.failures.Count -gt 0) {
         throw 'Native acceptance is incomplete or failed.'
     }
     $result.passed = $true

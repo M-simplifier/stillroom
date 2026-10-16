@@ -16,6 +16,7 @@ import Data.List (find, sort)
 import Data.List.NonEmpty qualified as NE
 import Data.Maybe (fromMaybe, isJust)
 import Data.Time.Clock.POSIX (getPOSIXTime)
+import GHC.Clock (getMonotonicTimeNSec)
 import Raylib.Core qualified as R
 import Raylib.Core.Textures (unloadTexture)
 import Raylib.Internal (WindowResources)
@@ -51,6 +52,8 @@ data Desktop = Desktop
     focusedRef :: !(IORef Bool),
     controlFocusRef :: !(IORef (Maybe UI.UIAction)),
     checkFrameTimes :: !(IORef [(RestScene, Double)]),
+    checkSwitchStart :: !(IORef (Maybe (RestScene, Double))),
+    checkSwitchTimes :: !(IORef [(RestScene, Double)]),
     engine :: !Audio.Engine,
     preferencesPath :: !FilePath,
     mutedCheck :: !Bool
@@ -58,6 +61,7 @@ data Desktop = Desktop
 
 runDesktop :: FilePath -> Maybe FilePath -> Maybe FilePath -> IO Bool
 runDesktop statePath checkDirectory overrideFolder = do
+  startupBegan <- getMonotonicTimeNSec
   languageValue <- Native.systemLanguage
   (loaded, initialNotice) <- readPreferences statePath languageValue
   let preferences = loaded {savedFolder = case overrideFolder of Just p -> Just p; Nothing -> savedFolder loaded}
@@ -77,69 +81,82 @@ runDesktop statePath checkDirectory overrideFolder = do
     -- A normal native title bar is available in compact mode; the full-screen
     -- mode uses an undecorated, non-topmost window on exactly one display.
     pictures <- Pictures.discoverPictures (takeDirectory statePath </> "backgrounds")
-    rests <- Rest.loadRestAssets window
-    seed <- round . (* 1000000) <$> getPOSIXTime
-    let start chosen startupNotice =
-          -- A failed library restarts the audio session. Acquire a fresh font
-          -- too: an earlier picture/music change may have released the first
-          -- font. The current font is always closed before the GL context.
-          withSessionFont window (map trackTitle (NE.toList chosen) ++ map Pictures.pictureName pictures)
-            $ \liveFont -> Audio.withEngine chosen seed (loudness (restoreSession prefs)) $ \audio -> do
-          desktop <-
-            Desktop
-              <$> newIORef (restoreSession prefs)
-              <*> newIORef prefs
-              <*> newIORef startupNotice
-              <*> newIORef False
-              <*> newIORef 0
-              <*> newEmptyMVar
-              <*> pure liveFont
-              <*> newIORef (map trackTitle (NE.toList chosen))
-              <*> newIORef pictures
-              <*> newIORef Nothing
-              <*> newIORef False
-              <*> newIORef 0
-              <*> newEmptyMVar
-              <*> pure rests
-              <*> newIORef False
-              <*> newIORef Nothing
-              <*> newIORef []
-              <*> pure audio
-              <*> pure statePath
-              <*> pure (isJust checkDirectory)
-          forM_ (Pictures.findPicture (savedPicture prefs) pictures) $ \entry -> do
-            prepared <- Pictures.preparePicture entry
-            case prepared of
-              Left issue ->
-                when (savedBackground prefs == Picture) $
-                  writeIORef (noticeRef desktop) (Just (Pictures.pictureErrorText (savedLanguage prefs) issue))
-              Right image -> do
-                texture <- Pictures.uploadPicture window image
-                writeIORef (pictureRef desktop) (Just (entry, texture))
-                modifyIORef' (preferencesRef desktop) (\p -> p {savedPicture = Just (Pictures.pictureKey entry)})
-          place desktop False
-          now <- R.getTime
-          phase <- newIORef (0 :: Int, now)
-          checks <- newIORef ([] :: [(String, Bool)])
-          pausePosition <- newIORef 0
-          case checkDirectory of
-            Just folder -> createDirectoryIfMissing True folder
-            Nothing -> pure ()
-          loop window desktop checkDirectory phase checks pausePosition now now 0
-    -- An unavailable or corrupt selected library is a recoverable startup
-    -- condition. Device/window failures remain visible rather than looping.
-    result <- tryJust onlyLibraryFailure (start tracks notice)
-    case result of
-      Right success -> pure success
-      Left _ -> start presetTracks (Just "Music files could not be decoded; built-in music is playing.")
+    Rest.withRestAssets window $ \rests -> do
+      seed <- round . (* 1000000) <$> getPOSIXTime
+      let start chosen startupNotice =
+            -- A failed library restarts the audio session. Acquire a fresh font
+            -- too: an earlier picture/music change may have released the first
+            -- font. The current font is always closed before the GL context.
+            withSessionFont window (map trackTitle (NE.toList chosen) ++ map Pictures.pictureName pictures) $
+              \liveFont -> Audio.withEngine chosen seed (loudness (restoreSession prefs)) $ \audio -> do
+                desktop <-
+                  Desktop
+                    <$> newIORef (restoreSession prefs)
+                    <*> newIORef prefs
+                    <*> newIORef startupNotice
+                    <*> newIORef False
+                    <*> newIORef 0
+                    <*> newEmptyMVar
+                    <*> pure liveFont
+                    <*> newIORef (map trackTitle (NE.toList chosen))
+                    <*> newIORef pictures
+                    <*> newIORef Nothing
+                    <*> newIORef False
+                    <*> newIORef 0
+                    <*> newEmptyMVar
+                    <*> pure rests
+                    <*> newIORef False
+                    <*> newIORef Nothing
+                    <*> newIORef []
+                    <*> newIORef Nothing
+                    <*> newIORef []
+                    <*> pure audio
+                    <*> pure statePath
+                    <*> pure (isJust checkDirectory)
+                forM_ (Pictures.findPicture (savedPicture prefs) pictures) $ \entry -> do
+                  prepared <- Pictures.preparePicture entry
+                  case prepared of
+                    Left issue ->
+                      when (savedBackground prefs == Picture) $
+                        writeIORef (noticeRef desktop) (Just (Pictures.pictureErrorText (savedLanguage prefs) issue))
+                    Right image -> do
+                      texture <- Pictures.uploadPicture window image
+                      writeIORef (pictureRef desktop) (Just (entry, texture))
+                      modifyIORef' (preferencesRef desktop) (\p -> p {savedPicture = Just (Pictures.pictureKey entry)})
+                place desktop False
+                now <- R.getTime
+                phase <- newIORef (0 :: Int, now)
+                checks <- newIORef ([] :: [(String, Bool)])
+                pausePosition <- newIORef 0
+                case checkDirectory of
+                  Just folder -> do
+                    createDirectoryIfMissing True folder
+                    startupFinished <- getMonotonicTimeNSec
+                    initialSound <- Audio.snapshot audio
+                    BL.writeFile (folder </> "startup.json")
+                      $ encode
+                      $ object
+                        [ "readyBeforeFirstLoopMs" .= (fromIntegral (startupFinished - startupBegan) / 1e6 :: Double),
+                          "audioClockBeforeFirstLoopSeconds" .= Audio.position initialSound,
+                          "scope" .= ("App entry to ready loop, includes three landscape uploads, font and audio setup; muted check; excludes process-loader time; not first audible sample latency." :: String)
+                        ]
+                  Nothing -> pure ()
+                loop window desktop checkDirectory phase checks pausePosition now now 0
+      -- An unavailable or corrupt selected library is a recoverable startup
+      -- condition. Device/window failures remain visible rather than looping.
+      result <- tryJust onlyLibraryFailure (start tracks notice)
+      case result of
+        Right success -> pure success
+        Left _ -> start presetTracks (Just "Music files could not be decoded; built-in music is playing.")
   where
     onlyLibraryFailure Audio.NoPlayableTracks = Just ()
     onlyLibraryFailure _ = Nothing
 
 withSessionFont :: WindowResources -> [String] -> (IORef View.Typeface -> IO a) -> IO a
-withSessionFont window titles = bracket
-  (View.loadTypeface window titles >>= newIORef)
-  (\ref -> readIORef ref >>= View.unloadTypeface window)
+withSessionFont window titles =
+  bracket
+    (View.loadTypeface window titles >>= newIORef)
+    (\ref -> readIORef ref >>= View.unloadTypeface window)
 
 place :: Desktop -> Bool -> IO ()
 place desktop moveNext = do
@@ -347,22 +364,23 @@ keyboard s _ | viewingMode s == Resting = do
 keyboard s hasFocus = do
   ordinary <-
     pressed
-      ([(KeySpace, TogglePlayback) | not hasFocus] ++
-      [ (KeyR, ToggleRest),
-        (KeyN, NextTrack),
-        (KeyF11, ToggleWindow),
-        (KeyEscape, Escape),
-        (KeyM, NextScreen),
-        (KeyO, OpenMusic),
-        (KeyP, UsePresets),
-        (KeyS, ToggleSettings),
-        (KeyI, OpenPicture),
-        (KeyLeftBracket, BrowsePicture PreviousPicture),
-        (KeyRightBracket, BrowsePicture NextPicture),
-        (KeyB, if restControls then CycleRestShade else CyclePictureShade),
-        (KeyEqual, ChangeVolume 0.025),
-        (KeyMinus, ChangeVolume (-0.025))
-      ])
+      ( [(KeySpace, TogglePlayback) | not hasFocus]
+          ++ [ (KeyR, ToggleRest),
+               (KeyN, NextTrack),
+               (KeyF11, ToggleWindow),
+               (KeyEscape, Escape),
+               (KeyM, NextScreen),
+               (KeyO, OpenMusic),
+               (KeyP, UsePresets),
+               (KeyS, ToggleSettings),
+               (KeyI, OpenPicture),
+               (KeyLeftBracket, BrowsePicture PreviousPicture),
+               (KeyRightBracket, BrowsePicture NextPicture),
+               (KeyB, if restControls then CycleRestShade else CyclePictureShade),
+               (KeyEqual, ChangeVolume 0.025),
+               (KeyMinus, ChangeVolume (-0.025))
+             ]
+      )
   restActions <-
     if restControls
       then
@@ -452,6 +470,9 @@ loop window desktop checkDirectory checkPhase checks pausePosition began previou
   -- A mode/monitor action may have resized the surface since hit testing.
   drawWidth <- R.getScreenWidth
   drawHeight <- R.getScreenHeight
+  invisible <- (||) <$> R.isWindowMinimized <*> R.isWindowHidden
+  let landscapePreview = settingsOpen state && settingsPage state == RestSettings && sceneCollection (restScene state) == Landscapes
+  R.setTargetFPS (if invisible || viewingMode state == Resting || landscapePreview then 30 else 60)
   R.beginDrawing
   let caption = case picture of
         Nothing -> if language state == Japanese then "画像を追加してください" else "Add a background image"
@@ -464,8 +485,15 @@ loop window desktop checkDirectory checkPhase checks pausePosition began previou
                 "bundled:04-night-field.png" -> if language state == Japanese then "夜の抽象画" else "Night field"
                 _ -> Pictures.pictureName entry
            in show position ++ " / " ++ show (length entries) ++ "   " ++ name
-  View.renderWithFocus font (restAssets desktop) drawWidth drawHeight state (snd <$> picture) caption (Audio.title sound) (notice `orElse` Audio.audioWarning sound) (mx, my) drawFocus
+  -- EndDrawing still polls input and paces the loop; music is pumped above.
+  when (not invisible || isJust checkDirectory) $
+    View.renderWithFocus font (restAssets desktop) drawWidth drawHeight state (snd <$> picture) caption (Audio.title sound) (notice `orElse` Audio.audioWarning sound) (mx, my) drawFocus
   R.endDrawing
+  forM_ checkDirectory $ \_ -> do
+    pending <- atomicModifyIORef' (checkSwitchStart desktop) (\value -> (Nothing, value))
+    forM_ pending $ \(scene, startedAt) -> do
+      presentedAt <- R.getTime
+      modifyIORef' (checkSwitchTimes desktop) ((scene, (presentedAt - startedAt) * 1000) :)
   closed <- R.windowShouldClose
   if closed || click == Just View.Quit || keyboardAction == Just View.Quit || finished
     then do
@@ -627,7 +655,7 @@ checkStep window desktop folder phaseRef checks pausePosition elapsed = do
       screenshot (folder </> "pictures-settings.png")
       checkFontRestart window desktop >>= record "font replacement followed by a failed library can restart and draw"
       checkLateSelections window desktop folder >>= mapM_ (uncurry record)
-      record "all eight rest thumbnails are preloaded" (Rest.thumbnailsReady (restAssets desktop))
+      record "all eleven rest thumbnails are preloaded" (Rest.thumbnailsReady (restAssets desktop))
       state <- readIORef (sessionRef desktop)
       record "rest starts with procedural water" (restScene state == TidalLight)
       apply desktop ShowRestSettings
@@ -636,8 +664,8 @@ checkStep window desktop folder phaseRef checks pausePosition elapsed = do
     11 | elapsed > 11.9 -> do
       screenshot (folder </> "rest-settings.png")
       gallery <- readIORef (sessionRef desktop)
-      let cardsWork (width, height) = all (\(scene, Rectangle x y rw rh) -> View.hitTest width height gallery (x + rw / 2, y + rh / 2) == Just (View.Intent (ChooseRestScene scene))) (View.galleryCards width height)
-      record "all eight gallery thumbnails select their scene at compact and desktop sizes" (all cardsWork [(760, 500), (1920, 1080), (2562, 1442)])
+      let cardsWork collection (width, height) = all (\(scene, Rectangle x y rw rh) -> View.hitTest width height gallery {restCollection = collection} (x + rw / 2, y + rh / 2) == Just (View.Intent (ChooseRestScene scene))) (View.galleryCards width height collection)
+      record "all eleven gallery thumbnails select their scene at compact and desktop sizes" (and [cardsWork collection size | collection <- [Landscapes, Atmospheres], size <- [(700, 500), (1920, 1080), (2562, 1442)]])
       record "gallery preview advances without entering rest" (viewingMode gallery == Working && restSeconds gallery > 0)
       apply desktop ToggleWindow
       modifyIORef' (sessionRef desktop) (\s -> s {idleSeconds = 10})
@@ -711,7 +739,8 @@ checkStep window desktop folder phaseRef checks pausePosition elapsed = do
       pure False
     18 | elapsed > 16.7 -> do
       screenshot (folder </> "rest-return.png")
-      record "texture-free procedural shader compiled" (Rest.proceduralReady (restAssets desktop))
+      ready <- Rest.proceduralReady (restAssets desktop)
+      record "procedural shaders compiled" ready
       apply desktop (ChooseRestScene TidalLight)
       apply desktop ToggleRest
       modifyIORef' (sessionRef desktop) (\s -> s {restHintSeconds = 0})
@@ -781,46 +810,58 @@ checkStep window desktop folder phaseRef checks pausePosition elapsed = do
       apply desktop Escape
       advance
       pure False
-    p | p >= 27 && p <= 41 -> do
+    p | p >= 27 && p <= 50 -> do
       let index = (p - 27) `div` 3
-          (choice, name) = [(AmberSea, "amber"), (Shallows, "shallows"), (CloudSea, "clouds"), (Aurora, "aurora"), (InkFlow, "ink")] !! index
+          (choice, name) = [(AmberSea, "amber"), (Shallows, "shallows"), (CloudSea, "clouds"), (Aurora, "aurora"), (InkFlow, "ink"), (BirchLake, "birch"), (AlpineLake, "alpine"), (MeadowStream, "stream")] !! index
       if (p - 27) `mod` 3 == 0
         then do
           apply desktop LeaveRest
           apply desktop ShowRestSettings
+          apply desktop (ShowRestCollection (sceneCollection choice))
+          writeIORef pausePosition (Audio.position sound)
           state <- readIORef (sessionRef desktop)
           w <- R.getScreenWidth
           h <- R.getScreenHeight
-          forM_ (lookup choice (View.galleryCards w h)) $ \(Rectangle x y rw rh) ->
+          forM_ (lookup choice (View.galleryCards w h (restCollection state))) $ \(Rectangle x y rw rh) ->
             forM_ (View.hitTest w h state (x + rw / 2, y + rh / 2)) $ \action -> case action of View.Intent event -> apply desktop event; View.Quit -> pure ()
           selected <- readIORef (sessionRef desktop)
           record ("gallery selection works: " ++ name) (restScene selected == choice)
+          when (sceneCollection choice == Landscapes) $ do
+            selectedAt <- R.getTime
+            writeIORef (checkSwitchStart desktop) (Just (choice, selectedAt))
           apply desktop ToggleRest
           modifyIORef' (sessionRef desktop) (\s -> s {restHintSeconds = 0})
-        else screenshot (folder </> ("procedural-" ++ name ++ (if (p - 27) `mod` 3 == 1 then "-a.png" else "-b.png")))
+        else do
+          screenshot (folder </> ("procedural-" ++ name ++ (if (p - 27) `mod` 3 == 1 then "-a.png" else "-b.png")))
+          when (sceneCollection choice == Landscapes && (p - 27) `mod` 3 == 2) $ do
+            before <- readIORef pausePosition
+            ready <- Rest.proceduralReady (restAssets desktop)
+            record ("music clock advances with a valid landscape: " ++ name) (ready && Audio.audible sound && Audio.position sound > before + 0.3)
       advance
       pure False
-    42 -> do
+    51 -> do
       apply desktop LeaveRest
       apply desktop ShowRestSettings
       advance
       pure False
-    43 -> do
+    52 -> do
       screenshot (folder </> "gallery-fullscreen.png")
       apply desktop ToggleWindow
       apply desktop ShowRestSettings
       advance
       pure False
-    44 -> do
+    53 -> do
       screenshot (folder </> "gallery-compact.png")
       prefs <- readIORef (preferencesRef desktop)
       (reloaded, warning) <- readPreferences (preferencesPath desktop) English
-      record "new scene preference persists and startup returns to work" (warning == Nothing && reloaded == prefs && savedRestScene reloaded == InkFlow && viewingMode (restoreSession reloaded) == Working)
+      record "new scene preference persists and startup returns to work" (warning == Nothing && reloaded == prefs && savedRestScene reloaded == MeadowStream && restCollection (restoreSession reloaded) == Landscapes && viewingMode (restoreSession reloaded) == Working)
       advance
       pure False
-    45 -> do
+    54 -> do
       results <- reverse <$> readIORef checks
       frameTimes <- readIORef (checkFrameTimes desktop)
+      switches <- reverse <$> readIORef (checkSwitchTimes desktop)
+      landscapeDiagnostics <- Rest.landscapeInfo (restAssets desktop)
       let timings scene =
             let samples = sort [ms | (choice, ms) <- frameTimes, choice == scene]
                 percentile fraction = case drop (floor (fraction * fromIntegral (max 0 (length samples - 1)))) samples of
@@ -838,7 +879,9 @@ checkStep window desktop folder phaseRef checks pausePosition elapsed = do
             ( object
                 [ "passed" .= all snd results,
                   "checks" .= [object ["name" .= name, "passed" .= ok] | (name, ok) <- results],
-                  "renderTimingsIncludingCaptures" .= map timings [TidalLight, LightVeil, StarryNight, AmberSea, Shallows, CloudSea, Aurora, InkFlow]
+                  "selectionToFirstEndDrawingMs" .= [object ["scene" .= show scene, "milliseconds" .= ms] | (scene, ms) <- switches],
+                  "landscapeDiagnosticsJSON" .= landscapeDiagnostics,
+                  "renderTimingsIncludingCaptures" .= map timings [minBound .. maxBound]
                 ]
             )
         )
