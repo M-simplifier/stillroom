@@ -16,16 +16,14 @@ import Data.List (find, sort)
 import Data.List.NonEmpty qualified as NE
 import Data.Maybe (fromMaybe, isJust)
 import Data.Time.Clock.POSIX (getPOSIXTime)
-import Foreign (alloca, castPtr, free, nullPtr, peek)
-import Foreign.C (withCString)
 import Raylib.Core qualified as R
-import Raylib.Core.Textures (c'exportImageToMemory, c'loadImageFromScreen, unloadTexture)
+import Raylib.Core.Textures (unloadTexture)
 import Raylib.Internal (WindowResources)
-import Raylib.Internal.Foreign (c'free)
 import Raylib.Types
 import Stillroom.Domain
 import Stillroom.Interface qualified as UI
 import Stillroom.Runtime.Audio qualified as Audio
+import Stillroom.Runtime.Capture (screenshot)
 import Stillroom.Runtime.Native qualified as Native
 import Stillroom.Runtime.Pictures qualified as Pictures
 import Stillroom.Runtime.Render qualified as View
@@ -637,7 +635,6 @@ checkStep window desktop folder phaseRef checks pausePosition elapsed = do
       pure False
     11 | elapsed > 11.9 -> do
       screenshot (folder </> "rest-settings.png")
-      checkInterface desktop folder
       gallery <- readIORef (sessionRef desktop)
       let cardsWork (width, height) = all (\(scene, Rectangle x y rw rh) -> View.hitTest width height gallery (x + rw / 2, y + rh / 2) == Just (View.Intent (ChooseRestScene scene))) (View.galleryCards width height)
       record "all eight gallery thumbnails select their scene at compact and desktop sizes" (all cardsWork [(760, 500), (1920, 1080), (2562, 1442)])
@@ -849,21 +846,7 @@ checkStep window desktop folder phaseRef checks pausePosition elapsed = do
       pure True
     _ -> pure False
 
--- Encode through memory so absolute and Unicode output paths stay in Haskell.
-screenshot :: FilePath -> IO ()
-screenshot file = bracket c'loadImageFromScreen release $ \picture ->
-  withCString ".png" $ \extension -> alloca $ \size ->
-    bracket (c'exportImageToMemory picture extension size) (c'free . castPtr) $ \bytes -> do
-      count <- fromIntegral <$> peek size
-      when (bytes == nullPtr || count <= 0) (throwIO (userError "Screenshot encoding failed."))
-      BS.packCStringLen (castPtr bytes, count) >>= BS.writeFile file
-  where
-    -- Keep the native pixels/encoded bytes out of h-raylib 5.6's linked byte
-    -- lists, just as Pictures does. Both allocations are released on exceptions.
-    release raw = (c'free . castPtr =<< peek (p'image'data raw)) `finally` free raw
-
--- Exercise the real renderer at the minimum supported size in both languages.
--- These are inspection artifacts; no owner preferences are changed.
+-- Exercise font ownership across replacement and failed-library recovery.
 checkFontRestart :: WindowResources -> Desktop -> IO Bool
 checkFontRestart window desktop = do
   failed <- tryJust (\failure -> case failure of Audio.NoPlayableTracks -> Just (); _ -> Nothing) $
@@ -882,26 +865,3 @@ checkFontRestart window desktop = do
       View.render font (restAssets desktop) w h ((initialSession defaultVolume) {windowMode = Compact}) Nothing "" "Fallback 復帰" Nothing (-1, -1)
       R.endDrawing
       pure True
-
-checkInterface :: Desktop -> FilePath -> IO ()
-checkInterface desktop folder = do
-  originalWidth <- R.getScreenWidth
-  originalHeight <- R.getScreenHeight
-  font <- readIORef (fontRef desktop)
-  state <- readIORef (sessionRef desktop)
-  picture <- readIORef (pictureRef desktop)
-  sound <- Audio.snapshot (engine desktop)
-  let restore = R.setWindowSize originalWidth originalHeight >> R.setTargetFPS 60
-  flip finally restore $ do
-    R.setTargetFPS 0
-    forM_ [(lang, name, page, opened) | (lang, name) <- [(English, "en"), (Japanese, "ja")], (page, opened) <- [(RestSettings, True), (DisplaySettings, True), (MusicSettings, True), (RestSettings, False)]] $ \(lang, name, page, opened) -> do
-      R.setWindowSize 700 500
-      let shown = state {language = lang, settingsPage = page, settingsOpen = opened, windowMode = Compact, idleSeconds = 0}
-          draw = R.beginDrawing >> View.renderWithFocus font (restAssets desktop) 700 500 shown (snd <$> picture) "2 / 4   Quiet forest" (Audio.title sound) Nothing (-1,-1) (if page == MusicSettings then Just (UI.Intent OpenMusic) else Nothing) >> R.endDrawing
-      draw >> draw
-      screenshot (folder </> ("ui-" ++ name ++ "-" ++ (if opened then show page else "player") ++ ".png"))
-    R.setWindowSize 1280 800
-    let shown = state {language = Japanese, settingsPage = RestSettings, settingsOpen = True, windowMode = Compact}
-        draw = R.beginDrawing >> View.render font (restAssets desktop) 1280 800 shown (snd <$> picture) "" (Audio.title sound) Nothing (-1,-1) >> R.endDrawing
-    draw >> draw
-    screenshot (folder </> "ui-desktop-gallery.png")

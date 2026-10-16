@@ -1,0 +1,105 @@
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE PatternSynonyms #-}
+
+-- | Deterministic UI inspection through the production renderer. No audio
+-- device, user preferences, native acceptance sequence or personal files.
+module Stillroom.Runtime.Capture (runCapture, screenshot) where
+
+import Control.Exception (bracket, bracket_, finally, throwIO)
+import Control.Monad (forM, unless, when)
+import Data.Aeson (encode, object, (.=))
+import Data.ByteString qualified as BS
+import Data.ByteString.Lazy qualified as BL
+import Foreign (alloca, castPtr, free, nullPtr, peek)
+import Foreign.C (withCString)
+import Raylib.Core qualified as R
+import Raylib.Core.Textures (c'exportImageToMemory, c'loadImageFromScreen)
+import Raylib.Internal.Foreign (c'free)
+import Raylib.Types
+import Stillroom.Domain
+import Stillroom.Interface qualified as UI
+import Stillroom.Runtime.Pictures qualified as Pictures
+import Stillroom.Runtime.Render qualified as View
+import Stillroom.Runtime.Rest qualified as Rest
+import Stillroom.Session
+import System.Directory (createDirectoryIfMissing, doesFileExist, removeFile)
+import System.FilePath ((</>))
+
+runCapture :: FilePath -> IO Bool
+runCapture folder = do
+  createDirectoryIfMissing True folder
+  let report = folder </> "ui-capture.json"
+  exists <- doesFileExist report
+  when exists (removeFile report)
+  R.setTraceLogLevel LogWarning
+  R.setConfigFlags [WindowHidden, WindowAlwaysRun]
+  bracket (R.initWindow 700 500 "Stillroom UI capture") (R.closeWindow . Just) $ \window -> do
+    R.setTargetFPS 0
+    started <- R.getTime
+    bracket (View.loadTypeface window ["Linen"]) (View.unloadTypeface window) $ \font -> do
+      assets <- Rest.loadRestAssets window
+      unless (Rest.proceduralReady assets && Rest.thumbnailsReady assets) $
+        throwIO (userError "UI capture requires the procedural shader and all thumbnails.")
+      entries <- Pictures.discoverPictures (folder </> "backgrounds")
+      entry <-
+        maybe (throwIO (userError "UI capture requires the bundled forest image.")) pure $
+          Pictures.findPicture (Just "bundled:02-quiet-forest.png") (filter ((== "bundled:02-quiet-forest.png") . Pictures.pictureKey) entries)
+      prepared <- Pictures.preparePicture entry >>= either throwIO pure
+      texture <- Pictures.uploadPicture window prepared
+      frames <- forM views $ \(name, lang, page, opened, w, h) -> do
+        R.setWindowSize w h
+        actual <- (,) <$> R.getScreenWidth <*> R.getScreenHeight
+        unless (actual == (w, h)) (throwIO (userError "UI capture surface has unexpected dimensions."))
+        let state =
+              (initialSession defaultVolume)
+                { language = lang,
+                  settingsPage = page,
+                  settingsOpen = opened,
+                  windowMode = Compact,
+                  background = Picture,
+                  restSeconds = 12
+                }
+            caption = UI.local state "2 / 4   Quiet forest" "2 / 4   静かな森"
+            focus = if page == MusicSettings then Just (UI.Intent OpenMusic) else Nothing
+            draw =
+              bracket_ R.beginDrawing R.endDrawing $
+                View.renderWithFocus font assets w h state (Just texture) caption "Linen" Nothing (-1, -1) focus
+            file = name ++ ".png"
+        draw >> draw
+        screenshot (folder </> file)
+        pure (object ["file" .= file, "width" .= w, "height" .= h, "language" .= show lang])
+      finished <- R.getTime
+      BL.writeFile
+        report
+        ( encode
+            ( object
+                [ "completed" .= True,
+                  "captures" .= frames,
+                  "count" .= length frames,
+                  "elapsedSeconds" .= (finished - started),
+                  "audioOpened" .= False,
+                  "personalSettingsRead" .= False
+                ]
+            )
+        )
+      pure True
+  where
+    views :: [(String, Language, SettingsPage, Bool, Int, Int)]
+    views =
+      [ ("ui-" ++ name ++ "-" ++ if opened then show page else "player", lang, page, opened, 700, 500)
+      | (lang, name) <- [(English, "en"), (Japanese, "ja")],
+        (page, opened) <- [(RestSettings, True), (DisplaySettings, True), (MusicSettings, True), (RestSettings, False)]
+      ]
+        ++ [("ui-desktop-gallery", Japanese, RestSettings, True, 1280, 800)]
+
+-- Encode through native memory; Haskell owns the Unicode output path. Keep
+-- decoded and encoded byte buffers out of h-raylib's linked Haskell byte lists.
+screenshot :: FilePath -> IO ()
+screenshot file = bracket c'loadImageFromScreen release $ \picture ->
+  withCString ".png" $ \extension -> alloca $ \size ->
+    bracket (c'exportImageToMemory picture extension size) (c'free . castPtr) $ \bytes -> do
+      count <- fromIntegral <$> peek size
+      when (bytes == nullPtr || count <= 0) (throwIO (userError "Screenshot encoding failed."))
+      BS.packCStringLen (castPtr bytes, count) >>= BS.writeFile file
+  where
+    release raw = (c'free . castPtr =<< peek (p'image'data raw)) `finally` free raw

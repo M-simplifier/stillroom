@@ -25,7 +25,11 @@ The current source passes 33 property/regression groups. The native harness has
 43 assertions covering procedural/MP3 playback, audio clocks, transitions,
 visibility, preferences, generated thumbnails, shader uniforms and normal exit, including font replacement followed by a failed
 library and a fresh rendering session. English/Japanese captures cover every
-settings page at the minimum 700×500 window size.
+settings page at the minimum 700×500 window size. A separate `--capture-ui` path
+produces these UI captures without running the audio/native acceptance sequence;
+the native harness retains all 43 assertions. The development entrypoint keeps
+full logs with concise summaries, and six tooling boundary checks cover failure
+propagation, environment restoration and incomplete-package rejection.
 Captured frames compare all eight procedural scenes and verify a frozen frame
 over different working backgrounds. Retired local image-based rest settings
 migrate to procedural scenes while preserving music and display preferences.

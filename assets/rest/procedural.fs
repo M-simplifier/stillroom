@@ -64,11 +64,11 @@ vec3 waves(vec2 p, float footprint, int count) {
         float angle = fi * 2.39996 + 0.4 * sin(fi * 1.7);
         vec2 d = vec2(cos(angle), sin(angle));
         float theta = dot(p, d) * k + phase * floor(8.0 * sqrt(k) + 0.5) + fi * 2.83;
-        float filter = exp(-k * k * footprint * footprint * 0.5);
+        float attenuation = exp(-k * k * footprint * footprint * 0.5);
         // A weak second harmonic sharpens crests without storm-like breakers.
         float height = sin(theta) - 0.18 * cos(2.0 * theta);
         float slope = cos(theta) + 0.36 * sin(2.0 * theta);
-        result += amplitude * filter * vec3(height, d * k * slope);
+        result += amplitude * attenuation * vec3(height, d * k * slope);
         k *= 1.63;
         amplitude *= 0.56;
     }

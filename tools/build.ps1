@@ -1,4 +1,4 @@
-param([string]$Cabal = 'cabal', [switch]$Offline)
+param([string]$Cabal = 'cabal', [switch]$Offline, [switch]$SkipTests)
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
 $vendor = Join-Path $root 'vendor/gmp'
@@ -61,8 +61,10 @@ try {
     }
     & $Cabal build all @offlineFlag
     if ($LASTEXITCODE) { throw 'Build failed.' }
-    & $Cabal test laws --test-show-details=direct @offlineFlag
-    if ($LASTEXITCODE) { throw 'Property tests failed.' }
+    if (-not $SkipTests) {
+        & $Cabal test laws --test-show-details=direct @offlineFlag
+        if ($LASTEXITCODE) { throw 'Property tests failed.' }
+    }
     & $Cabal check
     if ($LASTEXITCODE) { throw 'Package metadata check failed.' }
     # Cabal's console encoding may be a legacy code page on Windows. The UTF-8
