@@ -70,14 +70,17 @@ function Invoke-Inspection([string]$Mode, [string]$ReportName) {
     } finally { $process.Dispose() }
     $report = Get-Content -LiteralPath (Join-Path $folder $ReportName) -Raw -Encoding UTF8 | ConvertFrom-Json
     if ($Mode -eq 'capture-ui') {
-        if (-not $report.completed -or $report.count -ne 9) { throw 'UI capture is incomplete.' }
+        if (-not $report.completed -or $report.count -ne 18) { throw 'UI capture is incomplete.' }
         foreach ($capture in $report.captures) {
             if (-not (Test-Path -LiteralPath (Join-Path $folder $capture.file) -PathType Leaf)) { throw "Capture missing: $($capture.file)" }
         }
         $result.captures = $report.count
     } else {
-        if ($report.results.Count -ne 18) { throw 'Renderer benchmark is incomplete.' }
-        $result.checks = $report.results.Count
+        if ($report.results.Count -ne 18 -or $report.landscapeResults.Count -ne 36) { throw 'Renderer benchmark is incomplete.' }
+        foreach ($check in $report.landscapeContracts.PSObject.Properties) {
+            if ($check.Value -ne $true) { throw "Landscape cache failed: $($check.Name)" }
+        }
+        $result.checks = $report.results.Count + $report.landscapeResults.Count
     }
 }
 

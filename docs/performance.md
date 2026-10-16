@@ -1,5 +1,61 @@
 # Rendering cost and the Haskell/C boundary
 
+## 0.7 landscape quality and cost
+
+The new landscape renderer batches geometry behind one native call. It retains
+three generated scenes and shares render targets; scene selection does not
+rebuild trees while audio is pumping. GPU work stays inside a window-scoped
+bracket. Shader compilation, generation/drawing and destruction use safe FFI
+calls on the bound render thread. The optimization is retained data and less
+work, not changing long native calls to unsafe.
+
+Measured on Windows 11, GHC 9.6.7, h-raylib 5.6.0.0 and an **NVIDIA GeForce RTX
+3050 6GB Laptop GPU**. Each entry below is the median of two 30-frame run medians,
+after eight warmup frames. The product renderer, scene geometry, shaders, camera
+and 30 Hz clock are the same. Reference uses uncapped raster, full-size reflection
+and 2048 shadows; production uses a maximum 1600×900 raster, half-size reflection
+and 1536 shadows. Values include render submission, swap and `glFinish`, with
+no audio, VSync request, FPS limiter or capture in the timed region.
+
+| Scene | Output | Reference, ms | Production, ms | Frozen production, ms |
+| --- | --- | ---: | ---: | ---: |
+| Birch lake | 1280×720 | 6.47 | 5.52 | 1.07 |
+| Birch lake | 1920×1080 | 9.10 | 7.17 | 2.41 |
+| Alpine lake | 1280×720 | 9.49 | 8.40 | 1.35 |
+| Alpine lake | 1920×1080 | 13.61 | 8.99 | 2.12 |
+| Meadow stream | 1280×720 | 4.87 | 4.01 | 0.88 |
+| Meadow stream | 1920×1080 | 8.15 | 5.71 | 2.03 |
+
+Production reduced these 1080p medians by approximately **21–34%** relative to
+the reference profile. The largest production run p95 was 12.37 ms. This is a
+quality/cost tradeoff, not an identical-pixel speedup, exclusive GPU time, visible
+frame rate or energy measurement. Another run on the same GPU was faster in
+absolute terms; clock state and other desktop load were not isolated. The
+standalone prototype ran on an Intel GPU and is not a controlled baseline here.
+
+An extracted candidate package, using only its own assets/DLL and two generated
+MP3 fixtures with Japanese filenames, passed all 49 native checks. Its app-entry
+to ready-loop time was **2.32 seconds**, including approximately 0.44/1.02/0.49
+seconds for the three geometry generations/uploads. Selection to the first
+`EndDrawing` was **31.9–32.1 ms**. Peak process working set was **517 MiB** during
+the full test, including PNG captures; this is not steady-state memory or GPU
+memory. First audible sample latency and battery use were not measured. Retaining
+three geometry sets has a real memory/startup cost, even though it removes
+generation from scene switching. Shared terrain vertices are evaluated once at
+startup instead of repeating the same height and normal calculations per corner.
+
+Rest and landscape previews target 30 FPS. Frozen views reuse their scene, and
+hidden/minimized windows skip rendering while the audio loop continues. Four
+benchmark contracts check frozen reuse, clock advancement, resize invalidation
+and raster bounds, and selection invalidation. Actual 720p/1080p frames and the
+minimum-size galleries were inspected separately. The earlier eight shader
+scenes and their existing resolution budgets remain available.
+
+For reproduction and generation choices, see [landscape implementation and
+research](procedural-landscapes.md). The remaining sections describe the earlier
+0.6 font/FFI optimization; their before/after workloads are distinct from the
+new landscape profile comparison.
+
 Stillroom keeps its font in native memory and reuses text measurements. This
 avoids rebuilding every glyph bitmap whenever a label is drawn. Frozen rest
 scenes reuse their rendered surface; an opaque rest view does not draw the

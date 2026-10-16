@@ -49,7 +49,9 @@ Synchronous decoding failures remove candidates; asynchronous cancellation
 propagates. Native EOF detection is separate from position, since raylib resets
 its position at the end of a recording.
 
-`Desktop` requests VSync and uses raylib's 60 FPS pacing. `Render` consumes the pure interface and draws the scene, controls and focus ring. `Storage` validates JSON and replaces settings
+`Desktop` requests VSync and uses raylib's 60 FPS pacing for ordinary controls,
+30 FPS for rest, landscape previews and invisible windows. Hidden/minimized
+windows skip drawing while the input/audio loop continues. `Render` consumes the pure interface and draws the scene, controls and focus ring. `Storage` validates JSON and replaces settings
 through a temporary file. `Native` is a small Win32 FFI for monitors, a folder
 dialog, sleep requests and a single-instance signal. The folder dialog runs on a
 bound worker thread while the audio loop continues. The selected and previously
@@ -93,13 +95,13 @@ work. Stale completions release prepared pixels and clear the busy flag without
 replacing textures, audio or saved choices. Native checks inject delayed results
 at the real completion boundary to verify this ordering.
 
-`Runtime.Rest` loads one fragment shader before starting playback. Window resources
+`Runtime.Rest` loads the procedural renderers before starting playback. Window resources
 own the program, output surface and generated thumbnails. A missing shader or
 required uniform shows an opaque dark field with an explanation and an exit route.
 The runtime exits rest on a focused-to-unfocused edge. Hit testing uses the view
 from before mouse activity, preventing hidden buttons from consuming the first click.
 
-All eight `RestScene` constructors use this texture-free program.
+Eight `RestScene` constructors use this texture-free fragment program.
 Resolution, viewport origin, scene choice and a bounded phase are passed to GLSL.
 The fragment shader derives coordinates from `gl_FragCoord`, independently of the
 working image. Heightfield intersections, analytic wave derivatives, reflected
@@ -115,6 +117,19 @@ procedural views render into a reusable, window-owned target with bounded size
 after compositing the opaque target so its alpha cannot expose the wallpaper.
 Scene, dimensions and time invalidate the target; a frozen frame reuses it.
 An opaque rest view skips the hidden working-background pass.
+
+Three additional landscapes use `Runtime.Nature`, an opaque bracketed C context
+inside the same window. It retains three generated geometry sets for immediate
+selection, shares shaders/targets, and releases all GPU allocations before the
+context closes. Haskell passes shader contents once and scalar frame parameters;
+long foreign calls are safe and stay on the bound render thread. Scene/size/time
+invalidate a 30 Hz cache. The landscape raster is bounded at 1600×900 with a
+half-resolution reflection. Nested thumbnail rendering restores its caller's
+framebuffer, viewport and matrices. See [generation and ownership details](procedural-landscapes.md).
+
+`RestCollection` groups the gallery without changing the selected scene. The
+selected scene determines the initial collection when preferences are restored;
+collection browsing itself is transient and has no persistence or audio effect.
 
 Both keyboard routing and the pure reducer enforce exit-only rest. Only Elapse,
 LeaveRest, ToggleRest and Escape are admitted while Resting; every other event

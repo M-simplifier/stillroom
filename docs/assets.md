@@ -16,6 +16,13 @@
   generated locally from the same shader. [Research notes](shader-research.md)
   distinguish references from the independent implementation; no Seascape code is
   bundled.
+- **Procedural landscapes:** original generation in `cbits/nature.c` and shaders
+  in `assets/rest/nature/`, MIT. Three scenes generate terrain, vegetation, stones,
+  height/bone data and reflections; no landscape image, authored model, video or
+  noise texture is distributed. [Landscape research](procedural-landscapes.md)
+  distinguishes references from implemented techniques. The unmodified raylib,
+  raymath and rlgl headers in `cbits/include/` come from pinned h-raylib 5.6.0.0;
+  their zlib notices remain in the headers and `licenses/raylib-native.txt`.
 - **Font:** unmodified Noto Sans CJK JP Regular, renamed on disk to
   `NotoSansJP.otf`. SIL Open Font License 1.1, separate from MIT.
   [Upstream file](https://github.com/notofonts/noto-cjk/blob/f8d157532fbfaeda587e826d4cd5b21a49186f7c/Sans/OTF/Japanese/NotoSansCJKjp-Regular.otf)

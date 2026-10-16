@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.7.0 — 2026-10-16
+
+- Add three locally generated 3D rest landscapes: Birch lake, Alpine lake and
+  Meadow stream. Terrain, plants, stones, materials and motion come from code.
+- Group the gallery into Landscapes and Light & sky, retaining the eight earlier
+  scenes, large preview, direct settings and exit-only rest.
+- Add hierarchical vegetation wind, reflected scenery, filtered water detail,
+  terrain shadows and tone mapping. Use distance-appropriate conifer foliage,
+  irregular ridges and patchy shore vegetation.
+- Warm bounded scene geometry before music starts; reuse it on selection. Share
+  render targets, cap landscape raster size, reuse frozen frames and target
+  30 FPS in rest/previews. Skip invisible drawing while continuing audio.
+- Add actual landscape captures, audio/selection checks, startup/switch timing,
+  cache invariants and a synchronized same-scene quality/cost comparison.
+- Document procedural generation research, resource ownership and measured limits.
+
 ## 0.6.0 — 2026-10-15
 
 - Keep native font glyphs resident and cache measurements instead of rebuilding

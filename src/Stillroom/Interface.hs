@@ -1,19 +1,35 @@
 -- | One pure description drives drawing, pointer targets and keyboard order.
 -- Screen geometry has no native handles and is testable without a GPU.
 module Stillroom.Interface
-  ( Bounds (..), UIAction (..), Style (..), Control (..),
-    controls, hitTest, nextFocus, selected, contains,
-    settingsBounds, dockBounds, previewBounds, galleryCards, volumeBounds,
-    local, backgroundName,
-  ) where
+  ( Bounds (..),
+    UIAction (..),
+    Style (..),
+    Control (..),
+    controls,
+    hitTest,
+    nextFocus,
+    selected,
+    contains,
+    settingsBounds,
+    dockBounds,
+    previewBounds,
+    galleryCards,
+    volumeBounds,
+    local,
+    backgroundName,
+  )
+where
 
 import Data.List (find, findIndex)
 import Stillroom.Domain
 import Stillroom.Session
 
 data Bounds = Bounds !Float !Float !Float !Float deriving (Eq, Show)
+
 data UIAction = Intent Event | Quit deriving (Eq, Show)
+
 data Style = Primary | Subtle | Segment | Navigation | Scene RestScene | Swatch Background | Play Transport | Skip | Close deriving (Eq, Show)
+
 data Control = Control {bounds :: !Bounds, caption :: !String, action :: !UIAction, style :: !Style} deriving (Eq, Show)
 
 local :: Session -> String -> String -> String
@@ -42,21 +58,25 @@ previewBounds w h = Bounds (x + 24) (y + 126) pw (min (pw * 9 / 16) (rh - 310))
     Bounds x y rw rh = settingsBounds w h
     pw = (rw - 48) * 0.56 - 32
 
-galleryCards :: Int -> Int -> [(RestScene, Bounds)]
-galleryCards w h =
-  [ (scene, Bounds (gx + fromIntegral (i `mod` 2) * (cw + 12)) (y + 88 + fromIntegral (i `div` 2) * (ch + 10)) cw ch)
-  | (i, scene) <- zip [0 :: Int ..] [TidalLight, AmberSea, Shallows, CloudSea, StarryNight, Aurora, LightVeil, InkFlow]
+galleryCards :: Int -> Int -> RestCollection -> [(RestScene, Bounds)]
+galleryCards w h collection =
+  [ (scene, Bounds (gx + fromIntegral (i `mod` columns) * (cw + 12)) (y + 126 + fromIntegral (i `div` columns) * (ch + 10)) cw ch)
+  | (i, scene) <- zip [0 :: Int ..] scenes
   ]
   where
     Bounds x y rw rh = settingsBounds w h
     rightWidth = (rw - 48) * 0.44
     gx = x + rw - 24 - rightWidth
-    cw = (rightWidth - 12) / 2
-    ch = (rh - 112 - 30) / 4
+    scenes = if collection == Landscapes then [BirchLake, AlpineLake, MeadowStream] else [TidalLight, AmberSea, Shallows, CloudSea, StarryNight, Aurora, LightVeil, InkFlow]
+    columns = if collection == Landscapes then 1 else 2
+    rows = if collection == Landscapes then 3 else 4
+    cw = (rightWidth - fromIntegral (columns - 1) * 12) / fromIntegral columns
+    ch = (rh - 150 - fromIntegral (rows - 1) * 10) / fromIntegral rows
 
 volumeBounds :: Int -> Int -> Bounds
 volumeBounds w h = Bounds (x + 148) (y + 43) 104 36
-  where Bounds x y _ _ = dockBounds w h
+  where
+    Bounds x y _ _ = dockBounds w h
 
 controls :: Int -> Int -> Session -> [Control]
 controls w h s
@@ -89,19 +109,25 @@ controls w h s
       ]
     page = case settingsPage s of
       RestSettings ->
-        [c r (restSceneName (language s) scene) (ChooseRestScene scene) (Scene scene) | (scene, r) <- galleryCards w h]
-        ++ [c (Bounds px (y + rh - 102) (pw * 0.45 / 2 - 4) 32) (local s "Still" "静止") (ChooseRestMotion Still) Segment,
-            c (Bounds (px + pw * 0.45 / 2) (y + rh - 102) (pw * 0.45 / 2 - 4) 32) (local s "Gentle" "ゆらぎ") (ChooseRestMotion Gentle) Segment]
-        ++ shades (px + pw * 0.49) (y + rh - 102) (pw * 0.51) ChooseRestShade
-        ++ [c (Bounds px (y + rh - 52) pw 38) (local s "Rest in this scene" "この景色で、ひと息") ToggleRest Primary]
+        [ c (Bounds rx (y + 86) (rightWidth / 2 - 4) 28) (local s "Landscapes" "自然の景色") (ShowRestCollection Landscapes) Segment,
+          c (Bounds (rx + rightWidth / 2) (y + 86) (rightWidth / 2 - 4) 28) (local s "Light & sky" "光と空") (ShowRestCollection Atmospheres) Segment
+        ]
+          ++ [c r (restSceneName (language s) scene) (ChooseRestScene scene) (Scene scene) | (scene, r) <- galleryCards w h (restCollection s)]
+          ++ [ c (Bounds px (y + rh - 102) (pw * 0.45 / 2 - 4) 32) (local s "Still" "静止") (ChooseRestMotion Still) Segment,
+               c (Bounds (px + pw * 0.45 / 2) (y + rh - 102) (pw * 0.45 / 2 - 4) 32) (local s "Gentle" "ゆらぎ") (ChooseRestMotion Gentle) Segment
+             ]
+          ++ shades (px + pw * 0.49) (y + rh - 102) (pw * 0.51) ChooseRestShade
+          ++ [c (Bounds px (y + rh - 52) pw 38) (local s "Rest in this scene" "この景色で、ひと息") ToggleRest Primary]
       DisplaySettings ->
-        [c (Bounds rx (y + 114 + fromIntegral i * 44) rightWidth 38) (backgroundName s choice) (ChooseBackground choice) (Swatch choice)
-        | (i, choice) <- zip [0 :: Int ..] [Forest, Slate, Black, Lake, Picture]]
-        ++ [c (Bounds px (y + rh - 102) 40 32) (local s "Previous image" "前の画像") (BrowsePicture PreviousPicture) Subtle,
-            c (Bounds (px + 48) (y + rh - 102) (pw - 96) 32) (local s "Add image…" "画像を追加…") OpenPicture Subtle,
-            c (Bounds (px + pw - 40) (y + rh - 102) 40 32) (local s "Next image" "次の画像") (BrowsePicture NextPicture) Subtle,
-            c (Bounds px (y + rh - 52) pw 38) (local s "Remove imported copy" "登録した画像を解除") RemovePicture Subtle]
-        ++ shades rx (y + rh - 52) rightWidth ChoosePictureShade
+        [ c (Bounds rx (y + 114 + fromIntegral i * 44) rightWidth 38) (backgroundName s choice) (ChooseBackground choice) (Swatch choice)
+        | (i, choice) <- zip [0 :: Int ..] [Forest, Slate, Black, Lake, Picture]
+        ]
+          ++ [ c (Bounds px (y + rh - 102) 40 32) (local s "Previous image" "前の画像") (BrowsePicture PreviousPicture) Subtle,
+               c (Bounds (px + 48) (y + rh - 102) (pw - 96) 32) (local s "Add image…" "画像を追加…") OpenPicture Subtle,
+               c (Bounds (px + pw - 40) (y + rh - 102) 40 32) (local s "Next image" "次の画像") (BrowsePicture NextPicture) Subtle,
+               c (Bounds px (y + rh - 52) pw 38) (local s "Remove imported copy" "登録した画像を解除") RemovePicture Subtle
+             ]
+          ++ shades rx (y + rh - 52) rightWidth ChoosePictureShade
       MusicSettings ->
         [ c (Bounds px (y + 208) pw 40) (local s "Choose a music folder…" "音楽フォルダーを選ぶ…") OpenMusic Subtle,
           c (Bounds px (y + 258) pw 40) (local s "Use built-in music" "内蔵の音楽を使う") UsePresets Subtle,
@@ -118,7 +144,8 @@ hitTest :: Int -> Int -> Session -> (Float, Float) -> Maybe UIAction
 hitTest w h s point@(mx, _)
   | viewingMode s == Resting = Just (Intent LeaveRest)
   | not (controlsVisible s) = Just (Intent ToggleRest)
-  | not (settingsOpen s), contains slider point =
+  | not (settingsOpen s),
+    contains slider point =
       either (const Nothing) (Just . Intent . SetVolume) (volume (realToFrac (max 0 (min 1 ((mx - sx) / sw)))))
   | otherwise = case find (\control -> contains (bounds control) point) (controls w h s) of
       Just control -> Just (action control)
@@ -143,6 +170,7 @@ selected :: Session -> UIAction -> Bool
 selected s (Intent event) = case event of
   ChooseBackground value -> background s == value
   ChooseRestScene value -> restScene s == value
+  ShowRestCollection value -> restCollection s == value
   ChooseRestMotion value -> restMotion s == value
   ChooseRestShade value -> restShade s == value
   ChoosePictureShade value -> pictureShade s == value

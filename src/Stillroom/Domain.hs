@@ -19,6 +19,8 @@ module Stillroom.Domain
     PictureDirection (..),
     ViewingMode (..),
     RestScene (..),
+    RestCollection (..),
+    sceneCollection,
     RestMotion (..),
     SettingsPage (..),
     restSceneName,
@@ -97,8 +99,16 @@ data PictureDirection = PreviousPicture | NextPicture deriving (Eq, Show)
 
 data ViewingMode = Working | Resting deriving (Eq, Show)
 
-data RestScene = TidalLight | LightVeil | StarryNight | AmberSea | Shallows | CloudSea | Aurora | InkFlow
+data RestScene = TidalLight | LightVeil | StarryNight | AmberSea | Shallows | CloudSea | Aurora | InkFlow | BirchLake | AlpineLake | MeadowStream
   deriving (Eq, Enum, Bounded, Show, Read)
+
+data RestCollection = Landscapes | Atmospheres deriving (Eq, Enum, Bounded, Show)
+
+sceneCollection :: RestScene -> RestCollection
+sceneCollection BirchLake = Landscapes
+sceneCollection AlpineLake = Landscapes
+sceneCollection MeadowStream = Landscapes
+sceneCollection _ = Atmospheres
 
 data RestMotion = Still | Gentle deriving (Eq, Enum, Bounded, Show, Read)
 
@@ -121,6 +131,12 @@ restSceneName English Shallows = "Sunlit shallows"
 restSceneName English CloudSea = "Sea of clouds"
 restSceneName English Aurora = "Northern lights"
 restSceneName English InkFlow = "Flowing ink"
+restSceneName Japanese BirchLake = "白樺の湖畔"
+restSceneName Japanese AlpineLake = "山あいの湖"
+restSceneName Japanese MeadowStream = "草原の小川"
+restSceneName English BirchLake = "Birch lake"
+restSceneName English AlpineLake = "Alpine lake"
+restSceneName English MeadowStream = "Meadow stream"
 
 restSceneDescription :: Language -> RestScene -> String
 restSceneDescription Japanese TidalLight = "青い水面。重なる波と空の反射。"
@@ -139,6 +155,12 @@ restSceneDescription English Shallows = "Clear water and light moving across the
 restSceneDescription English CloudSea = "Above the clouds, with soft shadows and open sky."
 restSceneDescription English Aurora = "Quiet curtains of light in the polar night."
 restSceneDescription English InkFlow = "Slow currents of ink and celadon."
+restSceneDescription Japanese BirchLake = "白樺と草のゆらぎ。湖面に映る、明るい空。"
+restSceneDescription Japanese AlpineLake = "針葉樹と岩の岸辺。遠い稜線を映す湖。"
+restSceneDescription Japanese MeadowStream = "草原を曲がる小川。風が通る、ひらけた景色。"
+restSceneDescription English BirchLake = "Birches and grass in the breeze, reflected in a quiet lake."
+restSceneDescription English AlpineLake = "Evergreen trees, rocky shores and distant mountain ridges."
+restSceneDescription English MeadowStream = "A stream winding through an open, wind-swept meadow."
 
 restMotionName :: Language -> RestMotion -> String
 restMotionName Japanese Still = "静止"

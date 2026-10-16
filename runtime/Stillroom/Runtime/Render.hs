@@ -1,4 +1,5 @@
 {-# LANGUAGE PatternSynonyms #-}
+
 module Stillroom.Runtime.Render (UIAction (..), Typeface, loadTypeface, unloadTypeface, render, renderWithFocus, hitTest, galleryCards, allInterfaceText) where
 
 import Control.Monad (forM_, when)
@@ -40,15 +41,23 @@ allInterfaceText =
     ++ "休息静止景色明るさ動き設定背景をクリック、またはRで休息。クリックかEscで戻る休息の景色を描画できません。クリックかEscで戻ります。"
     ++ "作業中の景色音楽再生中の曲表示言語画像の明るさ音は休息中も、そのまま続きます。"
     ++ concat [restSceneName l scene ++ restSceneDescription l scene | l <- [English, Japanese], scene <- [minBound .. maxBound]]
-    ++ concat [UI.caption c | l <- [English, Japanese], t <- [Playing, Paused], page <- [DisplaySettings, RestSettings, MusicSettings], opened <- [True, False], mode <- [Fullscreen, Compact],
-          let s = (initialSession defaultVolume) {language = l, transport = t, settingsOpen = opened, settingsPage = page, windowMode = mode}, c <- UI.controls 760 500 s]
+    ++ concat
+      [ UI.caption c
+      | l <- [English, Japanese],
+        t <- [Playing, Paused],
+        page <- [DisplaySettings, RestSettings, MusicSettings],
+        opened <- [True, False],
+        mode <- [Fullscreen, Compact],
+        let s = (initialSession defaultVolume) {language = l, transport = t, settingsOpen = opened, settingsPage = page, windowMode = mode},
+        c <- UI.controls 760 500 s
+      ]
     ++ concat [pictureErrorText l issue | l <- [English, Japanese], issue <- [ImageUnavailable, UnsupportedImage, ImageTooLarge, ImageDecodeFailed]]
 
 rectangle :: UI.Bounds -> Rectangle
 rectangle (UI.Bounds x y w h) = Rectangle x y w h
 
-galleryCards :: Int -> Int -> [(RestScene, Rectangle)]
-galleryCards w h = [(scene, rectangle r) | (scene, r) <- UI.galleryCards w h]
+galleryCards :: Int -> Int -> RestCollection -> [(RestScene, Rectangle)]
+galleryCards w h collection = [(scene, rectangle r) | (scene, r) <- UI.galleryCards w h collection]
 
 hitTest :: Int -> Int -> Session -> (Float, Float) -> Maybe UIAction
 hitTest = UI.hitTest
@@ -70,9 +79,10 @@ renderWithFocus font assets w h s picture pictureCaption track message mouse foc
   when (viewingMode s == Working) $ drawWorking (Rectangle 0 0 (fromIntegral w) (fromIntegral h)) (background s) picture (pictureShade s)
   when (viewingMode s == Resting) $ do
     Rest.renderRest assets w h s
-    let issue = Rest.restIssue assets s
+    issue <- Rest.restIssue assets s
     when (restHintSeconds s > 0 || maybe False (const True) issue) $ do
-      let width = min 620 (fromIntegral w - 48); left = (fromIntegral w - width) / 2
+      let width = min 620 (fromIntegral w - 48)
+          left = (fromIntegral w - width) / 2
           r = Rectangle left (fromIntegral h - 78) width 40
       panel r
       centered (maybe (label "Click or Esc to return" "クリックかEscで戻る") id issue) r 14 secondary
@@ -115,7 +125,8 @@ renderWithFocus font assets w h s picture pictureCaption track message mouse foc
         RestSettings -> do
           text (restSceneName (language s) (restScene s)) px (y + 88) 24 primary
           Rest.renderPreview assets h preview s
-          wrapped (maybe (restSceneDescription (language s) (restScene s)) id (Rest.restIssue assets s)) px (py + ph + 13) pw 16 secondary
+          issue <- Rest.restIssue assets s
+          wrapped (maybe (restSceneDescription (language s) (restScene s)) id issue) px (py + ph + 13) pw 16 secondary
           text (label "Motion" "動き") px (y + rh - 124) 14 secondary
           text (label "Brightness" "明るさ") (px + pw * 0.49) (y + rh - 124) 14 secondary
         DisplaySettings -> do
@@ -178,7 +189,8 @@ renderWithFocus font assets w h s picture pictureCaption track message mouse foc
           when chosen checkMark
         kind -> do
           when (hovered || (settingsOpen s && kind == UI.Subtle)) (drawRectangleRounded r 0.2 8 fill)
-          let cx = a + cw / 2; cy = b + ch / 2
+          let cx = a + cw / 2
+              cy = b + ch / 2
               line ax ay bx by = drawLineEx (Vector2 ax ay) (Vector2 bx by) 1.8 primary
               triangle = drawTriangle (Vector2 (cx - 4) (cy - 7)) (Vector2 (cx - 4) (cy + 7)) (Vector2 (cx + 7) cy) primary
           case kind of
@@ -200,8 +212,11 @@ drawWorking :: Rectangle -> Background -> Maybe Texture -> PictureShade -> IO ()
 drawWorking r@(Rectangle x y w h) choice picture shade = do
   drawBackground r choice
   when (choice == Picture) $ forM_ picture $ \texture -> do
-    let tw = fromIntegral (texture'width texture); th = fromIntegral (texture'height texture)
-        scale = max (w / tw) (h / th); cropW = w / scale; cropH = h / scale
+    let tw = fromIntegral (texture'width texture)
+        th = fromIntegral (texture'height texture)
+        scale = max (w / tw) (h / th)
+        cropW = w / scale
+        cropH = h / scale
     drawTexturePro texture (Rectangle ((tw - cropW) / 2) ((th - cropH) / 2) cropW cropH) r (Vector2 0 0) 0 (Color 255 255 255 255)
     drawRectangleRec (Rectangle x y w h) (Color 0 0 0 (fromIntegral (shadeOpacity shade)))
 
@@ -214,9 +229,11 @@ drawBackground (Rectangle ox oy wf hf) Lake = do
   drawRectangleGradientV (round ox) (round oy) (round wf) (round hf) (Color 53 65 63 255) (Color 21 33 32 255)
   let horizon = oy + hf * 0.48
       ridge shift base amplitude color = forM_ [0 .. 118 :: Int] $ \i -> do
-        let x1 = ox + wf * fromIntegral i / 119; x2 = ox + wf * fromIntegral (i + 1) / 119
+        let x1 = ox + wf * fromIntegral i / 119
+            x2 = ox + wf * fromIntegral (i + 1) / 119
             height x = oy + base - amplitude * (0.5 + 0.23 * sin ((x - ox) / wf * 12 + shift) + 0.19 * sin ((x - ox) / wf * 23 + shift * 2))
-            y1 = height x1; y2 = height x2
+            y1 = height x1
+            y2 = height x2
         drawTriangle (Vector2 x1 y1) (Vector2 x1 horizon) (Vector2 x2 y2) color
         drawTriangle (Vector2 x2 y2) (Vector2 x1 horizon) (Vector2 x2 horizon) color
   ridge 1 (hf * 0.40) (hf * 0.13) (Color 43 59 57 255)

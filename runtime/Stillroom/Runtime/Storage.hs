@@ -121,6 +121,7 @@ restoreSession p =
     { background = savedBackground p,
       pictureShade = savedPictureShade p,
       restScene = savedRestScene p,
+      restCollection = sceneCollection (savedRestScene p),
       restMotion = savedRestMotion p,
       restShade = savedRestShade p,
       windowMode = savedWindow p,

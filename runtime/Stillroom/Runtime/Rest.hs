@@ -4,34 +4,37 @@
 -- neither the music nor the normal picture. All resources belong to the window.
 module Stillroom.Runtime.Rest
   ( RestAssets,
-    loadRestAssets,
+    withRestAssets,
     renderRest,
     renderPreview,
     renderThumbnail,
     restIssue,
     thumbnailsReady,
     proceduralReady,
+    landscapeInfo,
+    landscapeReference,
   )
 where
 
 import Control.Exception (IOException, bracket_, catch)
 import Control.Monad (forM, when)
 import Data.ByteString.Char8 qualified as BSC
-import Data.Maybe (isJust)
 import Data.IORef
+import Data.Maybe (isJust)
 import Raylib.Core qualified as R
 import Raylib.Core.Shapes (drawRectangleRec)
 import Raylib.Core.Textures (drawTexturePro, loadRenderTexture, setTextureFilter)
 import Raylib.Internal (WindowResources, managed)
 import Raylib.Types
 import Stillroom.Domain
+import Stillroom.Runtime.Nature qualified as Nature
 import Stillroom.Runtime.Pictures qualified as Pictures
 import Stillroom.Session
 import System.FilePath ((</>))
 
 data ProceduralShader = ProceduralShader !Shader !Int !Int !Int !Int
 
-data RestAssets = RestAssets (Maybe ProceduralShader) [(RestScene, Texture)] RenderTexture (IORef (Maybe (RestScene, Int, Int, Double)))
+data RestAssets = RestAssets Nature.Nature (Maybe ProceduralShader) [(RestScene, Texture)] RenderTexture (IORef (Maybe (RestScene, Int, Int, Double)))
 
 proceduralIndex :: RestScene -> Int
 proceduralIndex TidalLight = 0
@@ -42,6 +45,9 @@ proceduralIndex Shallows = 4
 proceduralIndex CloudSea = 5
 proceduralIndex Aurora = 6
 proceduralIndex InkFlow = 7
+proceduralIndex BirchLake = 0
+proceduralIndex AlpineLake = 0
+proceduralIndex MeadowStream = 0
 
 loadProgram :: WindowResources -> FilePath -> IO (Maybe Shader)
 loadProgram window name = do
@@ -50,8 +56,11 @@ loadProgram window name = do
       `catch` (\(_ :: IOException) -> pure Nothing)
   traverse (\code -> managed window (R.loadShaderFromMemory Nothing (Just code))) source
 
-loadRestAssets :: WindowResources -> IO RestAssets
-loadRestAssets window = do
+withRestAssets :: WindowResources -> (RestAssets -> IO a) -> IO a
+withRestAssets window action = Nature.withNature $ \native -> loadRestAssets window native >>= action
+
+loadRestAssets :: WindowResources -> Nature.Nature -> IO RestAssets
+loadRestAssets window native = do
   program <- loadProgram window "procedural.fs"
   procedural <- case program of
     Nothing -> pure Nothing
@@ -68,32 +77,43 @@ loadRestAssets window = do
   surface <- managed window (loadRenderTexture 1920 1200)
   _ <- setTextureFilter (renderTexture'texture surface) TextureFilterBilinear
   rendered <- newIORef Nothing
-  let assets = RestAssets procedural [] surface rendered
+  let assets = RestAssets native procedural [] surface rendered
   thumbs <- forM [minBound .. maxBound] $ \scene -> do
     target <- managed window (loadRenderTexture 320 180)
     _ <- setTextureFilter (renderTexture'texture target) TextureFilterBilinear
     bracket_ (R.beginTextureMode target) R.endTextureMode $
       renderPreview assets 180 (Rectangle 0 0 320 180) ((initialSession defaultVolume) {restScene = scene, restShade = Original})
     pure (scene, renderTexture'texture target)
-  pure (RestAssets procedural thumbs surface rendered)
+  pure (RestAssets native procedural thumbs surface rendered)
 
 thumbnailsReady :: RestAssets -> Bool
-thumbnailsReady (RestAssets _ thumbs _ _) = all ready [minBound .. maxBound]
+thumbnailsReady (RestAssets _ _ thumbs _ _) = all ready [minBound .. maxBound]
   where
     ready scene = maybe False ((> 0) . texture'id) (lookup scene thumbs)
 
-proceduralReady :: RestAssets -> Bool
-proceduralReady (RestAssets shader _ _ _) = isJust shader
+proceduralReady :: RestAssets -> IO Bool
+proceduralReady (RestAssets native shader _ _ _) = (isJust shader &&) <$> Nature.available native
 
-restIssue :: RestAssets -> Session -> Maybe String
-restIssue (RestAssets procedural _ _ _) s
-  | not (isJust procedural) = Just (local "Rest rendering unavailable. Click or Esc to return." "休息の景色を描画できません。クリックかEscで戻ります。")
-  | otherwise = Nothing
+landscapeInfo :: RestAssets -> IO String
+landscapeInfo (RestAssets native _ _ _ _) = Nature.info native
+
+landscapeReference :: RestAssets -> Bool -> IO ()
+landscapeReference (RestAssets native _ _ _ _) = Nature.reference native
+
+restIssue :: RestAssets -> Session -> IO (Maybe String)
+restIssue (RestAssets native procedural _ _ _) s = do
+  ready <- if sceneCollection (restScene s) == Landscapes then Nature.available native else pure (isJust procedural)
+  pure (if ready then Nothing else Just (local "Rest rendering unavailable. Click or Esc to return." "休息の景色を描画できません。クリックかEscで戻ります。"))
   where
     local en ja = if language s == Japanese then ja else en
 
 renderRest :: RestAssets -> Int -> Int -> Session -> IO ()
-renderRest assets@(RestAssets _ _ target rendered) w h s = do
+renderRest assets w h s
+  | sceneCollection (restScene s) == Landscapes = renderPreview assets h (Rectangle 0 0 (fromIntegral w) (fromIntegral h)) s
+  | otherwise = renderProceduralRest assets w h s
+
+renderProceduralRest :: RestAssets -> Int -> Int -> Session -> IO ()
+renderProceduralRest assets@(RestAssets _ _ _ target rendered) w h s = do
   let limit = if restScene s == CloudSea then 1120 else 1920 :: Float
       ratio = min 1 (min (limit / fromIntegral w) (1200 / fromIntegral h))
       rw = max 1 (floor (fromIntegral w * ratio)) :: Int
@@ -121,22 +141,31 @@ renderRest assets@(RestAssets _ _ target rendered) w h s = do
   drawRectangleRec (Rectangle 0 0 (fromIntegral w) (fromIntegral h)) (Color 0 0 0 (fromIntegral (shadeOpacity (restShade s))))
 
 renderThumbnail :: RestAssets -> RestScene -> Rectangle -> IO ()
-renderThumbnail (RestAssets _ thumbs _ _) scene rectangle =
-  forM (lookup scene thumbs) (\texture -> drawTexturePro texture (Rectangle 0 0 320 (-180)) rectangle (Vector2 0 0) 0 (Color 255 255 255 255)) >> pure ()
+renderThumbnail (RestAssets _ _ thumbs _ _) scene rectangle@(Rectangle _ _ w h) =
+  forM (lookup scene thumbs) (\texture -> drawTexturePro texture source rectangle (Vector2 0 0) 0 (Color 255 255 255 255)) >> pure ()
+  where
+    scale = max (w / 320) (h / 180)
+    sw = w / scale
+    sh = h / scale
+    source = Rectangle ((320 - sw) / 2) ((180 - sh) / 2) sw (-sh)
 
 renderPreview :: RestAssets -> Int -> Rectangle -> Session -> IO ()
-renderPreview (RestAssets procedural _ _ _) viewportHeight rectangle@(Rectangle x y wf hf) s = do
+renderPreview (RestAssets native procedural _ _ _) viewportHeight rectangle@(Rectangle x y wf hf) s = do
   drawRectangleRec rectangle (Color 5 13 18 255)
-  case procedural of
-    Nothing -> pure ()
-    Just (ProceduralShader program time size choice origin) -> do
-      R.nativeSetShaderValue program time (ShaderUniformFloat phase)
-      R.nativeSetShaderValue program size (ShaderUniformVec2 (Vector2 wf hf))
-      R.nativeSetShaderValue program origin (ShaderUniformVec2 (Vector2 x (fromIntegral viewportHeight - y - hf)))
-      R.nativeSetShaderValue program choice (ShaderUniformInt (proceduralIndex (restScene s)))
-      bracket_ (R.beginShaderMode program) R.endShaderMode $
-        drawRectangleRec rectangle (Color 255 255 255 255)
-      drawRectangleRec rectangle (Color 0 0 0 (fromIntegral (shadeOpacity (restShade s))))
+  if sceneCollection (restScene s) == Landscapes
+    then do
+      _ <- Nature.draw native (restScene s) (restSeconds s) x y wf hf
+      pure ()
+    else case procedural of
+      Nothing -> pure ()
+      Just (ProceduralShader program time size choice origin) -> do
+        R.nativeSetShaderValue program time (ShaderUniformFloat phase)
+        R.nativeSetShaderValue program size (ShaderUniformVec2 (Vector2 wf hf))
+        R.nativeSetShaderValue program origin (ShaderUniformVec2 (Vector2 x (fromIntegral viewportHeight - y - hf)))
+        R.nativeSetShaderValue program choice (ShaderUniformInt (proceduralIndex (restScene s)))
+        bracket_ (R.beginShaderMode program) R.endShaderMode $
+          drawRectangleRec rectangle (Color 255 255 255 255)
+  drawRectangleRec rectangle (Color 0 0 0 (fromIntegral (shadeOpacity (restShade s))))
   where
     phase =
       let cycles = restSeconds s / 240
