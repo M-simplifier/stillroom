@@ -33,6 +33,8 @@ runBenchmark output = do
     R.setTargetFPS 0
     font <- View.loadTypeface window [title]
     assets <- Rest.loadRestAssets window
+    unless (Rest.proceduralReady assets && Rest.thumbnailsReady assets) $
+      ioError (userError "Renderer benchmark requires the procedural shader and all thumbnails.")
     rows <- forM [1 .. 3 :: Int] $ \repetition -> forM cases $ \(name, w, h, state) -> do
       R.setWindowSize w h
       let draw :: Int -> IO ()

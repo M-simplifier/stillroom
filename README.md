@@ -48,18 +48,25 @@ See the [architecture](docs/architecture.md) for the ownership rules.
 On Windows x64, install GHC **9.6.7**, Cabal **3.12.1.0** and GHCup's MSYS2 tools:
 
 ```powershell
-./tools/build.ps1
-cabal run stillroom
+./tools/dev.ps1 Build -Online  # First build: fetch pinned dependencies
+./tools/dev.ps1 Capture       # Incremental build + nine UI screenshots
 ```
 
-The package index and dependencies are pinned. The first native dependency build
-can take several minutes. Run `./tools/package.ps1` to package the already-built
-executable with its font, replaceable GMP DLL, corresponding library source and
-notices. See [GMP distribution](docs/gmp.md). Native checks need a real graphics/audio device:
+The entrypoint finds the pinned tools, sets up GMP and development assets, then
+restores the caller's environment. Later runs are offline by default. Full logs
+and a JSON summary go to a fresh folder under `scratch/dev`; the console prints
+the result, commit, executable hash and report path. The first native dependency
+build can take several minutes. Native checks need real graphics/audio devices:
 
 ```powershell
-./tools/verify-native.ps1 -Executable (cabal list-bin exe:stillroom)
+./tools/dev.ps1 Check
+./tools/dev.ps1 CheckPackage -Executable C:/path/to/extracted/stillroom.exe
 ```
+
+Package checks require the extracted application's own assets and DLL; they
+cannot fall back to development assets. See [development commands and check
+selection](docs/development.md), including packaging and renderer benchmarks.
+See [GMP distribution](docs/gmp.md) for library source and notices.
 
 ## Scope and license
 

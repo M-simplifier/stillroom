@@ -138,3 +138,11 @@ clock progression, pause/resume, crossfade state, automatic transition, control
 visibility, compact mode and successful process shutdown, saving screenshots and
 JSON. This verifies native control and lifecycle, not perceived audio quality or
 clinical effectiveness.
+
+Interface inspection is a separate `--capture-ui OUTPUT` path through the same
+production renderer. It draws fixed EN/JP states at minimum and desktop sizes,
+owns its font and GPU resources for one hidden window, and opens no audio device
+or personal settings. Separating it from `--check` keeps repeated layout captures
+small without replacing state, audio or native-lifetime acceptance. The
+[development entrypoint](development.md) records logs and restores its environment;
+package acceptance explicitly excludes development data paths.
