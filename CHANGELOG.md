@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.8.0 — 2026-10-18
+
+- Integrate one continuous journey: an observation railcar, safe stops and boarding,
+  free walking and automatic strolling through six generated habitats.
+- Save the world seed and current place between breaks and application launches.
+  Choose a new landscape from the rest gallery; keep the eleven quiet scenes.
+- Load journey meshes lazily in bounded steps while music continues. Cap nearby
+  and distant chunk caches, and release them when choosing a quiet scene.
+- Keep Esc/R, focus-loss return and music/settings isolation; add a visible return
+  button, a short fading control guide, mouse look and keyboard-only look controls.
+- Add seeded-field, bookmark and movement laws; integrated native acceptance,
+  long-distance streaming/regeneration checks, and EN/JA journey captures.
+- Redesign the official page around the railcar film, with Japanese/English pages,
+  responsive layouts and explicit video playback.
+
 ## 0.7.0 — 2026-10-16
 
 - Add three locally generated 3D rest landscapes: Birch lake, Alpine lake and

@@ -15,6 +15,7 @@ module Stillroom.Interface
     previewBounds,
     galleryCards,
     volumeBounds,
+    journeyExitBounds,
     local,
     backgroundName,
   )
@@ -67,9 +68,9 @@ galleryCards w h collection =
     Bounds x y rw rh = settingsBounds w h
     rightWidth = (rw - 48) * 0.44
     gx = x + rw - 24 - rightWidth
-    scenes = if collection == Landscapes then [BirchLake, AlpineLake, MeadowStream] else [TidalLight, AmberSea, Shallows, CloudSea, StarryNight, Aurora, LightVeil, InkFlow]
-    columns = if collection == Landscapes then 1 else 2
-    rows = if collection == Landscapes then 3 else 4
+    scenes = case collection of Journeys -> [RailJourney]; Landscapes -> [BirchLake, AlpineLake, MeadowStream]; Atmospheres -> [TidalLight, AmberSea, Shallows, CloudSea, StarryNight, Aurora, LightVeil, InkFlow]
+    columns = if collection == Atmospheres then 2 else 1
+    rows = if collection == Atmospheres then 4 else 3 :: Int
     cw = (rightWidth - fromIntegral (columns - 1) * 12) / fromIntegral columns
     ch = (rh - 150 - fromIntegral (rows - 1) * 10) / fromIntegral rows
 
@@ -77,6 +78,9 @@ volumeBounds :: Int -> Int -> Bounds
 volumeBounds w h = Bounds (x + 148) (y + 43) 104 36
   where
     Bounds x y _ _ = dockBounds w h
+
+journeyExitBounds :: Int -> Bounds
+journeyExitBounds w = Bounds (fromIntegral w - 192) 20 172 36
 
 controls :: Int -> Int -> Session -> [Control]
 controls w h s
@@ -109,15 +113,19 @@ controls w h s
       ]
     page = case settingsPage s of
       RestSettings ->
-        [ c (Bounds rx (y + 86) (rightWidth / 2 - 4) 28) (local s "Landscapes" "自然の景色") (ShowRestCollection Landscapes) Segment,
-          c (Bounds (rx + rightWidth / 2) (y + 86) (rightWidth / 2 - 4) 28) (local s "Light & sky" "光と空") (ShowRestCollection Atmospheres) Segment
+        [ c (Bounds (rx + fromIntegral i * rightWidth / 3) (y + 86) (rightWidth / 3 - 4) 28) title (ShowRestCollection collection) Segment
+        | (i, (title, collection)) <- zip [0 :: Int ..] [(local s "Journey" "旅", Journeys), (local s "Nature" "自然", Landscapes), (local s "Light & sky" "光と空", Atmospheres)]
         ]
           ++ [c r (restSceneName (language s) scene) (ChooseRestScene scene) (Scene scene) | (scene, r) <- galleryCards w h (restCollection s)]
-          ++ [ c (Bounds px (y + rh - 102) (pw * 0.45 / 2 - 4) 32) (local s "Still" "静止") (ChooseRestMotion Still) Segment,
-               c (Bounds (px + pw * 0.45 / 2) (y + rh - 102) (pw * 0.45 / 2 - 4) 32) (local s "Gentle" "ゆらぎ") (ChooseRestMotion Gentle) Segment
-             ]
+          ++ ( if restScene s == RailJourney
+                 then [c (Bounds px (y + rh - 102) (pw * 0.45) 32) (local s "New landscape" "新しい景色") NewJourney Subtle]
+                 else
+                   [ c (Bounds px (y + rh - 102) (pw * 0.45 / 2 - 4) 32) (local s "Still" "静止") (ChooseRestMotion Still) Segment,
+                     c (Bounds (px + pw * 0.45 / 2) (y + rh - 102) (pw * 0.45 / 2 - 4) 32) (local s "Gentle" "ゆらぎ") (ChooseRestMotion Gentle) Segment
+                   ]
+             )
           ++ shades (px + pw * 0.49) (y + rh - 102) (pw * 0.51) ChooseRestShade
-          ++ [c (Bounds px (y + rh - 52) pw 38) (local s "Rest in this scene" "この景色で、ひと息") ToggleRest Primary]
+          ++ [c (Bounds px (y + rh - 52) pw 38) (if restScene s == RailJourney then local s "Continue the journey" "旅を続ける" else local s "Rest in this scene" "この景色で、ひと息") ToggleRest Primary]
       DisplaySettings ->
         [ c (Bounds rx (y + 114 + fromIntegral i * 44) rightWidth 38) (backgroundName s choice) (ChooseBackground choice) (Swatch choice)
         | (i, choice) <- zip [0 :: Int ..] [Forest, Slate, Black, Lake, Picture]
@@ -142,6 +150,8 @@ contains (Bounds x y w h) (px, py) = px >= x && px <= x + w && py >= y && py <= 
 
 hitTest :: Int -> Int -> Session -> (Float, Float) -> Maybe UIAction
 hitTest w h s point@(mx, _)
+  | viewingMode s == Resting && restScene s == RailJourney =
+      if contains (journeyExitBounds w) point then Just (Intent LeaveRest) else Nothing
   | viewingMode s == Resting = Just (Intent LeaveRest)
   | not (controlsVisible s) = Just (Intent ToggleRest)
   | not (settingsOpen s),

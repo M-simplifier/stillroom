@@ -8,7 +8,7 @@ leave it alone and the controls disappear into a quiet, static screen.
 · [Guide](docs/guide.md) · [休息モードの使い方](docs/rest-mode.md)
 · [Architecture](docs/architecture.md) · [Performance](docs/performance.md)
 · [Interface design](docs/design.md)
-· [Procedural landscapes](docs/procedural-landscapes.md)
+· [Procedural landscapes](docs/procedural-landscapes.md) · [The quiet line](docs/journeys.md)
 
 ![Stillroom in compact mode](docs/player.png)
 
@@ -24,8 +24,13 @@ leave it alone and the controls disappear into a quiet, static screen.
   water, sunset, shallows, clouds, aurora, ink, light and stars. Set motion and
   brightness before resting. Scenery is generated locally from geometry and
   shaders, without landscape image, model or video assets.
-- Click the background or press **R** to rest. Only leaving the scene is possible
-  during rest; click or press **Esc/R** to return. Music continues throughout.
+- A continuous journey through six procedural habitats: ride an observation
+  railcar, stop and step onto safe ground, walk freely or enable automatic walking.
+  Your seed and place are saved between breaks and launches. New landscapes are
+  an explicit choice in Settings → Rest → Journey.
+- Click the background or press **R** to rest. **Esc/R** returns to work immediately.
+  The eleven quiet scenes also leave on click; the journey uses click to look
+  around and has a visible return button. Music continues throughout.
 - Three clear settings pages, a large scene preview, direct motion/brightness
   choices, and keyboard focus navigation with Tab, Shift-Tab and Enter.
 - A native app icon for Explorer, shortcuts and the taskbar.
@@ -37,7 +42,9 @@ is needed to use the Windows binary. The executable is unsigned.
 
 ![Choose a procedural rest scene before entering rest](docs/rest-gallery.png)
 
-![A lake, birches and moving grass generated locally](docs/rest-landscape.png)
+![A railcar journey through a generated landscape](docs/journey.png)
+
+[Watch the journey on the website](https://m-simplifier.github.io/stillroom/#journey)
 
 ## A functional core
 
@@ -53,7 +60,7 @@ On Windows x64, install GHC **9.6.7**, Cabal **3.12.1.0** and GHCup's MSYS2 tool
 
 ```powershell
 ./tools/dev.ps1 Build -Online  # First build: fetch pinned dependencies
-./tools/dev.ps1 Capture       # Incremental build + 18 UI/landscape screenshots
+./tools/dev.ps1 Capture       # Incremental build + 22 UI/landscape/journey screenshots
 ```
 
 The entrypoint finds the pinned tools, sets up GMP and development assets, then

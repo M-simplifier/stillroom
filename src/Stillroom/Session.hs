@@ -46,6 +46,7 @@ data Event
   | LeaveRest
   | ChooseRestScene RestScene
   | ShowRestCollection RestCollection
+  | NewJourney
   | ToggleRestMotion
   | ChooseRestMotion RestMotion
   | CycleRestShade
@@ -76,6 +77,7 @@ data Effect
   | PickPicture
   | SelectPicture PictureDirection
   | DeletePicture
+  | StartNewJourney
   deriving (Eq, Show)
 
 initialSession :: Volume -> Session
@@ -118,6 +120,7 @@ stepAllowed event original = case event of
     | viewingMode original == Working -> (original, [])
     | otherwise -> (original {viewingMode = Working, restSeconds = 0, restHintSeconds = 0, idleSeconds = 10}, [])
   ChooseRestScene scene -> (original {restScene = scene, restCollection = sceneCollection scene, restSeconds = 0, restHintSeconds = 2}, [Persist])
+  NewJourney -> (awake {restScene = RailJourney, restCollection = Journeys}, [StartNewJourney, Persist])
   ShowRestCollection collection -> (awake {restCollection = collection}, [])
   ToggleRestMotion -> (original {restMotion = if restMotion original == Still then Gentle else Still, restHintSeconds = 2}, [Persist])
   ChooseRestMotion motion -> (original {restMotion = motion}, [Persist])

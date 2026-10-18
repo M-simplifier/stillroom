@@ -99,12 +99,13 @@ data PictureDirection = PreviousPicture | NextPicture deriving (Eq, Show)
 
 data ViewingMode = Working | Resting deriving (Eq, Show)
 
-data RestScene = TidalLight | LightVeil | StarryNight | AmberSea | Shallows | CloudSea | Aurora | InkFlow | BirchLake | AlpineLake | MeadowStream
+data RestScene = TidalLight | LightVeil | StarryNight | AmberSea | Shallows | CloudSea | Aurora | InkFlow | BirchLake | AlpineLake | MeadowStream | RailJourney
   deriving (Eq, Enum, Bounded, Show, Read)
 
-data RestCollection = Landscapes | Atmospheres deriving (Eq, Enum, Bounded, Show)
+data RestCollection = Landscapes | Atmospheres | Journeys deriving (Eq, Enum, Bounded, Show)
 
 sceneCollection :: RestScene -> RestCollection
+sceneCollection RailJourney = Journeys
 sceneCollection BirchLake = Landscapes
 sceneCollection AlpineLake = Landscapes
 sceneCollection MeadowStream = Landscapes
@@ -115,6 +116,8 @@ data RestMotion = Still | Gentle deriving (Eq, Enum, Bounded, Show, Read)
 data SettingsPage = DisplaySettings | RestSettings | MusicSettings deriving (Eq, Show)
 
 restSceneName :: Language -> RestScene -> String
+restSceneName Japanese RailJourney = "風景をめぐる旅"
+restSceneName English RailJourney = "The quiet line"
 restSceneName Japanese TidalLight = "水と光"
 restSceneName Japanese LightVeil = "光のヴェール"
 restSceneName Japanese StarryNight = "星の夜"
@@ -139,6 +142,8 @@ restSceneName English AlpineLake = "Alpine lake"
 restSceneName English MeadowStream = "Meadow stream"
 
 restSceneDescription :: Language -> RestScene -> String
+restSceneDescription Japanese RailJourney = "トロッコに揺られ、気になった場所で散歩。次の休憩も、この旅の続きから。"
+restSceneDescription English RailJourney = "Ride through changing landscapes. Step outside, walk, and continue next time."
 restSceneDescription Japanese TidalLight = "青い水面。重なる波と空の反射。"
 restSceneDescription Japanese LightVeil = "光の薄布。ゆっくりほどける色の層。"
 restSceneDescription Japanese StarryNight = "動かない星々と、かすかな銀河の光。"

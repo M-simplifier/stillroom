@@ -49,7 +49,7 @@ data Preferences = Preferences
 instance ToJSON Preferences where
   toJSON p =
     object
-      [ "version" .= (6 :: Int),
+      [ "version" .= (7 :: Int),
         "volume" .= savedVolume p,
         "background" .= show (savedBackground p),
         "window" .= show (savedWindow p),
@@ -67,7 +67,7 @@ instance ToJSON Preferences where
 instance FromJSON Preferences where
   parseJSON = withObject "preferences" $ \o -> do
     version <- o .:? "version" .!= (1 :: Int)
-    when (version `notElem` [1, 2, 3, 4, 5, 6]) (fail "unsupported preference version")
+    when (version `notElem` [1, 2, 3, 4, 5, 6, 7]) (fail "unsupported preference version")
     v <- o .:? "volume" .!= 0.35
     b <- o .:? "background" .!= "Forest"
     w <- o .:? "window" .!= "Fullscreen"

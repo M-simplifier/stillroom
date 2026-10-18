@@ -7,6 +7,7 @@ import Data.Aeson (eitherDecode, encode, object, (.=))
 import Data.List (sort)
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Vector.Storable qualified as V
+import JourneyChecks (journeyChecks)
 import Stillroom.Domain
 import Stillroom.Interface qualified as UI
 import Stillroom.Runtime.Storage
@@ -54,7 +55,8 @@ main = do
         law "rest exposes no pointer or keyboard controls except exit" propRestInterface,
         law "direct selectors preserve playback and choose the requested value" (once propDirectChoices)
       ]
-  unless (all isSuccess results) exitFailure
+  journeysPassed <- journeyChecks
+  unless (all isSuccess results && journeysPassed) exitFailure
   where
     law title p = putStrLn title >> quickCheckWithResult stdArgs {maxSuccess = 250} p
 
@@ -162,7 +164,7 @@ propPreferences (NonNegative n) =
    in eitherDecode (encode p) == Right p
 
 propVersion :: Bool
-propVersion = case (eitherDecode (encode (object ["version" .= (7 :: Int)])) :: Either String Preferences) of
+propVersion = case (eitherDecode (encode (object ["version" .= (8 :: Int)])) :: Either String Preferences) of
   Left _ -> True
   Right _ -> False
 
@@ -364,7 +366,7 @@ propRestExitOnly (NonNegative n) =
         [TogglePlayback, ChangeVolume 0.2, SetVolume defaultVolume, NextTrack, OpenPicture, BrowsePicture NextPicture, RemovePicture, CyclePictureShade, ToggleRestMotion, CycleRestShade, ToggleWindow, ToggleSettings, ShowRestSettings, ShowDisplaySettings, ShowMusicSettings, NextScreen, OpenMusic, UsePresets, ToggleLanguage, Activity]
           ++ map ChooseBackground [minBound .. maxBound]
           ++ map ChooseRestScene [minBound .. maxBound]
-          ++ map ShowRestCollection [Landscapes, Atmospheres]
+          ++ map ShowRestCollection [Landscapes, Atmospheres, Journeys]
           ++ map ChooseRestMotion [Still, Gentle]
           ++ map ChooseRestShade [Original, Soft, Dim]
           ++ map ChoosePictureShade [Original, Soft, Dim]
@@ -389,7 +391,7 @@ propPreviewClock =
         && viewingMode heldRest == Resting
 
 interfaceStates :: [Session]
-interfaceStates = [(initialSession defaultVolume) {settingsOpen = opened, settingsPage = page, language = lang, windowMode = Compact, restCollection = collection} | opened <- [False, True], page <- [RestSettings, DisplaySettings, MusicSettings], lang <- [English, Japanese], collection <- [Landscapes, Atmospheres]]
+interfaceStates = [(initialSession defaultVolume) {settingsOpen = opened, settingsPage = page, language = lang, windowMode = Compact, restCollection = collection, restScene = scene} | opened <- [False, True], page <- [RestSettings, DisplaySettings, MusicSettings], lang <- [English, Japanese], collection <- [Landscapes, Atmospheres, Journeys], scene <- [TidalLight, RailJourney]]
 
 propInterfaceTargets :: Property
 propInterfaceTargets = forAll ((,) <$> chooseInt (700, 3840) <*> chooseInt (500, 2160)) $ \(w, h) ->

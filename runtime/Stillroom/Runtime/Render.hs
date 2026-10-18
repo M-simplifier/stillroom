@@ -13,6 +13,7 @@ import Raylib.Types (Color (..), Rectangle (..), Texture (..), pattern Vector2)
 import Stillroom.Domain
 import Stillroom.Interface (UIAction (..))
 import Stillroom.Interface qualified as UI
+import Stillroom.Runtime.Journey qualified as Journey
 import Stillroom.Runtime.Pictures (PictureError (..), pictureErrorText)
 import Stillroom.Runtime.Rest qualified as Rest
 import Stillroom.Runtime.Typeface (Typeface)
@@ -37,9 +38,11 @@ unloadTypeface = Typeface.unload
 
 allInterfaceText :: String
 allInterfaceText =
-  "−…作業モード再生中一時停止次へ音量表示終了霧の湖静かな森砂丘夜の抽象画画像を追加してください内蔵の画像です。登録した画像だけ解除できます。"
+  Journey.interfaceText
+    ++ "−…作業モード再生中一時停止次へ音量表示終了霧の湖静かな森砂丘夜の抽象画画像を追加してください内蔵の画像です。登録した画像だけ解除できます。"
     ++ "休息静止景色明るさ動き設定背景をクリック、またはRで休息。クリックかEscで戻る休息の景色を描画できません。クリックかEscで戻ります。"
     ++ "作業中の景色音楽再生中の曲表示言語画像の明るさ音は休息中も、そのまま続きます。"
+    ++ "眺める。降りて歩く。また乗る。Eで停車してから、近くの地面へ。Escで作業へ。旅の続きは、また次に。"
     ++ concat [restSceneName l scene ++ restSceneDescription l scene | l <- [English, Japanese], scene <- [minBound .. maxBound]]
     ++ concat
       [ UI.caption c
@@ -48,7 +51,9 @@ allInterfaceText =
         page <- [DisplaySettings, RestSettings, MusicSettings],
         opened <- [True, False],
         mode <- [Fullscreen, Compact],
-        let s = (initialSession defaultVolume) {language = l, transport = t, settingsOpen = opened, settingsPage = page, windowMode = mode},
+        scene <- [TidalLight, RailJourney],
+        collection <- [Landscapes, Atmospheres, Journeys],
+        let s = (initialSession defaultVolume) {language = l, transport = t, settingsOpen = opened, settingsPage = page, windowMode = mode, restScene = scene, restCollection = collection},
         c <- UI.controls 760 500 s
       ]
     ++ concat [pictureErrorText l issue | l <- [English, Japanese], issue <- [ImageUnavailable, UnsupportedImage, ImageTooLarge, ImageDecodeFailed]]
@@ -80,12 +85,24 @@ renderWithFocus font assets w h s picture pictureCaption track message mouse foc
   when (viewingMode s == Resting) $ do
     Rest.renderRest assets w h s
     issue <- Rest.restIssue assets s
-    when (restHintSeconds s > 0 || maybe False (const True) issue) $ do
-      let width = min 620 (fromIntegral w - 48)
-          left = (fromIntegral w - width) / 2
-          r = Rectangle left (fromIntegral h - 78) width 40
-      panel r
-      centered (maybe (label "Click or Esc to return" "クリックかEscで戻る") id issue) r 14 secondary
+    if restScene s == RailJourney
+      then do
+        let exitBox = rectangle (UI.journeyExitBounds w)
+        drawRectangleRounded exitBox 0.2 8 (Color 9 18 17 180)
+        centered (label "Return to work  Esc" "作業に戻る  Esc") exitBox 14 primary
+        linesToShow <- maybe (Journey.hints (Rest.journey assets) (language s)) (pure . (: [])) issue
+        let width = min 820 (fromIntegral w - 32)
+            height = fromIntegral (length linesToShow) * 25 + 18
+            box = Rectangle ((fromIntegral w - width) / 2) (fromIntegral h - height - 20) width height
+        drawRectangleRounded box 0.15 8 (Color 9 18 17 190)
+        forM_ (zip [0 :: Int ..] linesToShow) $ \(i, line) ->
+          centered line (Rectangle ((fromIntegral w - width) / 2) (fromIntegral h - height - 14 + fromIntegral i * 25) width 25) 13 secondary
+      else when (restHintSeconds s > 0 || maybe False (const True) issue) $ do
+        let width = min 620 (fromIntegral w - 48)
+            left = (fromIntegral w - width) / 2
+            r = Rectangle left (fromIntegral h - 78) width 40
+        panel r
+        centered (maybe (label "Click or Esc to return" "クリックかEscで戻る") id issue) r 14 secondary
   when (controlsVisible s) $ do
     if settingsOpen s then settings else dock
     forM_ (UI.controls w h s) drawControl
@@ -127,8 +144,13 @@ renderWithFocus font assets w h s picture pictureCaption track message mouse foc
           Rest.renderPreview assets h preview s
           issue <- Rest.restIssue assets s
           wrapped (maybe (restSceneDescription (language s) (restScene s)) id issue) px (py + ph + 13) pw 16 secondary
-          text (label "Motion" "動き") px (y + rh - 124) 14 secondary
+          text (if restScene s == RailJourney then label "Landscape" "旅の風景" else label "Motion" "動き") px (y + rh - 124) 14 secondary
           text (label "Brightness" "明るさ") (px + pw * 0.49) (y + rh - 124) 14 secondary
+          when (restCollection s == Journeys) $ do
+            let startY = y + 156 + (rh - 170) / 3
+            wrapped (label "Ride, wander, and return." "眺める。降りて歩く。また乗る。") rx startY rightWidth 16 primary
+            wrapped (label "E stops the railcar before stepping outside." "Eで停車してから、近くの地面へ。") rx (startY + 47) rightWidth 14 secondary
+            wrapped (label "Esc returns to work. Your place is saved." "Escで作業へ。旅の続きは、また次に。") rx (startY + 93) rightWidth 14 secondary
         DisplaySettings -> do
           text (label "Your working view" "作業中の景色") px (y + 88) 24 primary
           drawWorking preview (background s) picture (pictureShade s)

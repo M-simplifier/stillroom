@@ -131,7 +131,7 @@ framebuffer, viewport and matrices. See [generation and ownership details](proce
 selected scene determines the initial collection when preferences are restored;
 collection browsing itself is transient and has no persistence or audio effect.
 
-Both keyboard routing and the pure reducer enforce exit-only rest. Only Elapse,
+For the eleven quiet scenes, both keyboard routing and the pure reducer enforce exit-only rest. Only Elapse,
 LeaveRest, ToggleRest and Escape are admitted while Resting; every other event
 leaves both state and effects unchanged. The gallery hides the transport panel,
 and its hit testing cannot reach the hidden volume bar.
@@ -161,3 +161,38 @@ or personal settings. Separating it from `--check` keeps repeated layout capture
 small without replacing state, audio or native-lifetime acceptance. The
 [development entrypoint](development.md) records logs and restores its environment;
 package acceptance explicitly excludes development data paths.
+
+
+## Continuous journey
+
+`Journey.World.Seed` is an explicit value passed to native terrain/rail queries.
+The native field uses thread-local scratch for that invocation and a four-control
+rail-height memo keyed by both seed and cell. Interleaved worlds therefore cannot
+change pure Haskell answers. The renderer owns its own immutable seed and selects
+it before every generation/draw entry. Terrain collision and geometry share the
+same field header. Build tooling invalidates both C translation units when an
+included journey header changes; Cabal alone can otherwise reuse stale C objects.
+
+`Journey.Ride` and `Journey.Walk` are fixed 60 Hz reducers. Frame input accumulates
+until a semantic tick; edges are consumed once, relative look is distributed,
+and rendering interpolates poses. A journey contains both a parked/moving car and
+the walker. Safe nearby transfer has a short fade, with no distant teleport.
+`Runtime.Journey` owns input/cursor state and the lazy GPU context. It never owns
+the music device. Esc/focus loss suspends it; music remains in `Runtime.Audio`.
+The main Session reducer still rejects music/settings events during any break.
+Journey-specific actions go only to the journey reducer.
+
+There are 49 nearby 32 m chunks and 81 distant 128 m chunks. Preparation generates
+at most one of each per frame, leaving the desktop loop to pump music between
+steps. After preparation, travel streams/evicts chunks under the same bounds.
+Returning to work retains the cache; choosing a quiet scene frees it. Re-entry
+and new seeds never accumulate worlds. HDR rendering is capped at 1600×900;
+reflection is half-sized. Nested previews restore the parent framebuffer,
+viewport and matrices before compositing. The gallery's journey thumbnail is a
+small captured poster so startup never generates the world merely for its card.
+
+Version 1 journey bookmarks store the seed, car progress/pace, seat and walker
+pose/intent, separately from version 7 music/display preferences. Loading checks
+finite bounds and valid ground before calling native field code. Velocity,
+temporary transfer, routes, and generated meshes are not serialized. Writes use
+a sibling temporary file and rename. Versions 1–6 preferences still migrate.

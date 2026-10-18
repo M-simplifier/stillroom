@@ -6,7 +6,7 @@
 module Stillroom.Runtime.Capture (runCapture, screenshot) where
 
 import Control.Exception (bracket, bracket_, finally, throwIO)
-import Control.Monad (forM, unless, when)
+import Control.Monad (forM, replicateM_, unless, when)
 import Data.Aeson (encode, object, (.=))
 import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as BL
@@ -69,6 +69,9 @@ runCapture folder = do
                 bracket_ R.beginDrawing R.endDrawing $
                   View.renderWithFocus font assets w h state (Just texture) caption "Linen" Nothing (-1, -1) focus
               file = name ++ ".png"
+          -- Lazy journey loading uses the same bounded steps as the app.
+          -- These deterministic captures have no music device to pump.
+          when (scene == RailJourney) (replicateM_ 82 draw)
           draw >> draw
           actual <- (,) <$> R.getScreenWidth <*> R.getScreenHeight
           unless (actual == (w, h)) (throwIO (userError "UI capture surface has unexpected dimensions."))
@@ -105,6 +108,9 @@ runCapture folder = do
            ]
         ++ [("nature-gallery-" ++ show lang, lang, RestSettings, True, 700, 500, BirchLake, Working) | lang <- [English, Japanese]]
         ++ [("nature-gallery-desktop", Japanese, RestSettings, True, 1280, 800, BirchLake, Working)]
+        ++ [("journey-gallery-" ++ show lang, lang, RestSettings, True, 700, 500, RailJourney, Working) | lang <- [English, Japanese]]
+        ++ [("journey-gallery-desktop", Japanese, RestSettings, True, 1280, 800, RailJourney, Working)]
+        ++ [("journey-ride", Japanese, RestSettings, False, 1280, 720, RailJourney, Resting)]
 
 -- Encode through native memory; Haskell owns the Unicode output path. Keep
 -- decoded and encoded byte buffers out of h-raylib's linked Haskell byte lists.

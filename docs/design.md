@@ -61,7 +61,7 @@ and [Rams's account of the whole product](https://www.vitsoe.com/eu/voice/design
 - Drawing, pointer targets and keyboard order consume one pure `Interface`
   description. Tab and Shift-Tab traverse actions; Enter or Space activates the
   focused action. Without control focus, Space retains playback behavior.
-- Rest still accepts only exit. Tab, Space and settings shortcuts cannot expose
+- The eleven quiet scenes still accept only exit. Tab, Space and settings shortcuts cannot expose
   controls or change music while the scene is being viewed.
 
 A larger dashboard would compete with the landscape. An unlabeled icon-only
@@ -95,3 +95,25 @@ The observable results here are a smaller player, direct choices, consistent
 keyboard access, legible captured screens and lower rendering overhead. Whether
 this feels beautiful and helps a particular person return to work remains their
 experience to judge.
+
+
+## A journey, not a row of prototype modes
+
+The rail world already contains changing scenery, a clear route and open walking
+terrain. These become one journey: start aboard, step out, walk, and return to the
+same vehicle. A separate prototype selector would make the user choose an
+implementation history. The gallery instead offers Journey, Nature and Light &
+sky, with one selected scene and the same primary entry action.
+
+The journey retains its seed and place. A break is a continuation, not a fresh
+orientation task. New landscape is an explicit settings action; it replaces the
+current bookmark. A short initial control guide fades; F1 recalls it and the
+return action remains visible. Music/settings stay out of the journey. Existing
+quiet scenes preserve their exit-only contract. These are experience choices,
+not evidence of a physiological recovery effect.
+
+The official site uses a restrained paper/green palette, large readable type,
+real footage and ordinary native video controls. Playback is requested by the
+visitor, not automatic; there are no scroll effects, external fonts or trackers.
+English and Japanese pages retain the same content and layout, with responsive
+reading widths and reduced-motion CSS for the small hover/scroll transitions.

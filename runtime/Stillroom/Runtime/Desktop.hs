@@ -23,8 +23,12 @@ import Raylib.Internal (WindowResources)
 import Raylib.Types
 import Stillroom.Domain
 import Stillroom.Interface qualified as UI
+import Stillroom.Journey.Ride qualified as Ride
+import Stillroom.Journey.World qualified as World
 import Stillroom.Runtime.Audio qualified as Audio
 import Stillroom.Runtime.Capture (screenshot)
+import Stillroom.Runtime.Journey qualified as Journey
+import Stillroom.Runtime.JourneyStorage qualified as JourneyStorage
 import Stillroom.Runtime.Native qualified as Native
 import Stillroom.Runtime.Pictures qualified as Pictures
 import Stillroom.Runtime.Render qualified as View
@@ -33,6 +37,7 @@ import Stillroom.Runtime.Storage
 import Stillroom.Session
 import System.Directory (createDirectoryIfMissing, doesFileExist)
 import System.FilePath (takeDirectory, (</>))
+import System.Random (randomIO)
 
 data Desktop = Desktop
   { sessionRef :: !(IORef Session),
@@ -82,6 +87,7 @@ runDesktop statePath checkDirectory overrideFolder = do
     -- mode uses an undecorated, non-topmost window on exactly one display.
     pictures <- Pictures.discoverPictures (takeDirectory statePath </> "backgrounds")
     Rest.withRestAssets window $ \rests -> do
+      JourneyStorage.readJourney (takeDirectory statePath </> "journey.json") >>= Journey.restoreModel (Rest.journey rests)
       seed <- round . (* 1000000) <$> getPOSIXTime
       let start chosen startupNotice =
             -- A failed library restarts the audio session. Acquire a fresh font
@@ -208,11 +214,27 @@ save desktop = do
     Left _ -> writeIORef (noticeRef desktop) (Just "Settings could not be saved.")
     Right () -> pure ()
 
+saveJourney :: Desktop -> IO ()
+saveJourney desktop = do
+  result <- try $ Journey.model (Rest.journey (restAssets desktop)) >>= JourneyStorage.writeJourney (takeDirectory (preferencesPath desktop) </> "journey.json")
+  case result of
+    Left (_ :: IOException) -> writeIORef (noticeRef desktop) (Just "Journey could not be saved.")
+    Right () -> pure ()
+
 apply :: Desktop -> Event -> IO ()
 apply desktop event = do
   old <- readIORef (sessionRef desktop)
   let (updated, effects) = step event old
   writeIORef (sessionRef desktop) updated
+  when (viewingMode old == Resting && viewingMode updated == Working && restScene old == RailJourney) $ do
+    Journey.suspend (Rest.journey (restAssets desktop))
+    saveJourney desktop
+  when
+    (viewingMode old == Working && viewingMode updated == Resting && restScene updated == RailJourney)
+    (Journey.enter (Rest.journey (restAssets desktop)))
+  when
+    (restScene old == RailJourney && restScene updated /= RailJourney)
+    (Journey.unload (Rest.journey (restAssets desktop)))
   let enteringRest = viewingMode old == Working && viewingMode updated == Resting
       choosingBackground = case event of ChooseBackground _ -> viewingMode old == Working; _ -> False
   -- Pending IO belongs to the choice that requested it. A newer choice or
@@ -228,6 +250,9 @@ apply desktop event = do
     PlaceWindow -> place desktop False
     MoveScreen -> place desktop True
     Persist -> save desktop
+    StartNewJourney -> do
+      randomIO >>= Journey.replace (Rest.journey (restAssets desktop)) . World.seed
+      saveJourney desktop
     SelectPresets -> do
       seed <- round . (* 1000000) <$> getPOSIXTime
       Audio.replaceLibrary (engine desktop) presetTracks seed
@@ -463,15 +488,23 @@ loop window desktop checkDirectory checkPhase checks pausePosition began previou
   notice <- readIORef (noticeRef desktop)
   picture <- readIORef (pictureRef desktop)
   entries <- readIORef (picturesRef desktop)
+  when (viewingMode sBefore == Resting && viewingMode state == Resting && restScene state == RailJourney && (focused || isJust checkDirectory)) $
+    Journey.update
+      (Rest.journey (restAssets desktop))
+      (secondsValue elapsed)
+      (clicked && viewingMode sBefore == Resting)
+      (dx, dy)
   let shown = controlsVisible state
   hidden <- R.isCursorHidden
-  let hide = not shown && focused && onScreen
-  when (hidden /= hide) (if hide then R.hideCursor else R.showCursor)
+  let journeyRest = viewingMode state == Resting && restScene state == RailJourney
+      hide = not shown && not journeyRest && focused && onScreen
+  captured <- Journey.isCaptured (Rest.journey (restAssets desktop))
+  when (not captured && hidden /= hide) (if hide then R.hideCursor else R.showCursor)
   -- A mode/monitor action may have resized the surface since hit testing.
   drawWidth <- R.getScreenWidth
   drawHeight <- R.getScreenHeight
   invisible <- (||) <$> R.isWindowMinimized <*> R.isWindowHidden
-  let landscapePreview = settingsOpen state && settingsPage state == RestSettings && sceneCollection (restScene state) == Landscapes
+  let landscapePreview = settingsOpen state && settingsPage state == RestSettings && sceneCollection (restScene state) /= Atmospheres
   R.setTargetFPS (if invisible || viewingMode state == Resting || landscapePreview then 30 else 60)
   R.beginDrawing
   let caption = case picture of
@@ -498,6 +531,8 @@ loop window desktop checkDirectory checkPhase checks pausePosition began previou
   if closed || click == Just View.Quit || keyboardAction == Just View.Quit || finished
     then do
       save desktop
+      Journey.suspend (Rest.journey (restAssets desktop))
+      saveJourney desktop
       R.showCursor
       Native.setPower Paused Compact
       results <- readIORef checks
@@ -655,7 +690,7 @@ checkStep window desktop folder phaseRef checks pausePosition elapsed = do
       screenshot (folder </> "pictures-settings.png")
       checkFontRestart window desktop >>= record "font replacement followed by a failed library can restart and draw"
       checkLateSelections window desktop folder >>= mapM_ (uncurry record)
-      record "all eleven rest thumbnails are preloaded" (Rest.thumbnailsReady (restAssets desktop))
+      record "all twelve rest thumbnails are preloaded" (Rest.thumbnailsReady (restAssets desktop))
       state <- readIORef (sessionRef desktop)
       record "rest starts with procedural water" (restScene state == TidalLight)
       apply desktop ShowRestSettings
@@ -665,7 +700,7 @@ checkStep window desktop folder phaseRef checks pausePosition elapsed = do
       screenshot (folder </> "rest-settings.png")
       gallery <- readIORef (sessionRef desktop)
       let cardsWork collection (width, height) = all (\(scene, Rectangle x y rw rh) -> View.hitTest width height gallery {restCollection = collection} (x + rw / 2, y + rh / 2) == Just (View.Intent (ChooseRestScene scene))) (View.galleryCards width height collection)
-      record "all eleven gallery thumbnails select their scene at compact and desktop sizes" (and [cardsWork collection size | collection <- [Landscapes, Atmospheres], size <- [(700, 500), (1920, 1080), (2562, 1442)]])
+      record "all twelve gallery thumbnails select their scene at compact and desktop sizes" (and [cardsWork collection size | collection <- [Journeys, Landscapes, Atmospheres], size <- [(700, 500), (1920, 1080), (2562, 1442)]])
       record "gallery preview advances without entering rest" (viewingMode gallery == Working && restSeconds gallery > 0)
       apply desktop ToggleWindow
       modifyIORef' (sessionRef desktop) (\s -> s {idleSeconds = 10})
@@ -858,10 +893,66 @@ checkStep window desktop folder phaseRef checks pausePosition elapsed = do
       advance
       pure False
     54 -> do
+      apply desktop (ChooseRestScene RailJourney)
+      writeIORef pausePosition (Audio.position sound)
+      apply desktop ToggleRest
+      advance
+      pure False
+    55 -> do
+      issue <- Journey.status (Rest.journey (restAssets desktop)) English
+      if issue == Nothing || now - lastAdvanced > 16
+        then do
+          state <- readIORef (sessionRef desktop)
+          before <- readIORef pausePosition
+          record "journey prepares incrementally while music continues" (issue == Nothing && Audio.audible sound && Audio.position sound > before + 0.3)
+          record "journey input is isolated from music and settings" (View.hitTest 760 500 state (380, 250) == Nothing && null (UI.controls 760 500 state))
+          advance
+          pure False
+        else pure False
+    56 -> do
+      screenshot (folder </> "journey-ride.png")
+      j <- Journey.model (Rest.journey (restAssets desktop))
+      record "the integrated journey actually moves along its railway" (Ride.progress (Ride.car j) > 60)
+      apply desktop LeaveRest
+      saved <- Journey.model (Rest.journey (restAssets desktop))
+      reloaded <- JourneyStorage.readJourney (takeDirectory (preferencesPath desktop) </> "journey.json")
+      record "leaving rest saves the current place and seed" (JourneyStorage.bookmark reloaded == JourneyStorage.bookmark saved)
+      writeIORef pausePosition (Ride.progress (Ride.car saved))
+      advance
+      pure False
+    57 -> do
+      j <- Journey.model (Rest.journey (restAssets desktop))
+      position <- readIORef pausePosition
+      captured <- Journey.isCaptured (Rest.journey (restAssets desktop))
+      record "working freezes the journey and releases mouse capture" (Ride.progress (Ride.car j) == position && not captured)
+      apply desktop ToggleRest
+      advance
+      pure False
+    58 -> do
+      j <- Journey.model (Rest.journey (restAssets desktop))
+      position <- readIORef pausePosition
+      record "re-entering continues the same journey without a clock jump" (Ride.progress (Ride.car j) >= position && Ride.progress (Ride.car j) < position + 2)
+      apply desktop LeaveRest
+      apply desktop NewJourney
+      apply desktop ShowRestSettings
+      advance
+      pure False
+    59 -> do
+      issue <- Journey.status (Rest.journey (restAssets desktop)) English
+      if issue == Nothing || now - lastAdvanced > 16
+        then do
+          j <- Journey.model (Rest.journey (restAssets desktop))
+          record "a new landscape replaces the seed and renders inside settings" (issue == Nothing && Ride.worldSeed j /= World.firstSeed && Ride.progress (Ride.car j) == 60)
+          screenshot (folder </> "journey-new-gallery.png")
+          advance
+          pure False
+        else pure False
+    60 -> do
       results <- reverse <$> readIORef checks
       frameTimes <- readIORef (checkFrameTimes desktop)
       switches <- reverse <$> readIORef (checkSwitchTimes desktop)
       landscapeDiagnostics <- Rest.landscapeInfo (restAssets desktop)
+      journeyDiagnostics <- Journey.info (Rest.journey (restAssets desktop))
       let timings scene =
             let samples = sort [ms | (choice, ms) <- frameTimes, choice == scene]
                 percentile fraction = case drop (floor (fraction * fromIntegral (max 0 (length samples - 1)))) samples of
@@ -881,6 +972,7 @@ checkStep window desktop folder phaseRef checks pausePosition elapsed = do
                   "checks" .= [object ["name" .= name, "passed" .= ok] | (name, ok) <- results],
                   "selectionToFirstEndDrawingMs" .= [object ["scene" .= show scene, "milliseconds" .= ms] | (scene, ms) <- switches],
                   "landscapeDiagnosticsJSON" .= landscapeDiagnostics,
+                  "journeyDiagnosticsJSON" .= journeyDiagnostics,
                   "renderTimingsIncludingCaptures" .= map timings [minBound .. maxBound]
                 ]
             )
