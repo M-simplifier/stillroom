@@ -61,7 +61,10 @@ supported file = map toLower (takeExtension file) `elem` [".png", ".jpg", ".jpeg
 
 discoverPictures :: FilePath -> IO [PictureEntry]
 discoverPictures directory = do
-  builtins <- mapM bundled ["01-mist-lake.png", "02-quiet-forest.png", "03-soft-dunes.png", "04-night-field.png"]
+  builtins <- mapM bundled
+    [ "01-mist-lake.png", "02-quiet-forest.png", "03-soft-dunes.png",
+      "04-night-field.png", "05-afternoon-lake.png", "06-woodland-pond.png"
+    ]
   available <- filterM (doesFileExist . picturePath) builtins
   imported <- catch (do
     createDirectoryIfMissing True directory

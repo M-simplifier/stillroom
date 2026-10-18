@@ -516,6 +516,8 @@ loop window desktop checkDirectory checkPhase checks pausePosition began previou
                 "bundled:02-quiet-forest.png" -> if language state == Japanese then "静かな森" else "Quiet forest"
                 "bundled:03-soft-dunes.png" -> if language state == Japanese then "砂丘" else "Soft dunes"
                 "bundled:04-night-field.png" -> if language state == Japanese then "夜の抽象画" else "Night field"
+                "bundled:05-afternoon-lake.png" -> if language state == Japanese then "午後の湖" else "Afternoon lake"
+                "bundled:06-woodland-pond.png" -> if language state == Japanese then "森の池" else "Woodland pond"
                 _ -> Pictures.pictureName entry
            in show position ++ " / " ++ show (length entries) ++ "   " ++ name
   -- EndDrawing still polls input and paces the loop; music is pumped above.
@@ -598,7 +600,7 @@ checkStep window desktop folder phaseRef checks pausePosition elapsed = do
     0 | elapsed > 0.7 -> do
       record "autoplay clock advances" (Audio.audible sound && Audio.position sound > 0.1)
       entries <- readIORef (picturesRef desktop)
-      record "four bundled pictures are available" (length (filter ((== Pictures.Bundled) . Pictures.pictureOrigin) entries) == 4)
+      record "six bundled pictures are available" (length (filter ((== Pictures.Bundled) . Pictures.pictureOrigin) entries) == 6)
       current <- readIORef (pictureRef desktop)
       record "startup uploads a valid picture texture" (maybe False (\(_, texture) -> texture'width texture > 0 && texture'height texture > 0) current)
       forM_ current $ \(entry, _) -> do

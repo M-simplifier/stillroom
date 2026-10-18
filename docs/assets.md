@@ -3,10 +3,17 @@
 - **Music:** original sample-free algorithms in `Stillroom.Synthesis`, MIT.
   No bundled recordings or third-party samples.
 - **Scenery:** original static geometry in `Runtime.Render`, MIT.
-- **Wallpapers:** four assets created with the built-in OpenAI image generation
-  tool on 2026-10-11. No reference images or third-party source material were
-  supplied. Prompts are in [background-prompts.md](background-prompts.md).
-  Included under this project's MIT grant to the extent applicable.
+- **Wallpapers:** six assets created with the built-in OpenAI image generation
+  tool: four on 2026-10-11, plus Afternoon lake and Woodland pond on 2026-10-15.
+  No reference images or third-party source material were supplied. The latter
+  two were originally made for a rest-mode experiment and are now included,
+  unchanged, as optional static working backgrounds. Prompts and output hashes
+  are in [background-prompts.md](background-prompts.md).
+  Included under this project's MIT grant to the extent applicable. The
+  [OpenAI Terms of Use](https://openai.com/policies/terms-of-use/), checked on
+  2026-10-18, assign OpenAI's rights in output, if any, to the user to the extent
+  permitted by law. This does not establish copyrightability, exclusivity or
+  clearance of third-party rights. These generated images are not photographs.
 - **Icon:** original window-and-horizon geometry, MIT. SVG source and PNG/ICO
   outputs are in `assets/icon/`; regenerate with `tools/make-icon.ps1`.
 - **Procedural rest scenes:** original GLSL in `assets/rest/procedural.fs`, MIT.

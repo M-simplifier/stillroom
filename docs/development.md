@@ -20,7 +20,7 @@ No action reads or writes your normal Stillroom settings.
 | Action | Purpose and evidence |
 | --- | --- |
 | `Build` | Build, metadata/linkage checks and the complete law/regression suite. |
-| `Capture` | 22 deterministic UI/landscape/journey PNGs through the production renderer, with no audio device or native acceptance sequence. |
+| `Capture` | 28 deterministic UI/landscape/journey/wallpaper PNGs through the production renderer, with no audio device or native acceptance sequence. |
 | `Check` | The real native loop: 56 assertions for state, input/effects, audio, persistence, shader resources, font replacement/restart and shutdown. Startup/switch timing and peak process working set are recorded. |
 | `Benchmark` | 18 interface/procedural samples plus 36 synchronized landscape samples and four cache contracts, with RTS allocation statistics; no audio. |
 | `CheckPackage` | Check an extracted executable with only its own assets/DLL and a restricted Windows PATH. No build or development toolchain. |
