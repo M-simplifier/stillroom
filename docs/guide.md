@@ -48,8 +48,9 @@ Linen, Moss, Orbit and Night are three-minute algorithmic scores with soft tones
 and a restrained pulse. They are generated in small buffers, not downloaded or
 stored as recordings. Choose a comfortable volume for your listening environment.
 
-In **Settings → Background**, choose **My images** to see the image library. Four static
-wallpapers are included: Mist lake, Quiet forest, Soft dunes and Night field.
+In **Settings → Background**, choose **My images** to see the image library. Six static
+wallpapers are included: Mist lake, Quiet forest, Soft dunes, Night field,
+Afternoon lake and Woodland pond.
 Use **Previous / Next** to choose one. Images keep their aspect ratio and fill
 the window by cropping the edges; there is no automatic slideshow or animation.
 

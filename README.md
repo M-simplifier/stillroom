@@ -17,7 +17,7 @@ leave it alone and the controls disappear into a quiet, static screen.
 - Shuffle without immediate repeats when at least two playable tracks exist.
 - Continuous playback with equal-power crossfades limited by both track lengths.
 - Static green, slate, black or illustrated lake backgrounds while working.
-- Four quiet image backgrounds, or import your own PNG, JPEG or BMP. Choose
+- Six quiet image backgrounds, or import your own PNG, JPEG or BMP. Choose
   an image and its brightness; neither track changes nor time switch it for you.
 - Choose from eleven procedural rest scenes in a thumbnail gallery with a live
   preview: three landscapes with trees, grass and water, plus eight scenes of

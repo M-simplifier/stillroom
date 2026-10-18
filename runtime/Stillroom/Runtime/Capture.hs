@@ -13,7 +13,7 @@ import Data.ByteString.Lazy qualified as BL
 import Foreign (alloca, castPtr, free, nullPtr, peek)
 import Foreign.C (withCString)
 import Raylib.Core qualified as R
-import Raylib.Core.Textures (c'exportImageToMemory, c'loadImageFromScreen)
+import Raylib.Core.Textures (c'exportImageToMemory, c'loadImageFromScreen, unloadTexture)
 import Raylib.Internal.Foreign (c'free)
 import Raylib.Types
 import Stillroom.Domain
@@ -63,7 +63,7 @@ runCapture folder = do
                     viewingMode = mode,
                     restShade = Original
                   }
-              caption = UI.local state "2 / 4   Quiet forest" "2 / 4   静かな森"
+              caption = "2 / " ++ show (length entries) ++ UI.local state "   Quiet forest" "   静かな森"
               focus = if page == MusicSettings then Just (UI.Intent OpenMusic) else Nothing
               draw =
                 bracket_ R.beginDrawing R.endDrawing $
@@ -79,14 +79,27 @@ runCapture folder = do
           unless readyNow (throwIO (userError "Landscape rendering failed"))
           screenshot (folder </> file)
           pure (object ["file" .= file, "width" .= w, "height" .= h, "language" .= show lang])
+        -- Exercise decoding, native texture upload and cover-cropping for every
+        -- bundled wallpaper using the production renderer, not a file preview.
+        wallpaperFrames <- forM (filter ((== Pictures.Bundled) . Pictures.pictureOrigin) entries) $ \wallpaper -> do
+          pixels <- Pictures.preparePicture wallpaper >>= either throwIO pure
+          bracket (Pictures.uploadPicture window pixels) (\t -> unloadTexture t window) $ \wallpaperTexture -> do
+            R.setWindowSize 1280 720
+            let state = (initialSession defaultVolume) {background = Picture, idleSeconds = 10}
+                draw = bracket_ R.beginDrawing R.endDrawing $
+                  View.render font assets 1280 720 state (Just wallpaperTexture) "" "Linen" Nothing (-1, -1)
+                file = "wallpaper-" ++ Pictures.pictureName wallpaper ++ ".png"
+            draw >> draw
+            screenshot (folder </> file)
+            pure (object ["file" .= file, "width" .= (1280 :: Int), "height" .= (720 :: Int), "pictureKey" .= Pictures.pictureKey wallpaper])
         finished <- R.getTime
         BL.writeFile
           report
           ( encode
               ( object
                   [ "completed" .= True,
-                    "captures" .= frames,
-                    "count" .= length frames,
+                    "captures" .= (frames ++ wallpaperFrames),
+                    "count" .= length (frames ++ wallpaperFrames),
                     "elapsedSeconds" .= (finished - started),
                     "audioOpened" .= False,
                     "personalSettingsRead" .= False

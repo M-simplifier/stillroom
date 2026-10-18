@@ -43,7 +43,8 @@ try {
         'rest/journey/common.glsl','rest/journey/land.vs','rest/journey/land.fs','rest/journey/water.vs',
         'rest/journey/water.fs','rest/journey/sky.fs','rest/journey/post.fs','rest/journey/poster.png',
         'backgrounds/01-mist-lake.png','backgrounds/02-quiet-forest.png',
-        'backgrounds/03-soft-dunes.png','backgrounds/04-night-field.png','icon/stillroom.png'
+        'backgrounds/03-soft-dunes.png','backgrounds/04-night-field.png',
+        'backgrounds/05-afternoon-lake.png','backgrounds/06-woodland-pond.png','icon/stillroom.png'
     )) { $required += Join-Path $assetRoot "assets/$file" }
     $missing = @($required | Where-Object { -not (Test-Path -LiteralPath $_ -PathType Leaf) })
     if ($missing.Count -gt 0) { throw ('Required files missing: ' + ($missing -join ', ')) }

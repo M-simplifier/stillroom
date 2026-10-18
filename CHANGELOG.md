@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.8.1 — 2026-10-18
+
+- Include Afternoon lake and Woodland pond as optional static working
+  backgrounds, bringing the bundled image library to six. Keep existing image
+  choices and brightness settings, and retain procedural scenes for rest.
+- Preserve the two original generated outputs, prompts and provenance; include
+  all six wallpapers in native rendering captures and package checks.
+
 ## 0.8.0 — 2026-10-18
 
 - Integrate one continuous journey: an observation railcar, safe stops and boarding,
