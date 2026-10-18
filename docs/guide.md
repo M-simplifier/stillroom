@@ -21,7 +21,7 @@ or refresh-rate change. Its visible area is confined to the selected display.
 | N | Next track |
 | + / - | Adjust volume |
 | Click volume bar | Set volume |
-| R / click background | Enter or leave rest mode |
+| R / click background while working | Enter a break; R always returns |
 | S / Settings | Open or close settings |
 | F11 | Fullscreen or compact window |
 | Esc | Leave rest first; otherwise close settings or return to compact mode |
@@ -65,10 +65,30 @@ music choices are independent. The included images use restrained palettes and
 mostly broad shapes; choose the one you find least distracting, or use a plain
 color. These are design choices, not tested ADHD treatment effects.
 
-For a short pause, click the background outside the controls, click **Take a pause**, or
+For the journey, choose **Settings → Rest → Journey**, select **The quiet line**,
+then **Continue the journey**. A new world takes a few seconds to prepare while
+music keeps playing. The railcar starts gently. Space stops/starts it; Up/Down
+select one of three paces; E stops and steps onto nearby safe ground. Bridges
+or steep banks can refuse a stop: press Space to continue to another place.
+
+On foot, WASD walks and Space starts/stops automatic walking. Trees, large rocks
+and water constrain the route. The parked car waits where you left it; E boards
+when you return nearby, and Space departs. Bridge decks are vehicle-only; there
+is no remote summon. Click toggles mouse look, Tab releases it, Left/Right turns
+the view without a mouse, and F1 shows the controls. **Esc/R**, the visible return
+button, or switching to another app returns to work immediately. Other music,
+volume and settings controls stay isolated from the journey.
+
+Your world seed and location are saved to `%APPDATA%/Stillroom/journey.json` when
+you leave a break or close the app. The world freezes while you work or the app
+is closed. **New landscape** replaces this bookmark with a new seed; there is no
+journey history/undo. The existing music and display settings are unaffected.
+See [journey design and verification](journeys.md).
+
+For a quiet scene, click the background outside the controls, click **Take a pause**, or
 press **R**. The scene appears immediately and the hint disappears after three
 seconds. Choose the scene, motion and brightness beforehand under **Settings →
-Rest** (the first page). The gallery has three **Landscapes** and eight **Light &
+Rest** (the first page). The gallery has three **Nature** and eight **Light &
 sky** scenes, with actual thumbnails and a live preview.
 Click a thumbnail, set motion and brightness, then choose **Rest in this scene**.
 These choices are saved immediately, including when closing the gallery.
@@ -79,7 +99,7 @@ Rest uses its own scenery and brightness, preserving the working view.
 Click, press **Esc/R**, or switch to another application to leave rest. The first
 Esc restores the background without shrinking the window. Music keeps playing;
 there is no timer, automatic finish, slideshow or notification. Rest never resumes
-automatically when starting the app. During rest, all application actions except
+automatically when starting the app. During these eleven quiet scenes, all application actions except
 exit are ignored, including Space, A/B, numbers, music, volume and window shortcuts.
 The OS window-close action still works. See the [comparison guide](rest-mode.md).
 

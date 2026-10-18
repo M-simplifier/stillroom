@@ -59,6 +59,13 @@ try {
         & $Cabal update
         if ($LASTEXITCODE) { throw 'Package index update failed.' }
     }
+    $journeyHeaders = Get-ChildItem -LiteralPath (Join-Path $root 'cbits/journey') -Filter '*.h'
+    foreach ($file in @('cbits/journey/render.c','cbits/journey/world.c')) {
+        $sourceFile = Get-Item -LiteralPath (Join-Path $root $file)
+        if ($journeyHeaders | Where-Object { $_.LastWriteTimeUtc -gt $sourceFile.LastWriteTimeUtc }) {
+            $sourceFile.LastWriteTimeUtc = [DateTime]::UtcNow
+        }
+    }
     & $Cabal build all @offlineFlag
     if ($LASTEXITCODE) { throw 'Build failed.' }
     if (-not $SkipTests) {

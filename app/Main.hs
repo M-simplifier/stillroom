@@ -5,6 +5,7 @@ import GHC.IO.Encoding (setForeignEncoding, utf8)
 import Stillroom.Runtime.Benchmark (runBenchmark)
 import Stillroom.Runtime.Capture (runCapture)
 import Stillroom.Runtime.Desktop (runDesktop)
+import Stillroom.Runtime.JourneyCheck (runJourneyCheck)
 import Stillroom.Runtime.Native
 import System.Directory (XdgDirectory (XdgConfig), createDirectoryIfMissing, getXdgDirectory)
 import System.Environment (getArgs)
@@ -23,7 +24,7 @@ main = do
     Left (problem :: SomeException) -> case fromException problem :: Maybe AsyncException of
       Just _ -> throwIO problem
       Nothing -> do
-        if take 1 args `elem` [["--check"], ["--benchmark"], ["--capture-ui"]]
+        if take 1 args `elem` [["--check"], ["--benchmark"], ["--capture-ui"], ["--check-journey"]]
           then hPutStrLn stderr (displayException problem)
           else showProblem (displayException problem)
         exitFailure
@@ -31,6 +32,7 @@ main = do
 dispatch :: [String] -> IO Bool
 dispatch ["--benchmark", directory] = runBenchmark directory
 dispatch ["--capture-ui", directory] = runCapture directory
+dispatch ["--check-journey", directory] = runJourneyCheck directory
 dispatch ["--check", directory] = runDesktop (directory </> "settings.json") (Just directory) Nothing
 dispatch ["--check", directory, "--music", folder] = runDesktop (directory </> "settings.json") (Just directory) (Just folder)
 dispatch [] = do
@@ -42,4 +44,4 @@ dispatch [] = do
       config <- getXdgDirectory XdgConfig "Stillroom"
       createDirectoryIfMissing True config
       runDesktop (config </> "settings.json") Nothing Nothing
-dispatch _ = showProblem "Start Stillroom without arguments. Diagnostics: --capture-ui OUTPUT; --check OUTPUT [--music FOLDER]; --benchmark OUTPUT" >> pure False
+dispatch _ = showProblem "Start Stillroom without arguments. Diagnostics: --capture-ui OUTPUT; --check OUTPUT [--music FOLDER]; --check-journey OUTPUT; --benchmark OUTPUT" >> pure False

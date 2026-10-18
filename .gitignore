@@ -18,6 +18,9 @@
 !/cbits/*.h
 !/cbits/include/
 !/cbits/include/*.h
+!/cbits/journey/
+!/cbits/journey/*.h
+!/cbits/journey/*.c
 !/cbits/*.rc
 !/cbits/*.manifest
 !/test/
@@ -30,6 +33,9 @@
 !/docs/*.html
 !/docs/*.css
 !/docs/*.png
+!/docs/*.mp4
+!/docs/*.webp
+!/docs/*.js
 !/licenses/
 !/licenses/*.txt
 !/licenses/*.md
@@ -45,6 +51,11 @@
 !/assets/rest/nature/*.glsl
 !/assets/rest/nature/*.vs
 !/assets/rest/nature/*.fs
+!/assets/rest/journey/
+!/assets/rest/journey/*.glsl
+!/assets/rest/journey/*.vs
+!/assets/rest/journey/*.fs
+!/assets/rest/journey/*.png
 !/assets/icon/
 !/assets/icon/*.png
 !/assets/icon/*.ico

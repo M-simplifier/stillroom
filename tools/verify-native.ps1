@@ -40,6 +40,8 @@ try {
         'fonts/NotoSansJP.otf','fonts/OFL.txt','rest/procedural.fs',
         'rest/nature/common.glsl','rest/nature/land.vs','rest/nature/land.fs',
         'rest/nature/water.vs','rest/nature/water.fs','rest/nature/sky.fs','rest/nature/post.fs',
+        'rest/journey/common.glsl','rest/journey/land.vs','rest/journey/land.fs','rest/journey/water.vs',
+        'rest/journey/water.fs','rest/journey/sky.fs','rest/journey/post.fs','rest/journey/poster.png',
         'backgrounds/01-mist-lake.png','backgrounds/02-quiet-forest.png',
         'backgrounds/03-soft-dunes.png','backgrounds/04-night-field.png','icon/stillroom.png'
     )) { $required += Join-Path $assetRoot "assets/$file" }
@@ -59,7 +61,7 @@ try {
         while (-not $process.WaitForExit(200)) {
             $process.Refresh()
             if (-not $process.HasExited) { $peakWorkingSet = [Math]::Max($peakWorkingSet, $process.PeakWorkingSet64) }
-            if ($nativeTimer.Elapsed.TotalSeconds -gt 59) {
+            if ($nativeTimer.Elapsed.TotalSeconds -gt 120) {
                 Stop-Process -Id $process.Id
                 throw 'Native acceptance timed out.'
             }
@@ -73,7 +75,7 @@ try {
     $report = Get-Content -LiteralPath $reportFile -Raw -Encoding UTF8 | ConvertFrom-Json
     $result.checks = @($report.checks).Count
     $result.failures = @($report.checks | Where-Object { -not $_.passed } | ForEach-Object { $_.name })
-    if (-not $report.passed -or $result.checks -ne 49 -or $result.failures.Count -gt 0) {
+    if (-not $report.passed -or $result.checks -ne 56 -or $result.failures.Count -gt 0) {
         throw 'Native acceptance is incomplete or failed.'
     }
     $result.passed = $true

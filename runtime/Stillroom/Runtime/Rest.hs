@@ -13,10 +13,11 @@ module Stillroom.Runtime.Rest
     proceduralReady,
     landscapeInfo,
     landscapeReference,
+    journey,
   )
 where
 
-import Control.Exception (IOException, bracket_, catch)
+import Control.Exception (IOException, bracket_, catch, throwIO)
 import Control.Monad (forM, when)
 import Data.ByteString.Char8 qualified as BSC
 import Data.IORef
@@ -27,6 +28,7 @@ import Raylib.Core.Textures (drawTexturePro, loadRenderTexture, setTextureFilter
 import Raylib.Internal (WindowResources, managed)
 import Raylib.Types
 import Stillroom.Domain
+import Stillroom.Runtime.Journey qualified as Journey
 import Stillroom.Runtime.Nature qualified as Nature
 import Stillroom.Runtime.Pictures qualified as Pictures
 import Stillroom.Session
@@ -34,9 +36,10 @@ import System.FilePath ((</>))
 
 data ProceduralShader = ProceduralShader !Shader !Int !Int !Int !Int
 
-data RestAssets = RestAssets Nature.Nature (Maybe ProceduralShader) [(RestScene, Texture)] RenderTexture (IORef (Maybe (RestScene, Int, Int, Double)))
+data RestAssets = RestAssets Journey.JourneyRuntime Nature.Nature (Maybe ProceduralShader) [(RestScene, Texture)] RenderTexture (IORef (Maybe (RestScene, Int, Int, Double)))
 
 proceduralIndex :: RestScene -> Int
+proceduralIndex RailJourney = 0
 proceduralIndex TidalLight = 0
 proceduralIndex LightVeil = 1
 proceduralIndex StarryNight = 2
@@ -57,10 +60,13 @@ loadProgram window name = do
   traverse (\code -> managed window (R.loadShaderFromMemory Nothing (Just code))) source
 
 withRestAssets :: WindowResources -> (RestAssets -> IO a) -> IO a
-withRestAssets window action = Nature.withNature $ \native -> loadRestAssets window native >>= action
+withRestAssets window action = Journey.withJourney $ \travel -> Nature.withNature $ \native -> loadRestAssets window travel native >>= action
 
-loadRestAssets :: WindowResources -> Nature.Nature -> IO RestAssets
-loadRestAssets window native = do
+journey :: RestAssets -> Journey.JourneyRuntime
+journey (RestAssets travel _ _ _ _ _) = travel
+
+loadRestAssets :: WindowResources -> Journey.JourneyRuntime -> Nature.Nature -> IO RestAssets
+loadRestAssets window travel native = do
   program <- loadProgram window "procedural.fs"
   procedural <- case program of
     Nothing -> pure Nothing
@@ -77,31 +83,35 @@ loadRestAssets window native = do
   surface <- managed window (loadRenderTexture 1920 1200)
   _ <- setTextureFilter (renderTexture'texture surface) TextureFilterBilinear
   rendered <- newIORef Nothing
-  let assets = RestAssets native procedural [] surface rendered
-  thumbs <- forM [minBound .. maxBound] $ \scene -> do
+  let assets = RestAssets travel native procedural [] surface rendered
+  thumbs <- forM [scene | scene <- [minBound .. maxBound], scene /= RailJourney] $ \scene -> do
     target <- managed window (loadRenderTexture 320 180)
     _ <- setTextureFilter (renderTexture'texture target) TextureFilterBilinear
     bracket_ (R.beginTextureMode target) R.endTextureMode $
       renderPreview assets 180 (Rectangle 0 0 320 180) ((initialSession defaultVolume) {restScene = scene, restShade = Original})
     pure (scene, renderTexture'texture target)
-  pure (RestAssets native procedural thumbs surface rendered)
+  posterPath <- Pictures.assetPath ("assets" </> "rest" </> "journey" </> "poster.png")
+  prepared <- Pictures.preparePicture (Pictures.PictureEntry "journey-poster" posterPath "Journey" Pictures.Bundled) >>= either throwIO pure
+  poster <- Pictures.uploadPicture window prepared
+  pure (RestAssets travel native procedural ((RailJourney, poster) : thumbs) surface rendered)
 
 thumbnailsReady :: RestAssets -> Bool
-thumbnailsReady (RestAssets _ _ thumbs _ _) = all ready [minBound .. maxBound]
+thumbnailsReady (RestAssets _ _ _ thumbs _ _) = all ready [minBound .. maxBound]
   where
     ready scene = maybe False ((> 0) . texture'id) (lookup scene thumbs)
 
 proceduralReady :: RestAssets -> IO Bool
-proceduralReady (RestAssets native shader _ _ _) = (isJust shader &&) <$> Nature.available native
+proceduralReady (RestAssets _ native shader _ _ _) = (isJust shader &&) <$> Nature.available native
 
 landscapeInfo :: RestAssets -> IO String
-landscapeInfo (RestAssets native _ _ _ _) = Nature.info native
+landscapeInfo (RestAssets _ native _ _ _ _) = Nature.info native
 
 landscapeReference :: RestAssets -> Bool -> IO ()
-landscapeReference (RestAssets native _ _ _ _) = Nature.reference native
+landscapeReference (RestAssets _ native _ _ _ _) = Nature.reference native
 
 restIssue :: RestAssets -> Session -> IO (Maybe String)
-restIssue (RestAssets native procedural _ _ _) s = do
+restIssue (RestAssets travel _ _ _ _ _) s | restScene s == RailJourney = Journey.status travel (language s)
+restIssue (RestAssets _ native procedural _ _ _) s = do
   ready <- if sceneCollection (restScene s) == Landscapes then Nature.available native else pure (isJust procedural)
   pure (if ready then Nothing else Just (local "Rest rendering unavailable. Click or Esc to return." "休息の景色を描画できません。クリックかEscで戻ります。"))
   where
@@ -109,11 +119,11 @@ restIssue (RestAssets native procedural _ _ _) s = do
 
 renderRest :: RestAssets -> Int -> Int -> Session -> IO ()
 renderRest assets w h s
-  | sceneCollection (restScene s) == Landscapes = renderPreview assets h (Rectangle 0 0 (fromIntegral w) (fromIntegral h)) s
+  | sceneCollection (restScene s) /= Atmospheres = renderPreview assets h (Rectangle 0 0 (fromIntegral w) (fromIntegral h)) s
   | otherwise = renderProceduralRest assets w h s
 
 renderProceduralRest :: RestAssets -> Int -> Int -> Session -> IO ()
-renderProceduralRest assets@(RestAssets _ _ _ target rendered) w h s = do
+renderProceduralRest assets@(RestAssets _ _ _ _ target rendered) w h s = do
   let limit = if restScene s == CloudSea then 1120 else 1920 :: Float
       ratio = min 1 (min (limit / fromIntegral w) (1200 / fromIntegral h))
       rw = max 1 (floor (fromIntegral w * ratio)) :: Int
@@ -141,30 +151,33 @@ renderProceduralRest assets@(RestAssets _ _ _ target rendered) w h s = do
   drawRectangleRec (Rectangle 0 0 (fromIntegral w) (fromIntegral h)) (Color 0 0 0 (fromIntegral (shadeOpacity (restShade s))))
 
 renderThumbnail :: RestAssets -> RestScene -> Rectangle -> IO ()
-renderThumbnail (RestAssets _ _ thumbs _ _) scene rectangle@(Rectangle _ _ w h) =
+renderThumbnail (RestAssets _ _ _ thumbs _ _) scene rectangle@(Rectangle _ _ w h) =
   forM (lookup scene thumbs) (\texture -> drawTexturePro texture source rectangle (Vector2 0 0) 0 (Color 255 255 255 255)) >> pure ()
   where
     scale = max (w / 320) (h / 180)
     sw = w / scale
     sh = h / scale
-    source = Rectangle ((320 - sw) / 2) ((180 - sh) / 2) sw (-sh)
+    source = Rectangle ((320 - sw) / 2) ((180 - sh) / 2) sw (if scene == RailJourney then sh else -sh)
 
 renderPreview :: RestAssets -> Int -> Rectangle -> Session -> IO ()
-renderPreview (RestAssets native procedural _ _ _) viewportHeight rectangle@(Rectangle x y wf hf) s = do
+renderPreview (RestAssets travel native procedural _ _ _) viewportHeight rectangle@(Rectangle x y wf hf) s = do
   drawRectangleRec rectangle (Color 5 13 18 255)
-  if sceneCollection (restScene s) == Landscapes
-    then do
-      _ <- Nature.draw native (restScene s) (restSeconds s) x y wf hf
-      pure ()
-    else case procedural of
-      Nothing -> pure ()
-      Just (ProceduralShader program time size choice origin) -> do
-        R.nativeSetShaderValue program time (ShaderUniformFloat phase)
-        R.nativeSetShaderValue program size (ShaderUniformVec2 (Vector2 wf hf))
-        R.nativeSetShaderValue program origin (ShaderUniformVec2 (Vector2 x (fromIntegral viewportHeight - y - hf)))
-        R.nativeSetShaderValue program choice (ShaderUniformInt (proceduralIndex (restScene s)))
-        bracket_ (R.beginShaderMode program) R.endShaderMode $
-          drawRectangleRec rectangle (Color 255 255 255 255)
+  if restScene s == RailJourney
+    then Journey.draw travel rectangle
+    else
+      if sceneCollection (restScene s) == Landscapes
+        then do
+          _ <- Nature.draw native (restScene s) (restSeconds s) x y wf hf
+          pure ()
+        else case procedural of
+          Nothing -> pure ()
+          Just (ProceduralShader program time size choice origin) -> do
+            R.nativeSetShaderValue program time (ShaderUniformFloat phase)
+            R.nativeSetShaderValue program size (ShaderUniformVec2 (Vector2 wf hf))
+            R.nativeSetShaderValue program origin (ShaderUniformVec2 (Vector2 x (fromIntegral viewportHeight - y - hf)))
+            R.nativeSetShaderValue program choice (ShaderUniformInt (proceduralIndex (restScene s)))
+            bracket_ (R.beginShaderMode program) R.endShaderMode $
+              drawRectangleRec rectangle (Color 255 255 255 255)
   drawRectangleRec rectangle (Color 0 0 0 (fromIntegral (shadeOpacity (restShade s))))
   where
     phase =
