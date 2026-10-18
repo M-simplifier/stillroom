@@ -3,48 +3,104 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="Music for working. A quiet railcar journey when you pause. Stillroom is a free, local Windows listening room with landscapes generated from code.">
+  <meta name="description" content="Stillroom is a free Windows app for music, a quiet working screen and gentle breaks. Play your music, settle into work, and click the background when you need a pause.">
   <meta name="theme-color" content="#152b27">
-  <meta property="og:title" content="Stillroom — let the landscape come to you">
-  <meta property="og:description" content="Play your music. Take a quiet ride. Step outside and wander.">
-  <meta property="og:image" content="https://m-simplifier.github.io/stillroom/journey-poster.webp">
-  <title>Stillroom — let the landscape come to you</title>
+  <meta property="og:title" content="Stillroom — your music, a quieter workspace">
+  <meta property="og:description" content="Music and a still screen while you work. Gentle scenery a click away when you need a pause. A small, free app for Windows.">
+  <meta property="og:image" content="https://m-simplifier.github.io/stillroom/room-en.png">
+  <meta property="og:locale" content="en_US">
+  <title>Stillroom — music, a quiet screen, a little room to pause</title>
+  <link rel="canonical" href="https://m-simplifier.github.io/stillroom/">
+  <link rel="alternate" hreflang="en" href="https://m-simplifier.github.io/stillroom/">
+  <link rel="alternate" hreflang="ja" href="https://m-simplifier.github.io/stillroom/ja.html">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
 <a class="skip" href="#main">Skip to content</a>
 <header class="site-header">
   <a class="brand" href="./" aria-label="Stillroom home"><span class="mark" aria-hidden="true">◌</span> stillroom</a>
-  <nav aria-label="Main navigation"><a href="#journey">The journey</a><a href="#room">The room</a><a href="https://github.com/M-simplifier/stillroom">Source ↗</a><a href="ja.html" lang="ja">日本語</a></nav>
+  <nav aria-label="Main navigation"><a href="#focus">For work</a><a href="#rest">For a pause</a><a href="https://github.com/M-simplifier/stillroom">Source ↗</a><a href="ja.html" lang="ja">日本語</a></nav>
 </header>
 <main id="main">
   <section class="hero wrap" aria-labelledby="hero-title">
-    <p class="eyebrow">A listening room for Windows</p>
-    <div class="hero-copy"><h1 id="hero-title">Let the landscape<br>come to you.</h1><div class="hero-aside"><p>Play your music. When you need a pause, take a seat on a little railcar. Let lakes, woodland and open country drift past.</p><a class="button" href="https://github.com/M-simplifier/stillroom/releases/latest">Download Stillroom <span aria-hidden="true">↗</span></a><p class="detail">Windows x64 · Free &amp; open source · 0.8</p></div></div>
+    <div class="hero-copy">
+      <p class="eyebrow">Music. A quiet screen. Room to pause.</p>
+      <h1 id="hero-title">Your music.<br>A quieter workspace.</h1>
+      <p class="intro">Stillroom is a small Windows app for music and a calm screen while you work. When you need a pause, click the background. The music keeps playing as gentle scenery takes its place.</p>
+      <a class="button" href="https://github.com/M-simplifier/stillroom/releases/latest">Download for Windows <span aria-hidden="true">↓</span></a>
+      <p class="detail">Windows x64 · Free &amp; open source · 0.8</p>
+    </div>
+    <figure class="player">
+      <img src="room-en.png" width="700" height="500" fetchpriority="high" alt="Stillroom's working screen: a misty forest with a small strip for playback, volume, Take a pause and Settings.">
+      <figcaption>The working screen · Window view with the forest background selected</figcaption>
+    </figure>
   </section>
-  <figure class="film wrap" id="journey">
-    <div class="film-frame"><video controls playsinline preload="none" poster="journey-poster.webp" width="1280" height="720" aria-label="A quiet railcar ride through a procedurally generated landscape"><source src="journey.mp4" type="video/mp4"><p>Your browser cannot play this video. <a href="journey.mp4">Download the journey film</a>.</p></video><span class="film-tag" aria-hidden="true">THE QUIET LINE</span></div>
-    <figcaption><span>A little ride through an unfolding landscape.</span><span>48 seconds · Silent preview · Real-time prototype footage</span></figcaption>
-  </figure>
-  <section class="journey-copy wrap" aria-labelledby="journey-title">
-    <div class="section-heading"><p class="eyebrow">One continuous journey</p><h2 id="journey-title">Stay aboard.<br>Or follow your curiosity.</h2></div>
-    <div class="steps">
-      <article><span class="number">01</span><h3>Watch the world go by</h3><p>The railcar sets off gently, crossing meadows, woodland, heath, wetlands and dunes. Pause or change the pace whenever you like.</p></article>
-      <article><span class="number">02</span><h3>Step outside</h3><p>Stop near dry ground and wander on foot. Walk for yourself, or let automatic walking find a way around trees and water. Your railcar waits where you left it.</p></article>
-      <article><span class="number">03</span><h3>Pick up where you paused</h3><p>Esc brings you straight back to work. Your place is saved for the next break. Choose a new landscape only when you feel like a different journey.</p></article>
+
+  <ol class="rhythm wrap" aria-label="From work to a pause and back">
+    <li><span class="number">01</span><div><h2>Put on music. Settle into work.</h2><p>A still background. A few controls when needed.</p></div></li>
+    <li><span class="number">02</span><div><h2>Click the background. Take a pause.</h2><p>Spend a moment with the scenery you chose.</p></div></li>
+    <li><span class="number">03</span><div><h2>Come back when you're ready.</h2><p>Press <kbd>Esc</kbd> to return. The music carries on.</p></div></li>
+  </ol>
+
+  <section class="focus wrap" id="focus" aria-labelledby="focus-title">
+    <div class="section-heading"><p class="eyebrow">While you're working</p><h2 id="focus-title">Just enough.<br>Then out of the way.</h2></div>
+    <div class="focus-copy">
+      <article><h3>Open the app. Music begins.</h3><p>Four built-in scores are ready to play. Or choose a folder of your own music. Tracks shuffle and blend gently into one another, without another playlist to keep tending.</p></article>
+      <article><h3>A working screen that stays still.</h3><p>Choose a quiet colour or a favourite image, dimmed to taste. In fullscreen, the controls disappear when left alone. Fill a spare display with a calm background, or keep your music in a small window.</p></article>
     </div>
   </section>
-  <section class="room" id="room" aria-labelledby="room-title"><div class="wrap room-grid">
-    <div><p class="eyebrow">Still a listening room</p><h2 id="room-title">The music stays.<br>The screen settles.</h2><p>Four original scores play straight away. Or bring a folder of your own music. Gentle transitions keep it flowing while the controls slip out of view.</p><p>Keep a still background for work. For a quieter pause, choose from eleven scenes of water, trees, light and sky. There is no timer to watch or destination to reach.</p><a class="text-link" href="https://github.com/M-simplifier/stillroom/blob/main/docs/guide.md">Explore the short guide <span aria-hidden="true">→</span></a></div>
-    <figure><img src="rest-landscape.png" width="1920" height="1080" loading="lazy" alt="A still viewpoint among birches and grasses at a reflective lake"><figcaption>Birch lake · A pause in one place</figcaption></figure>
-  </div></section>
-  <section class="details wrap" aria-label="About the app">
-    <article><h3>Made as you go</h3><p>Terrain, plants, water and the railway are generated locally. The journey grows around you from a saved seed, with a bounded amount of scenery kept in memory.</p></article>
-    <article><h3>At home on your computer</h3><p>No account, network requests or analytics in the app. Your music and settings stay local. Fullscreen on a spare display, or in a small window.</p></article>
-    <article><h3>Small, open, yours</h3><p>Written in Haskell with raylib and native shaders. English and Japanese controls. MIT licensed, with source and a Windows build ready to explore.</p></article>
+
+  <section class="rest" id="rest" aria-labelledby="rest-title">
+    <div class="wrap">
+      <div class="rest-intro">
+        <div><p class="eyebrow">When your attention needs somewhere to rest</p><h2 id="rest-title">A little room to pause.<br>Just a click away.</h2></div>
+        <p>Waiting for an AI response, or a little tired from working? Before reaching for your phone, let your eyes linger on water or woodland. A quiet place for the gaps in your day.</p>
+      </div>
+      <div class="quiet-scenes">
+        <figure><img src="rest-landscape.png" width="1920" height="1080" loading="lazy" alt="The Birch lake rest scene, with trees and grasses reflected in the water."><figcaption>Birch lake · Linger in one place</figcaption></figure>
+        <figure><img src="rest-water.png" width="2562" height="1442" loading="lazy" alt="The Water and light rest scene, with sunlight across a blue surface."><figcaption>Water and light · A little movement to watch</figcaption></figure>
+      </div>
+      <div class="rest-notes">
+        <article><h3>Eleven scenes, just to watch.</h3><p>Water, woodland, stars and soft light. Pick a scene, motion and brightness in Settings beforehand. It will be there the next time you take a pause.</p></article>
+        <article><h3>Nothing to do but return.</h3><p>These eleven scenes have no menus to tend or timer to watch. Click the background again or press Esc to return to work. Stay for as long, or as little, as you like.</p></article>
+      </div>
+    </div>
   </section>
-  <section class="start wrap" aria-labelledby="start-title"><p class="eyebrow">Whenever you need a pause</p><h2 id="start-title">Open a little room.</h2><p>Extract the ZIP and open <code>stillroom.exe</code>.<br>Choose Settings → Rest → Journey, then “Continue the journey.”</p><a class="button" href="https://github.com/M-simplifier/stillroom/releases/latest">Download for Windows <span aria-hidden="true">↓</span></a><p class="detail">An early, unsigned Windows x64 release. A capable graphics device is recommended for the journey.</p><details><summary>A few keys, when you want them</summary><div class="keys"><p><kbd>R</kbd> Enter a break <span>·</span> <kbd>Esc</kbd> Return to work</p><p><kbd>Space</kbd> Stop / ride <span>·</span> <kbd>E</kbd> Step outside / board</p><p><kbd>WASD</kbd> Walk <span>·</span> <kbd>Space</kbd> Automatic walking on foot</p><p>Click to look around; click again or press Tab to release. <kbd>F1</kbd> shows the controls.</p></div></details></section>
+
+  <section class="journey wrap" id="journey" aria-labelledby="journey-title">
+    <div class="journey-copy">
+      <p class="eyebrow">Another way to spend a pause <span class="new">New in 0.8</span></p>
+      <h2 id="journey-title">When you feel like<br>going a little further.</h2>
+      <p>Take a seat on a little railcar and drift past lakes, woodland and open country. Watch the world go by, step outside and wander, or let automatic walking lead the way.</p>
+      <p>The journey is one of the scenery choices for your breaks. Esc returns you to work; your place will be waiting next time.</p>
+      <a class="text-link" href="https://github.com/M-simplifier/stillroom/blob/main/docs/journeys.md">More about the journey <span aria-hidden="true">→</span></a>
+    </div>
+    <figure class="film">
+      <div class="film-frame"><video controls playsinline preload="none" poster="journey-poster.webp" width="1280" height="720" aria-label="A quiet railcar ride through nature. Play a 48-second preview."><source src="journey.mp4" type="video/mp4"><p>Your browser cannot play this video. <a href="journey.mp4">Download the journey film</a>.</p></video></div>
+      <figcaption>48 seconds · Silent preview · Real-time prototype footage</figcaption>
+      <p class="film-note">Rest scenery is generated locally by the app. Preparing the journey for the first time can take a few seconds.</p>
+    </figure>
+  </section>
+
+  <section class="details wrap" aria-label="About the app">
+    <article><h3>At home on your computer.</h3><p>No account, network requests or analytics in the app. Your music and settings stay on your own computer.</p></article>
+    <article><h3>Free, with the source open.</h3><p>Made for Windows in Haskell with raylib. English and Japanese controls. MIT licensed, with the source ready to explore.</p></article>
+  </section>
+
+  <section class="start wrap" aria-labelledby="start-title">
+    <p class="eyebrow">Alongside whatever you're working on</p>
+    <h2 id="start-title">Open a little room.<br>Let the music begin.</h2>
+    <p>Extract the ZIP and open <code>stillroom.exe</code>.<br>The built-in music starts, with a quiet, plain-colour screen.</p>
+    <p>Choose your music, background and rest scenery in Settings whenever you like.<br>When you need a pause, click the background outside the controls.</p>
+    <a class="button" href="https://github.com/M-simplifier/stillroom/releases/latest">Download for Windows <span aria-hidden="true">↓</span></a>
+    <p class="detail">An early, unsigned Windows x64 release.<br>A capable graphics device is recommended for the journey.</p>
+    <a class="guide-link" href="https://github.com/M-simplifier/stillroom/blob/main/docs/guide.md">Read the short guide <span aria-hidden="true">↗</span></a>
+  </section>
 </main>
-<footer class="wrap"><a class="brand" href="./">◌ stillroom</a><nav aria-label="Project links"><a href="https://github.com/M-simplifier/stillroom/blob/main/STATUS.md">Status &amp; limits</a><a href="https://github.com/M-simplifier/stillroom/blob/main/LICENSE">MIT license</a><a href="https://github.com/M-simplifier/stillroom/issues">Issues</a></nav><p>A personal workspace utility. No therapeutic or measured productivity claims. Music you add keeps its own license.</p></footer>
+<footer class="wrap">
+  <a class="brand" href="./">◌ stillroom</a>
+  <nav aria-label="Project links"><a href="https://github.com/M-simplifier/stillroom/blob/main/STATUS.md">Status &amp; limits</a><a href="https://github.com/M-simplifier/stillroom/blob/main/LICENSE">MIT license</a><a href="https://github.com/M-simplifier/stillroom/issues">Issues</a></nav>
+  <p>A personal workspace utility. No therapeutic or measured productivity claims. Music you add keeps its own license.</p>
+</footer>
 </body>
 </html>
