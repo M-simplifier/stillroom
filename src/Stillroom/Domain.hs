@@ -22,6 +22,8 @@ module Stillroom.Domain
     RestCollection (..),
     sceneCollection,
     RestMotion (..),
+    GraphicsQuality (..),
+    graphicsQualityName,
     SettingsPage (..),
     restSceneName,
     restSceneDescription,
@@ -42,6 +44,7 @@ module Stillroom.Domain
   )
 where
 
+import Stillroom.Graphics (GraphicsQuality (..))
 import Data.List.NonEmpty (NonEmpty (..))
 
 newtype Volume = Volume Double deriving (Eq, Show)
@@ -112,6 +115,18 @@ sceneCollection MeadowStream = Landscapes
 sceneCollection _ = Atmospheres
 
 data RestMotion = Still | Gentle deriving (Eq, Enum, Bounded, Show, Read)
+
+graphicsQualityName :: Language -> GraphicsQuality -> String
+graphicsQualityName Japanese Automatic = "自動"
+graphicsQualityName Japanese Lightweight = "軽量"
+graphicsQualityName Japanese Standard = "標準"
+graphicsQualityName Japanese High = "高画質"
+graphicsQualityName Japanese Ultra = "最高"
+graphicsQualityName English Automatic = "Auto"
+graphicsQualityName English Lightweight = "Low"
+graphicsQualityName English Standard = "Standard"
+graphicsQualityName English High = "High"
+graphicsQualityName English Ultra = "Ultra"
 
 data SettingsPage = DisplaySettings | RestSettings | MusicSettings deriving (Eq, Show)
 

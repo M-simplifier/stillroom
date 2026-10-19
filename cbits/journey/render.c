@@ -25,7 +25,7 @@ typedef struct {
   Mesh railcar;
   double carS, carSpeed;
   int aboard;
-  int quality; // Preview only: 0 released, 1 detailed, 2 supersampled.
+  int quality, qualityCeiling; // 0 economy, 1 balanced, 2 detailed, 3 supersampled.
   Chunk chunks[CAPACITY], farChunks[FAR_CAPACITY];
   unsigned int generated, evicted, frames, farGenerated, farEvicted;
   double maxGenerationMs, lastGenerationMs;
@@ -288,8 +288,11 @@ WalkWorld *sr_journey_open(uint32_t seed, const char *const *sources) {
   if (!w)
     return NULL;
   w->seed = seed;
+  w->quality = 1;
+  w->qualityCeiling = 3;
   w->n = journeyNature_load(sources);
   if (w->n) {
+    if (w->n->shadowMap.depth.width < 2048) w->quality = w->qualityCeiling = 0;
     w->railcar = createRailcar(w->n);
     w->n->scene = 0;
     w->n->sun = Vector3Normalize((Vector3){-.55f, .57f, .38f});
@@ -321,19 +324,8 @@ int sr_journey_ready(WalkWorld *w) {
   return w && w->n && w->n->ready && !w->n->errorText[0];
 }
 int sr_journey_quality(WalkWorld *w, int quality) {
-  if (!sr_journey_ready(w) || quality < 0 || quality > 2)
-    return 0;
-  if (w->quality == quality)
-    return 1;
-  Nature *s = w->n;
-  RenderTexture2D shadow = target(s, quality == 2 ? 4096 : quality == 1 ? 3072 : 2048,
-                                 quality == 2 ? 4096 : quality == 1 ? 3072 : 2048, 0);
-  if (!shadow.id) return 0;
-  freeTarget(s->shadowMap);
-  s->shadowMap = shadow;
-  w->quality = quality;
-  s->currentWidth = 0;
-  return sr_journey_ready(w);
+  if (!sr_journey_ready(w)) return 0;
+  return selectQuality(w->n, &w->quality, &w->qualityCeiling, quality);
 }
 const char *sr_journey_error(WalkWorld *w) {
   return w && w->n ? w->n->errorText : "World allocation failed";
@@ -445,21 +437,8 @@ int sr_journey_draw(WalkWorld *w, double x, double y, double z, double yaw,
   w->nearMissing = findChunk(w, (int)floor(x / TILE), (int)floor(z / TILE)) < 0;
   if (w->nearMissing)
     return 0;
-  float scale = w->quality == 2 ? 1.5f : 1.0f;
-  float limitW = w->quality == 2 ? 2880 : w->quality == 1 ? 2560 : 1600;
-  float limitH = w->quality == 2 ? 1620 : w->quality == 1 ? 1440 : 900;
-  float ratio = fminf(scale, fminf(limitW / width, limitH / height));
-  int rw = (int)fmaxf(1, width * ratio), rh = (int)fmaxf(1, height * ratio);
-  if (rw != s->currentWidth || rh != s->currentHeight) {
-    freeTarget(s->hdr);
-    freeTarget(s->reflection);
-    s->hdr = target(s, rw, rh, 1);
-    float reflectionScale = w->quality == 2 ? 1 : w->quality == 1 ? .75f : .5f;
-    s->reflection = target(s, (int)ceilf(rw * reflectionScale),
-                           (int)ceilf(rh * reflectionScale), 1);
-    s->currentWidth = rw;
-    s->currentHeight = rh;
-  }
+  if (!budgetTargets(s, &w->quality, &w->qualityCeiling, width, height, 0)) return 0;
+  int rw = s->currentWidth, rh = s->currentHeight;
   Shader qualityShaders[] = {s->landShader, s->waterShader, s->skyShader, s->postShader};
   for (int i = 0; i < 4; i++) i1(qualityShaders[i], "uQuality", w->quality);
   Vector3 eye = {(float)x, (float)y, (float)z};

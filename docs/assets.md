@@ -33,9 +33,10 @@
 - **Journey:** original Haskell reducers, terrain/rail/plant generation in
   `cbits/journey/` and shaders in `assets/rest/journey/`, MIT. No model, terrain
   image or video is sampled by the live journey. `poster.png` is a 320×180 native
-  capture used only by the gallery card. The official site's 48-second silent
-  film is captured from the accepted rail prototype using the same original
-  scenery; it contains no third-party recordings or personal data.
+  capture used only by the gallery card. The official site's 16-second silent
+  film uses the production Ultra renderer, captured at a fixed clock and encoded
+  offline. It contains no third-party recordings or personal data; it is a visual
+  preview, not a measurement of real-time rendering performance.
 - **Font:** unmodified Noto Sans CJK JP Regular, renamed on disk to
   `NotoSansJP.otf`. SIL Open Font License 1.1, separate from MIT.
   [Upstream file](https://github.com/notofonts/noto-cjk/blob/f8d157532fbfaeda587e826d4cd5b21a49186f7c/Sans/OTF/Japanese/NotoSansCJKjp-Regular.otf)

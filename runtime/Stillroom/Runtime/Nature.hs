@@ -2,12 +2,13 @@
 
 -- | A bracketed native renderer. Shader contents cross the UTF-8 boundary once;
 -- frames pass only a scene, clock and rectangle. No finalizer runs after GL closes.
-module Stillroom.Runtime.Nature (Nature, withNature, available, draw, info, synchronize, reference, landscapeIndex) where
+module Stillroom.Runtime.Nature (Nature, withNature, available, draw, info, synchronize, reference, quality, landscapeIndex) where
 
 import Control.Exception (IOException, bracket, try)
 import Data.ByteString qualified as BS
 import Foreign (Ptr, nullPtr, withArray, withMany)
 import Foreign.C (CDouble (..), CFloat (..), CInt (..), CString, peekCString)
+import Stillroom.Graphics (Tier)
 import Stillroom.Domain
 import Stillroom.Runtime.Pictures qualified as Pictures
 import System.FilePath ((</>))
@@ -29,6 +30,12 @@ foreign import ccall unsafe "sr_nature_info" nativeInfo :: Ptr NativeNature -> I
 foreign import ccall safe "sr_nature_sync" synchronize :: IO ()
 
 foreign import ccall safe "sr_nature_reference" nativeReference :: Ptr NativeNature -> CInt -> IO ()
+
+foreign import ccall safe "sr_nature_quality" nativeQuality :: Ptr NativeNature -> CInt -> IO CInt
+
+quality :: Nature -> Tier -> IO ()
+quality Missing _ = pure ()
+quality (Loaded pointer) tier = nativeQuality pointer (fromIntegral (fromEnum tier)) >> pure ()
 
 -- | Benchmark-only quality comparison. Normal application code leaves this off.
 reference :: Nature -> Bool -> IO ()

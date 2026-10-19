@@ -79,7 +79,7 @@ runBenchmark output = do
         $ object
           [ "workload" .= ("actual View.render; no audio; hidden OpenGL window; no FPS target or VSync request; warm caches; 3 repetitions" :: String),
             "results" .= concat rows,
-            "landscapeWorkload" .= ("actual View.render; same scene, camera, 30 Hz clock and shaders; endDrawing + glFinish; hidden undecorated window; no audio, capture, pacing or VSync request; reference = full-size reflection, uncapped raster, 2048 shadow; balanced = half reflection, max 1600x900 raster, 1536 shadow; 2 repetitions, 30 frames each" :: String),
+            "landscapeWorkload" .= ("actual View.render; same scene, camera, 30 Hz clock and shaders; endDrawing + glFinish; hidden undecorated window; no audio, capture, pacing or VSync request; reference = full-size reflection, uncapped raster, 2048 shadow; standard = half reflection, max 1600x900 raster, 2048 shadow; 2 repetitions, 30 frames each" :: String),
             "landscapeResults" .= landscapes,
             "landscapeContracts" .= contracts
           ]
@@ -87,7 +87,7 @@ runBenchmark output = do
   where
     title = "A quiet afternoon / 静かな午後"
     frames = 60 :: Int
-    base = (initialSession defaultVolume) {windowMode = Compact, language = Japanese}
+    base = (initialSession defaultVolume) {windowMode = Compact, language = Japanese, graphicsQuality = Standard}
     cases :: [(String, Int, Int, Session)]
     cases =
       [ ("player", 760, 500, base),
@@ -112,7 +112,7 @@ instance FromJSON LandscapeStats where
 
 landscapeBenchmark :: View.Typeface -> Rest.RestAssets -> IO ([Value], Value)
 landscapeBenchmark font assets = do
-  let state scene = (initialSession defaultVolume) {viewingMode = Resting, restScene = scene, restHintSeconds = 0, restShade = Original}
+  let state scene = (initialSession defaultVolume) {graphicsQuality = Standard, viewingMode = Resting, restScene = scene, restHintSeconds = 0, restShade = Original}
       draw w h scene clock = do
         R.beginDrawing
         View.render font assets w h (state scene) {restSeconds = clock} Nothing "" "" Nothing (-1, -1)

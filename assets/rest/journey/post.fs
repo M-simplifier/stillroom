@@ -20,7 +20,7 @@ vec3 smoothDetail(vec2 p){
 }
 void main(){
     vec3 c=smoothDetail(fragTexCoord);
-    if(uQuality==2) {
+    if(uQuality==3) {
         // Spatial supersampling: no temporal history, so no ghost trails on
         // leaves or reflections. The tap radius covers the output pixel.
         vec2 d=.28/max(uOutputResolution,vec2(1));

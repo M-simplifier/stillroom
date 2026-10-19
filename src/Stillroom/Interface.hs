@@ -54,7 +54,7 @@ dockBounds :: Int -> Int -> Bounds
 dockBounds w h = Bounds ((fromIntegral w - 620) / 2) (fromIntegral h - 122) 620 98
 
 previewBounds :: Int -> Int -> Bounds
-previewBounds w h = Bounds (x + 24) (y + 126) pw (min (pw * 9 / 16) (rh - 310))
+previewBounds w h = Bounds (x + 24) (y + 126) pw (min (pw * 9 / 16) (rh - 358))
   where
     Bounds x y rw rh = settingsBounds w h
     pw = (rw - 48) * 0.56 - 32
@@ -117,6 +117,8 @@ controls w h s
         | (i, (title, collection)) <- zip [0 :: Int ..] [(local s "Journey" "旅", Journeys), (local s "Nature" "自然", Landscapes), (local s "Light & sky" "光と空", Atmospheres)]
         ]
           ++ [c r (restSceneName (language s) scene) (ChooseRestScene scene) (Scene scene) | (scene, r) <- galleryCards w h (restCollection s)]
+          ++ [c (Bounds (px + offset * pw) (y + rh - 153) (width * pw - 3) 28) (graphicsQualityName (language s) quality) (ChooseGraphicsQuality quality) Segment
+             | (quality, offset, width) <- zip3 [minBound .. maxBound] (scanl (+) 0 qualityWidths) qualityWidths]
           ++ ( if restScene s == RailJourney
                  then [c (Bounds px (y + rh - 102) (pw * 0.45) 32) (local s "New landscape" "新しい景色") NewJourney Subtle]
                  else
@@ -144,6 +146,9 @@ controls w h s
           c (Bounds rx (y + 292) rightWidth 40) "日本語 / English" ToggleLanguage Subtle,
           Control (Bounds rx (y + rh - 52) rightWidth 38) (local s "Quit Stillroom" "Stillroomを終了") Quit Subtle
         ]
+
+    -- Keep "Standard" readable even in the smallest English window.
+    qualityWidths = if language s == English then [0.18, 0.18, 0.28, 0.18, 0.18] else replicate 5 0.2
 
 contains :: Bounds -> (Float, Float) -> Bool
 contains (Bounds x y w h) (px, py) = px >= x && px <= x + w && py >= y && py <= y + h
@@ -182,6 +187,7 @@ selected s (Intent event) = case event of
   ChooseRestScene value -> restScene s == value
   ShowRestCollection value -> restCollection s == value
   ChooseRestMotion value -> restMotion s == value
+  ChooseGraphicsQuality value -> graphicsQuality s == value
   ChooseRestShade value -> restShade s == value
   ChoosePictureShade value -> pictureShade s == value
   ShowRestSettings -> settingsPage s == RestSettings

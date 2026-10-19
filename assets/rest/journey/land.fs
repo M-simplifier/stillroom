@@ -16,7 +16,7 @@ float shadow(vec3 n) {
     vec3 p=lightSpace.xyz/lightSpace.w*.5+.5;
     if(p.x<0.0||p.x>1.0||p.y<0.0||p.y>1.0||p.z>1.0) return 1.0;
     float bias=max(.00023,.0011*(1.0-dot(n,uSun))),v=0.0;
-    if(uQuality>0) {
+    if(uQuality>1) {
         vec2 px=1.0/vec2(textureSize(uShadow,0));
         float blockers=0.0,total=0.0;
         for(int i=0;i<6;i++) {

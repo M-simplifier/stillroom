@@ -33,7 +33,7 @@ vec3 detailedSky(vec3 d) {
     return c;
 }
 vec3 skyColor(vec3 d) {
-    if(uQuality>0)return detailedSky(d);
+    if(uQuality>=0)return detailedSky(d);
     float h=max(d.y,0.0),sun=max(dot(d,uSun),0.0);
     vec3 c=mix(vec3(.48,.65,.76),vec3(.085,.26,.49),pow(h,.5));
     if(uLandscape==1)c=mix(vec3(.40,.57,.69),vec3(.055,.19,.38),pow(h,.5));
@@ -46,7 +46,7 @@ vec3 skyColor(vec3 d) {
     return c;
 }
 vec3 fogged(vec3 c,vec3 p,vec3 eye) {
-    if(uQuality>0) {
+    if(uQuality>=0) {
         float distanceToEye=length(p-eye);
         vec3 direction=normalize(p-eye);
         float dh=(p.y-eye.y)*.024;

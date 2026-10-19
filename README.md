@@ -33,6 +33,8 @@ leave it alone and the controls disappear into a quiet, static screen.
   around and has a visible return button. Music continues throughout.
 - Three clear settings pages, a large scene preview, direct motion/brightness
   choices, and keyboard focus navigation with Tab, Shift-Tab and Enter.
+- Rest graphics adapt to the rendering load, with fixed Low through Ultra
+  choices for water, light, shadows and detail. See [graphics quality](docs/graphics-quality.md).
 - A native app icon for Explorer, shortcuts and the taskbar.
 - Choose a display; use fullscreen or a small window. Settings persist.
 - English and Japanese controls. No network requests, analytics or updater.
@@ -60,7 +62,7 @@ On Windows x64, install GHC **9.6.7**, Cabal **3.12.1.0** and GHCup's MSYS2 tool
 
 ```powershell
 ./tools/dev.ps1 Build -Online  # First build: fetch pinned dependencies
-./tools/dev.ps1 Capture       # Incremental build + 22 UI/landscape/journey screenshots
+./tools/dev.ps1 Capture       # Incremental build + 28 UI/landscape/journey screenshots
 ```
 
 The entrypoint finds the pinned tools, sets up GMP and development assets, then

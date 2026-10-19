@@ -107,3 +107,13 @@ out, walking and reboarding. It writes captures and `journey-check.json`, with
 cache counts and maximum single-chunk generation time. It does not certify
 real-time frame rates or all-day stability. Use `Check` as well for the integrated
 desktop/audio/save/resume boundary. Diagnostics never use personal settings.
+
+## Graphics quality checks
+
+`stillroom.exe --check-graphics OUTPUT` captures all eleven quiet scenes at four
+fixed qualities, exercises frozen caches and resizing, measures the automatic
+selector in paced lake/journey runs, and injects allocation limits to check
+fallback. `stillroom.exe --quality-capture OUTPUT` compares identical journey
+poses and geometry fingerprints across qualities. Both use isolated state and
+require a real OpenGL device. See [graphics quality](graphics-quality.md) for
+interpretation; capture throughput is not a real-time frame-rate measurement.

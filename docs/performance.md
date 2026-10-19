@@ -179,3 +179,22 @@ per-app Windows GPU preference added. Each passed all 56 native assertions.
 Both the landscape and journey renderers reported Intel UHD for 0.8.1 and NVIDIA
 GeForce RTX 3050 6GB Laptop GPU for 0.8.2. This verifies selection on this machine;
 it does not measure an FPS gain, battery cost or AMD hardware behavior.
+
+## Adaptive graphics (0.9)
+
+Rest scenes now have four bounded rendering budgets and an automatic selector.
+Completed GPU queries guide quality without a blocking read or startup benchmark;
+the world and travel speed do not depend on the selected budget. See
+[graphics quality](graphics-quality.md) for the thresholds, resource recovery and
+diagnostic commands. The renderer benchmark pins Standard so automatic changes
+do not silently change its workload.
+
+On 2026-10-19, a 1600×900 Windows run on the same RTX 3050 laptop exercised the
+lake and moving railcar for 510 paced frames each (about 17 seconds per case).
+Both automatically progressed from Standard to High to Ultra, with 508 completed
+query observations. Frame-time medians were 33.33 ms and 95th percentiles were
+33.34 ms or lower, including the 30 FPS limiter. This supports the chosen policy
+for these short cases; it is not a guarantee for 4K, other GPUs or all-day use.
+All eleven quiet scenes were also rendered at each fixed tier. Allocation-limit
+injection checked fallback and preservation of valid targets in the nature,
+journey and atmosphere paths; it does not reproduce every hardware failure.
