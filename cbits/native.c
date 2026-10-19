@@ -7,6 +7,13 @@
 #include <commdlg.h>
 #include <wchar.h>
 
+/* Hybrid GPU drivers inspect these exports in the EXE before creating an
+ * OpenGL context. Request the high-performance GPU when available; explicit
+ * OS/user and device power policies still take precedence. No registry edits.
+ * https://www.glfw.org/docs/latest/compile.html#compile_options_win32 */
+__declspec(dllexport) DWORD NvOptimusEnablement = 1;
+__declspec(dllexport) DWORD AmdPowerXpressRequestHighPerformance = 1;
+
 static HANDLE instance_mutex = NULL;
 static HANDLE activation_event = NULL;
 

@@ -13,6 +13,13 @@ visible until closed. Compact mode always keeps controls visible.
 Fullscreen uses a borderless desktop window and does not request a resolution
 or refresh-rate change. Its visible area is confined to the selected display.
 
+On supported NVIDIA/AMD hybrid systems, Stillroom requests the high-performance
+GPU at startup for procedural scenery. Windows, driver and device power policies
+make the final choice; Stillroom does not change them. To prefer battery life or
+override a device's automatic choice, set the app's GPU preference in Windows
+Settings → System → Display → Graphics, then restart Stillroom. Integrated
+graphics are also hardware-accelerated; they are not CPU software rendering.
+
 | Control | Action |
 |---|---|
 | Tab / Shift-Tab | Focus the next / previous visible action |

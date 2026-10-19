@@ -85,6 +85,14 @@ try {
     if ($LASTEXITCODE -or -not ($imports | Select-String 'DLL Name:\s+libgmp-10\.dll')) {
         throw 'The executable is not linked to the replaceable GMP DLL.'
     }
+    # Hybrid drivers read the final EXE's export table, not a source declaration
+    # or a helper DLL. Keep this check at the actual linked artifact boundary.
+    foreach ($symbol in @('NvOptimusEnablement','AmdPowerXpressRequestHighPerformance')) {
+        # GNU objdump prints [ordinal] names; LLVM prints ordinal/RVA/name.
+        if (-not ($imports | Select-String ('^\s*(?:\[\s*\d+\]|\d+\s+0x[0-9a-fA-F]+)\s+' + $symbol + '\s*$'))) {
+            throw "The executable is missing the GPU preference export: $symbol"
+        }
+    }
     Copy-Item -LiteralPath (Join-Path $vendor 'ucrt64/bin/libgmp-10.dll') -Destination (Split-Path -Parent $executable)
     Write-Output $executable
 } finally {
