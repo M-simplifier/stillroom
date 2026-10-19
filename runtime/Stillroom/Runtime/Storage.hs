@@ -42,14 +42,15 @@ data Preferences = Preferences
     savedPictureShade :: !PictureShade,
     savedRestScene :: !RestScene,
     savedRestMotion :: !RestMotion,
-    savedRestShade :: !PictureShade
+    savedRestShade :: !PictureShade,
+    savedGraphicsQuality :: !GraphicsQuality
   }
   deriving (Eq, Show)
 
 instance ToJSON Preferences where
   toJSON p =
     object
-      [ "version" .= (7 :: Int),
+      [ "version" .= (8 :: Int),
         "volume" .= savedVolume p,
         "background" .= show (savedBackground p),
         "window" .= show (savedWindow p),
@@ -61,13 +62,14 @@ instance ToJSON Preferences where
         "pictureShade" .= show (savedPictureShade p),
         "restScene" .= show (savedRestScene p),
         "restMotion" .= show (savedRestMotion p),
-        "restShade" .= show (savedRestShade p)
+        "restShade" .= show (savedRestShade p),
+        "graphicsQuality" .= show (savedGraphicsQuality p)
       ]
 
 instance FromJSON Preferences where
   parseJSON = withObject "preferences" $ \o -> do
     version <- o .:? "version" .!= (1 :: Int)
-    when (version `notElem` [1, 2, 3, 4, 5, 6, 7]) (fail "unsupported preference version")
+    when (version `notElem` [1, 2, 3, 4, 5, 6, 7, 8]) (fail "unsupported preference version")
     v <- o .:? "volume" .!= 0.35
     b <- o .:? "background" .!= "Forest"
     w <- o .:? "window" .!= "Fullscreen"
@@ -80,10 +82,12 @@ instance FromJSON Preferences where
     scene <- o .:? "restScene" .!= "TidalLight"
     motion <- o .:? "restMotion" .!= "Gentle"
     restBrightness <- o .:? "restShade" .!= "Soft"
+    quality <- o .:? "graphicsQuality" .!= "Automatic"
+    parsedQuality <- maybe (fail "unknown graphics quality") pure (readMaybe quality)
     parsedVolume <- either (const (fail "invalid volume")) pure (volume v)
     case (readMaybe b, readMaybe w, readMaybe l, readMaybe shade, readRestScene scene, readMaybe motion, readMaybe restBrightness) of
       (Just backgroundValue, Just windowValue, Just languageValue, Just shadeValue, Just sceneValue, Just motionValue, Just restShadeValue) ->
-        pure (Preferences (volumeValue parsedVolume) backgroundValue windowValue languageValue screen folder previous picture shadeValue sceneValue motionValue restShadeValue)
+        pure (Preferences (volumeValue parsedVolume) backgroundValue windowValue languageValue screen folder previous picture shadeValue sceneValue motionValue restShadeValue parsedQuality)
       _ -> fail "unknown preference value"
 
 -- Retired local photo experiments migrate at the boundary, without retaining
@@ -94,7 +98,7 @@ readRestScene "WoodlandPond" = Just Shallows
 readRestScene name = readMaybe name
 
 defaults :: Language -> Preferences
-defaults languageValue = Preferences 0.35 Forest Fullscreen languageValue "" Nothing Nothing Nothing Original TidalLight Gentle Soft
+defaults languageValue = Preferences 0.35 Forest Fullscreen languageValue "" Nothing Nothing Nothing Original TidalLight Gentle Soft Automatic
 
 readPreferences :: FilePath -> Language -> IO (Preferences, Maybe String)
 readPreferences file languageValue = do
@@ -124,6 +128,7 @@ restoreSession p =
       restCollection = sceneCollection (savedRestScene p),
       restMotion = savedRestMotion p,
       restShade = savedRestShade p,
+      graphicsQuality = savedGraphicsQuality p,
       windowMode = savedWindow p,
       language = savedLanguage p
     }
@@ -137,6 +142,7 @@ fromSession s p =
       savedRestScene = restScene s,
       savedRestMotion = restMotion s,
       savedRestShade = restShade s,
+      savedGraphicsQuality = graphicsQuality s,
       savedWindow = windowMode s,
       savedLanguage = language s
     }

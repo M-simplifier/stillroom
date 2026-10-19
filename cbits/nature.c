@@ -6,6 +6,7 @@
 #include "include/raymath.h"
 #include "include/rlgl.h"
 #include <math.h>
+#include "graphics.h"
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -39,8 +40,9 @@ typedef struct Nature {
     RenderTexture2D shadowMap, reflection, hdr;
     Texture2D boneTexture, heightTexture;
     Bone bones[16000];
-    int boneCount, treeCount, grassCount, currentWidth, currentHeight, ready, scene, reference;
+    int boneCount, treeCount, grassCount, currentWidth, currentHeight, ready, scene, reference, quality, qualityCeiling;
     unsigned int draws;
+    int blockedWidth, blockedHeight;
     long cachedTick;
     uint32_t seed;
     char errorText[256], infoText[1024];
@@ -600,42 +602,7 @@ static void bindTexture(Shader s, const char *name, Texture texture, int slot) {
     rlSetUniform(loc, &slot, SHADER_UNIFORM_INT, 1);
     rlActiveTextureSlot(0);
 }
-static RenderTexture2D target(Nature *s, int width, int height, int color) {
-    RenderTexture2D r = {0};
-    r.id = rlLoadFramebuffer();
-    r.texture.width = width;
-    r.texture.height = height;
-    rlEnableFramebuffer(r.id);
-    if (color) {
-        r.texture.id = rlLoadTexture(NULL, width, height, PIXELFORMAT_UNCOMPRESSED_R16G16B16A16, 1);
-        r.texture.mipmaps = 1;
-        r.texture.format = PIXELFORMAT_UNCOMPRESSED_R16G16B16A16;
-        rlFramebufferAttach(r.id, r.texture.id, RL_ATTACHMENT_COLOR_CHANNEL0,
-                            RL_ATTACHMENT_TEXTURE2D, 0);
-    }
-    r.depth.id = rlLoadTextureDepth(width, height, false);
-    r.depth.width = width;
-    r.depth.height = height;
-    r.depth.format = 19;
-    r.depth.mipmaps = 1;
-    rlFramebufferAttach(r.id, r.depth.id, RL_ATTACHMENT_DEPTH, RL_ATTACHMENT_TEXTURE2D, 0);
-    if (!rlFramebufferComplete(r.id)) {
-        snprintf(s->errorText, sizeof(s->errorText), "Framebuffer incomplete %dx%d", width, height);
-    }
-    rlDisableFramebuffer();
-    if (color) {
-        SetTextureFilter(r.texture, TEXTURE_FILTER_BILINEAR);
-        SetTextureWrap(r.texture, TEXTURE_WRAP_CLAMP);
-    }
-    SetTextureWrap(r.depth, TEXTURE_WRAP_CLAMP);
-    return r;
-}
-static void freeTarget(RenderTexture2D r) {
-    if (r.texture.id)
-        rlUnloadTexture(r.texture.id);
-    if (r.id)
-        rlUnloadFramebuffer(r.id);
-}
+#include "graphics-target.h"
 static void clearGeometry(Nature *s) {
     for (int i = 0; i < 4; i++) {
         if (s->meshes[i].vaoId)
@@ -702,6 +669,8 @@ Nature *sr_nature_load(const char *const *sources) {
     if (!s)
         return NULL;
     s->scene = -1;
+    s->quality = -1;
+    s->qualityCeiling = 3;
     s->cachedTick = -1;
     s->common = sources[0];
     s->landShader = program(s, sources[1], sources[2], "uTime");
@@ -712,10 +681,10 @@ Nature *sr_nature_load(const char *const *sources) {
     if (!s->landShader.id || !s->waterShader.id || !s->skyShader.id || !s->postShader.id)
         return s;
     s->material = LoadMaterialDefault();
-    s->shadowMap = target(s, 1536, 1536, 0);
     if (!s->material.maps)
         snprintf(s->errorText, sizeof(s->errorText), "Landscape material allocation failed");
     s->ready = !s->errorText[0];
+    selectQuality(s, &s->quality, &s->qualityCeiling, 1);
     return s;
 }
 int sr_nature_ready(Nature *s) { return s && s->ready; }
@@ -727,25 +696,23 @@ const char *sr_nature_info(Nature *s) {
     for (int i = 0; i < 4; i++)
         triangles += s->meshes[i].triangleCount;
     snprintf(s->infoText, sizeof(s->infoText),
-             "{\"scene\":%d,\"trees\":%d,\"blades\":%d,\"triangles\":%d,\"draws\":%u,\"width\":%d,"
+             "{\"quality\":%d,\"shadowWidth\":%d,\"reflectionWidth\":%d,\"scene\":%d,\"trees\":%d,\"blades\":%d,\"triangles\":%d,\"draws\":%u,\"width\":%d,"
              "\"height\":%d,\"generationMs\":[%.3f,%.3f,%.3f],\"renderer\":\"%s\"}",
-             s->scene, s->treeCount, s->grassCount, triangles + s->waterMesh.triangleCount,
+             s->quality, s->shadowMap.depth.width, s->reflection.texture.width, s->scene, s->treeCount, s->grassCount, triangles + s->waterMesh.triangleCount,
              s->draws, s->currentWidth, s->currentHeight, s->generationMs[0], s->generationMs[1],
              s->generationMs[2], glGetString(0x1F01));
     return s->infoText;
 }
 void sr_nature_sync(void) { glFinish(); }
-// Diagnostic comparison only: identical geometry, camera, clock and shaders,
-// with unrestricted raster size, full-size reflection and a 2048 shadow map.
+int sr_nature_quality(Nature *s, int quality) {
+    if (!s) return 0;
+    return selectQuality(s, &s->quality, &s->qualityCeiling, quality);
+}
+// Diagnostic full-raster reference, retaining the same material/shadow tier.
 void sr_nature_reference(Nature *s, int enabled) {
-    if (!s || !s->ready || s->reference == (enabled != 0))
-        return;
+    if (!s || !s->ready || s->reference == (enabled != 0)) return;
     s->reference = enabled != 0;
-    s->cachedTick = -1;
-    s->currentWidth = 0;
-    freeTarget(s->shadowMap);
-    int size = s->reference ? 2048 : 1536;
-    s->shadowMap = target(s, size, size, 0);
+    s->cachedTick = -1; s->currentWidth = 0;
 }
 static void sky(Nature *s, Camera3D cam, int w, int h) {
     i1(s->skyShader, "uLandscape", s->scene);
@@ -796,8 +763,7 @@ int sr_nature_draw(Nature *s, int scene, double seconds, float x, float y, float
     glGetIntegerv(0x0BA2, viewport);
     Matrix parentView = rlGetMatrixModelview(), parentProjection = rlGetMatrixProjection();
     int parentW = rlGetFramebufferWidth(), parentH = rlGetFramebufferHeight();
-    float ratio = s->reference ? 1.0f : fminf(1.0f, fminf(1600.0f / width, 900.0f / height));
-    int w = (int)fmaxf(1, floorf(width * ratio)), h = (int)fmaxf(1, floorf(height * ratio));
+
     if (s->scene != scene) {
         // Thumbnails warm the three bounded geometry sets before music starts.
         // Scene switching cannot then block audio pumping on CPU generation.
@@ -823,16 +789,10 @@ int sr_nature_draw(Nature *s, int scene, double seconds, float x, float y, float
             if (!s->meshes[i].vaoId)
                 snprintf(s->errorText, sizeof(s->errorText), "Landscape geometry unavailable");
     }
-    if (w != s->currentWidth || h != s->currentHeight || !s->hdr.id) {
-        freeTarget(s->hdr);
-        freeTarget(s->reflection);
-        s->hdr = target(s, w, h, 1);
-        s->reflection =
-            target(s, s->reference ? w : (w + 1) / 2, s->reference ? h : (h + 1) / 2, 1);
-        s->currentWidth = w;
-        s->currentHeight = h;
-        s->cachedTick = -1;
-    }
+    if (!budgetTargets(s, &s->quality, &s->qualityCeiling, width, height, s->reference)) return 0;
+    int w = s->currentWidth, h = s->currentHeight;
+    Shader shaders[] = {s->landShader, s->waterShader, s->skyShader, s->postShader};
+    for (int i = 0; i < 4; i++) i1(shaders[i], "uQuality", s->quality);
     long tick = (long)floor(fmax(0.0, seconds) * 30.0);
     if (!s->errorText[0] && tick != s->cachedTick) {
         float t = (float)(tick / 30.0);
@@ -888,6 +848,8 @@ int sr_nature_draw(Nature *s, int scene, double seconds, float x, float y, float
     rlSetMatrixModelview(parentView);
     rlSetMatrixProjection(parentProjection);
     if (!s->errorText[0]) {
+        Vector2 output = {width, height};
+        SetShaderValue(s->postShader, GetShaderLocation(s->postShader, "uOutputResolution"), &output, SHADER_UNIFORM_VEC2);
         BeginShaderMode(s->postShader);
         DrawTexturePro(s->hdr.texture, (Rectangle){0, 0, (float)w, -(float)h},
                        (Rectangle){x, y, width, height}, (Vector2){0, 0}, 0, WHITE);

@@ -41,6 +41,7 @@ allInterfaceText =
   Journey.interfaceText
     ++ "−…作業モード再生中一時停止次へ音量表示終了霧の湖静かな森砂丘夜の抽象画午後の湖森の池画像を追加してください内蔵の画像です。登録した画像だけ解除できます。"
     ++ "休息静止景色明るさ動き設定背景をクリック、またはRで休息。クリックかEscで戻る休息の景色を描画できません。クリックかEscで戻ります。"
+    ++ " · 画質自動は描画負荷に合わせて調整します。最高画質は消費電力が増えます。"
     ++ "作業中の景色音楽再生中の曲表示言語画像の明るさ音は休息中も、そのまま続きます。"
     ++ "眺める。降りて歩く。また乗る。Eで停車してから、近くの地面へ。Escで作業へ。旅の続きは、また次に。"
     ++ concat [restSceneName l scene ++ restSceneDescription l scene | l <- [English, Japanese], scene <- [minBound .. maxBound]]
@@ -144,6 +145,7 @@ renderWithFocus font assets w h s picture pictureCaption track message mouse foc
           Rest.renderPreview assets h preview s
           issue <- Rest.restIssue assets s
           wrapped (maybe (restSceneDescription (language s) (restScene s)) id issue) px (py + ph + 13) pw 16 secondary
+          text (label "Quality · Auto adapts to rendering load" "画質 · 自動は描画負荷に合わせて調整") px (y + rh - 173) 12 secondary
           text (if restScene s == RailJourney then label "Landscape" "旅の風景" else label "Motion" "動き") px (y + rh - 124) 14 secondary
           text (label "Brightness" "明るさ") (px + pw * 0.49) (y + rh - 124) 14 secondary
           when (restCollection s == Journeys) $ do

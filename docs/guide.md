@@ -20,6 +20,12 @@ override a device's automatic choice, set the app's GPU preference in Windows
 Settings → System → Display → Graphics, then restart Stillroom. Integrated
 graphics are also hardware-accelerated; they are not CPU software rendering.
 
+**Settings → Rest → Quality** defaults to **Auto**, which adjusts moving scenery
+to the measured rendering load. Choose Low, Standard, High or Ultra to keep a
+fixed preference. Ultra uses higher-resolution reflections, softer shadows and
+spatial supersampling where the output size permits it; it can use more power.
+Motion and brightness remain separate choices. [Details](graphics-quality.md).
+
 | Control | Action |
 |---|---|
 | Tab / Shift-Tab | Focus the next / previous visible action |

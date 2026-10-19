@@ -22,6 +22,7 @@ module Stillroom.Runtime.Journey
     advanceForCheck,
     fingerprintsForCheck,
     terrainMatchesForCheck,
+    quality,
   )
 where
 
@@ -36,6 +37,7 @@ import Raylib.Core qualified as R
 import Raylib.Core.Shapes (drawRectangleRec)
 import Raylib.Types
 import Stillroom.Domain (Language (..))
+import Stillroom.Graphics (Tier)
 import Stillroom.Journey.Ride qualified as J
 import Stillroom.Journey.Walk qualified as W
 import Stillroom.Journey.World qualified as World
@@ -78,6 +80,17 @@ foreign import ccall unsafe "sr_journey_signature" nativeSignature :: Ptr Native
 foreign import ccall unsafe "sr_journey_far_signature" nativeFarSignature :: Ptr NativeWorld -> CInt -> CInt -> IO CULLong
 
 foreign import ccall unsafe "sr_journey_geometry_height" geometryHeight :: CUInt -> CDouble -> CDouble -> IO CDouble
+
+foreign import ccall safe "sr_journey_quality" nativeQuality :: Ptr NativeWorld -> CInt -> IO CInt
+
+quality :: JourneyRuntime -> Tier -> IO ()
+quality runtime tier = do
+  pointer <- ensure runtime
+  case pointer of
+    Nothing -> pure ()
+    Just p -> do
+      ok <- nativeQuality p (fromIntegral (fromEnum tier))
+      unless (ok == 1) (nativeError p >>= peekCString >>= writeIORef (problem runtime) . Just)
 
 withJourney :: (JourneyRuntime -> IO a) -> IO a
 withJourney = bracket acquire release

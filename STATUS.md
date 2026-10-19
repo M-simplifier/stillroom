@@ -1,6 +1,6 @@
 # Status
 
-Stillroom 0.8.2 targets Windows x64, tested on Windows 11 with GHC 9.6.7 and
+Stillroom 0.9.0 targets Windows x64, tested on Windows 11 with GHC 9.6.7 and
 h-raylib 5.6.0.0. It is a small utility with best-effort maintenance, not a
 medical device or a measured productivity intervention.
 
@@ -19,7 +19,13 @@ Music continues in every scene. Journey permits movement and looking around;
 Esc/R, focus loss and its visible return button return to work. The quiet scenes
 also accept a background click to return.
 
-The current source passes 42 property/regression groups. They cover the pure
+Rest settings also offer saved Auto, Low, Standard, High and Ultra quality.
+Auto observes moving scenes with nonblocking GPU queries and conservative
+hysteresis. Quality changes render targets and shading, never navigation or
+world geometry. See [graphics quality](docs/graphics-quality.md) for budgets
+and measurement boundaries.
+
+The current source passes 46 property/regression groups. They cover the pure
 session/interface, seeds and interleaved native field queries, bookmark
 validation, fixed-tick input, cross-seed automatic walking and rail-to-foot
 transfers. The native acceptance harness has 56 assertions covering audio

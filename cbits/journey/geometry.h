@@ -8,6 +8,7 @@
 #include "../include/raymath.h"
 #include "../include/rlgl.h"
 #include <math.h>
+#include "../graphics.h"
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -45,6 +46,7 @@ typedef struct Nature {
   int boneCount, treeCount, grassCount, currentWidth, currentHeight, ready,
       scene, reference;
   unsigned int draws;
+  int blockedWidth, blockedHeight;
   long cachedTick;
   uint32_t seed;
   char errorText[256], infoText[1024];
@@ -482,45 +484,7 @@ static void bindTexture(Shader s, const char *name, Texture texture, int slot) {
   rlSetUniform(loc, &slot, SHADER_UNIFORM_INT, 1);
   rlActiveTextureSlot(0);
 }
-static RenderTexture2D target(Nature *s, int width, int height, int color) {
-  RenderTexture2D r = {0};
-  r.id = rlLoadFramebuffer();
-  r.texture.width = width;
-  r.texture.height = height;
-  rlEnableFramebuffer(r.id);
-  if (color) {
-    r.texture.id = rlLoadTexture(NULL, width, height,
-                                 PIXELFORMAT_UNCOMPRESSED_R16G16B16A16, 1);
-    r.texture.mipmaps = 1;
-    r.texture.format = PIXELFORMAT_UNCOMPRESSED_R16G16B16A16;
-    rlFramebufferAttach(r.id, r.texture.id, RL_ATTACHMENT_COLOR_CHANNEL0,
-                        RL_ATTACHMENT_TEXTURE2D, 0);
-  }
-  r.depth.id = rlLoadTextureDepth(width, height, false);
-  r.depth.width = width;
-  r.depth.height = height;
-  r.depth.format = 19;
-  r.depth.mipmaps = 1;
-  rlFramebufferAttach(r.id, r.depth.id, RL_ATTACHMENT_DEPTH,
-                      RL_ATTACHMENT_TEXTURE2D, 0);
-  if (!rlFramebufferComplete(r.id)) {
-    snprintf(s->errorText, sizeof(s->errorText), "Framebuffer incomplete %dx%d",
-             width, height);
-  }
-  rlDisableFramebuffer();
-  if (color) {
-    SetTextureFilter(r.texture, TEXTURE_FILTER_BILINEAR);
-    SetTextureWrap(r.texture, TEXTURE_WRAP_CLAMP);
-  }
-  SetTextureWrap(r.depth, TEXTURE_WRAP_CLAMP);
-  return r;
-}
-static void freeTarget(RenderTexture2D r) {
-  if (r.texture.id)
-    rlUnloadTexture(r.texture.id);
-  if (r.id)
-    rlUnloadFramebuffer(r.id);
-}
+#include "../graphics-target.h"
 static void clearGeometry(Nature *s) {
   for (int i = 0; i < 4; i++) {
     if (s->meshes[i].vaoId)
@@ -598,11 +562,12 @@ static Nature *journeyNature_load(const char *const *sources) {
       !s->postShader.id)
     return s;
   s->material = LoadMaterialDefault();
-  s->shadowMap = target(s, 2048, 2048, 0);
   if (!s->material.maps)
     snprintf(s->errorText, sizeof(s->errorText),
              "Landscape material allocation failed");
   s->ready = !s->errorText[0];
+  int quality = -1, ceiling = 3;
+  selectQuality(s, &quality, &ceiling, 1);
   return s;
 }
 static int journeyNature_ready(Nature *s) { return s && s->ready; }

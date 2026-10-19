@@ -1,5 +1,6 @@
 in vec2 fragTexCoord;
 uniform sampler2D texture0;
+uniform vec2 uOutputResolution;
 out vec4 finalColor;
 vec3 aces(vec3 x){return clamp((x*(2.51*x+.03))/(x*(2.43*x+.59)+.14),0.0,1.0);}
 vec3 displayed(vec2 p){return pow(aces(texture(texture0,p).rgb*.88),vec3(1.0/2.2));}
@@ -19,6 +20,13 @@ vec3 smoothDetail(vec2 p){
 }
 void main(){
     vec3 c=smoothDetail(fragTexCoord);
+    if(uQuality==3) {
+        // Spatial supersampling: no temporal history, so no ghost trails on
+        // leaves or reflections. The tap radius covers the output pixel.
+        vec2 d=.28/max(uOutputResolution,vec2(1));
+        c=(displayed(fragTexCoord+vec2(d.x,d.y))+displayed(fragTexCoord-vec2(d.x,d.y))
+          +displayed(fragTexCoord+vec2(d.x,-d.y))+displayed(fragTexCoord+vec2(-d.x,d.y)))*.25;
+    }
     vec2 p=fragTexCoord-.5;c*=1.0-.105*dot(p,p);
     finalColor=vec4(c,1.0);
 }

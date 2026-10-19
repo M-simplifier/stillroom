@@ -25,6 +25,7 @@ data Session = Session
     restCollection :: !RestCollection,
     restMotion :: !RestMotion,
     restShade :: !PictureShade,
+    graphicsQuality :: !GraphicsQuality,
     restSeconds :: !Double,
     restHintSeconds :: !Double,
     idleSeconds :: !Double
@@ -51,6 +52,7 @@ data Event
   | ChooseRestMotion RestMotion
   | CycleRestShade
   | ChooseRestShade PictureShade
+  | ChooseGraphicsQuality GraphicsQuality
   | ToggleWindow
   | Escape
   | ToggleSettings
@@ -81,7 +83,7 @@ data Effect
   deriving (Eq, Show)
 
 initialSession :: Volume -> Session
-initialSession v = Session Playing v Forest Original Fullscreen English False RestSettings Working TidalLight Atmospheres Gentle Soft 0 0 0
+initialSession v = Session Playing v Forest Original Fullscreen English False RestSettings Working TidalLight Atmospheres Gentle Soft Automatic 0 0 0
 
 step :: Event -> Session -> (Session, [Effect])
 step event original
@@ -126,6 +128,7 @@ stepAllowed event original = case event of
   ChooseRestMotion motion -> (original {restMotion = motion}, [Persist])
   CycleRestShade -> (original {restShade = nextShade (restShade original), restHintSeconds = 2}, [Persist])
   ChooseRestShade shade -> (original {restShade = shade}, [Persist])
+  ChooseGraphicsQuality quality -> (original {graphicsQuality = quality}, [Persist])
   TogglePlayback ->
     let p = if transport original == Playing then Paused else Playing
      in (awake {transport = p}, [ApplyTransport p])

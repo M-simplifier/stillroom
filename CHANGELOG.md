@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.9.0 — 2026-10-19
+
+- Add saved Auto / Low / Standard / High / Ultra graphics quality in Rest settings.
+- Adapt moving rest scenes from asynchronous rendering measurements, with settling,
+  headroom and hysteresis; keep music, movement and world generation independent.
+- Bring the accepted lighting study into the journey and all three nature scenes:
+  clearer water, coherent sky and distance, richer materials and softer shadows.
+- Add bounded spatial supersampling, reflection and shadow budgets, and extend
+  quality selection to the eight atmosphere scenes.
+- Preserve existing settings/bookmarks and the quiet rest interface. Add product
+  graphics checks, preference migration and automatic-policy regression laws.
+
 ## 0.8.2 — 2026-10-19
 
 - Request the high-performance GPU at startup on NVIDIA Optimus and AMD

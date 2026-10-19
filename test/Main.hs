@@ -9,6 +9,7 @@ import Data.List.NonEmpty (NonEmpty (..))
 import Data.Vector.Storable qualified as V
 import JourneyChecks (journeyChecks)
 import Stillroom.Domain
+import Stillroom.Graphics qualified as G
 import Stillroom.Interface qualified as UI
 import Stillroom.Runtime.Storage
 import Stillroom.Session
@@ -53,7 +54,11 @@ main = do
         law "every displayed target is on screen, distinct and clickable" propInterfaceTargets,
         law "Tab and Shift-Tab visit every visible action and wrap" propFocusOrder,
         law "rest exposes no pointer or keyboard controls except exit" propRestInterface,
-        law "direct selectors preserve playback and choose the requested value" (once propDirectChoices)
+        law "direct selectors preserve playback and choose the requested value" (once propDirectChoices),
+        law "graphics choices persist without changing the rest of the session" (once propGraphicsChoices),
+        law "legacy preferences default to automatic quality" (once propGraphicsMigration),
+        law "automatic quality ignores isolated stalls and invalid queries" (once propGraphicsTransient),
+        law "automatic quality responds to sustained load without oscillation" (once propGraphicsLoad)
       ]
   journeysPassed <- journeyChecks
   unless (all isSuccess results && journeysPassed) exitFailure
@@ -159,12 +164,13 @@ propPreferences (NonNegative n) =
             savedPictureShade = toEnum (n `mod` 3),
             savedRestScene = toEnum (n `mod` (1 + fromEnum (maxBound :: RestScene))),
             savedRestMotion = toEnum ((n `div` 2) `mod` 2),
-            savedRestShade = toEnum ((n `div` 3) `mod` 3)
+            savedRestShade = toEnum ((n `div` 3) `mod` 3),
+            savedGraphicsQuality = toEnum (n `mod` 5)
           }
    in eitherDecode (encode p) == Right p
 
 propVersion :: Bool
-propVersion = case (eitherDecode (encode (object ["version" .= (8 :: Int)])) :: Either String Preferences) of
+propVersion = case (eitherDecode (encode (object ["version" .= (9 :: Int)])) :: Either String Preferences) of
   Left _ -> True
   Right _ -> False
 
@@ -423,3 +429,38 @@ propDirectChoices =
   where
     before = (initialSession defaultVolume) {transport = Paused, background = Picture, windowMode = Compact}
     valid event chosen = let (after, _) = step event before in chosen after && transport after == Paused && loudness after == loudness before && background after == Picture && windowMode after == Compact
+
+propGraphicsChoices :: Bool
+propGraphicsChoices = all one G.choices
+  where
+    before = (initialSession defaultVolume) {transport = Paused, background = Picture}
+    resting = before {viewingMode = Resting}
+    one quality =
+      let (after, effects) = step (ChooseGraphicsQuality quality) before
+          saved = fromSession after (defaults Japanese)
+       in after {graphicsQuality = graphicsQuality before} == before
+          && graphicsQuality after == quality && effects == [Persist]
+          && graphicsQuality (restoreSession saved) == quality
+          && step (ChooseGraphicsQuality quality) resting == (resting, [])
+
+propGraphicsMigration :: Bool
+propGraphicsMigration = all one [1..7 :: Int]
+  where
+    one version = case eitherDecode (encode (object ["version" .= version, "musicFolder" .= ("music" :: String), "restScene" .= ("RailJourney" :: String)])) of
+      Right p -> savedGraphicsQuality p == Automatic && savedFolder p == Just "music" && savedRestScene p == RailJourney
+      Left (_ :: String) -> False
+
+propGraphicsTransient :: Bool
+propGraphicsTransient =
+  let settled = foldl (flip G.observe) G.initialGovernor (replicate 90 15)
+      oneHitch = foldl (flip G.observe) settled (200 : replicate 119 15)
+   in G.tier oneHitch == G.Balanced
+      && all (\ms -> G.observe ms settled == settled) [0,-1,0/0,1/0]
+
+propGraphicsLoad :: Bool
+propGraphicsLoad =
+  let feed ms n = (!! n) . iterate (G.observe ms)
+      fast = feed 5 420 G.initialGovernor
+      slow = feed 40 630 fast
+      recovered = feed 5 1000 slow
+   in G.tier fast == G.Supersampled && G.tier slow == G.Economy && G.tier recovered == G.Economy
