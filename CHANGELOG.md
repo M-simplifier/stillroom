@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.8.2 — 2026-10-19
+
+- Request the high-performance GPU at startup on NVIDIA Optimus and AMD
+  PowerXpress hybrid systems. Explicit Windows, driver and device power policies
+  still take precedence; no system preferences are changed.
+- Verify that both GPU preference exports survive linking into the distributed
+  executable, so the setting also applies outside the development environment.
+
 ## 0.8.1 — 2026-10-18
 
 - Include Afternoon lake and Woodland pond as optional static working

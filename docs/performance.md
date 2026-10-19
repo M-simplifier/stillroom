@@ -155,3 +155,27 @@ The completed 0.6 interface was also measured with the same harness: player
 0.28 ms, background settings 0.30 ms, and rest gallery 0.36 ms per frame
 (median of three run medians at 760×500). These are a final rendering-cost check;
 the redesigned layout is not an identical-workload comparison with 0.5.
+
+## Hybrid GPU selection (0.8.2)
+
+GPU acceleration and discrete-GPU selection are separate. On a Windows 11
+Intel UHD / NVIDIA RTX 3050 laptop, the normal 0.8.1 application used the Intel
+OpenGL driver. Earlier release checks of the same executable had used NVIDIA;
+testing only a development launch did not establish the installed app's choice.
+
+The executable now exports `NvOptimusEnablement` and
+`AmdPowerXpressRequestHighPerformance`, both set to 1, from its statically linked
+Windows boundary. These are startup preferences for supported hybrid drivers,
+not per-frame calls or registry changes. The build checks the final executable's
+export table. See [NVIDIA's policy note](https://developer.download.nvidia.com/devzone/devcenter/gamegraphics/files/OptimusRenderingPolicies.pdf),
+[AMD's OpenGL/DirectX guidance](https://gpuopen.com/learn/amdpowerxpressrequesthighperformance/)
+and [GLFW's hybrid GPU option](https://www.glfw.org/docs/latest/compile.html#compile_options_win32).
+Explicit Windows/user, driver and device power policies can override the request;
+the app does not switch GPUs when entering or leaving a break.
+
+On 2026-10-19, the old and new executables were run sequentially at the same
+extracted-package path, with identical assets, a restricted Windows PATH and no
+per-app Windows GPU preference added. Each passed all 56 native assertions.
+Both the landscape and journey renderers reported Intel UHD for 0.8.1 and NVIDIA
+GeForce RTX 3050 6GB Laptop GPU for 0.8.2. This verifies selection on this machine;
+it does not measure an FPS gain, battery cost or AMD hardware behavior.

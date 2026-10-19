@@ -13,8 +13,9 @@ tools. Run from the repository root:
 `-Online` updates the pinned package index and allows missing dependencies to be
 downloaded. Omit it after the first successful build. Every development action
 performs an incremental build of the current source, checks package metadata and
-GMP linkage, and supplies the source assets. It restores PATH and
-`stillroom_datadir` on success and failure, including an initially absent override.
+GMP linkage and the NVIDIA/AMD GPU preference exports, and supplies the source
+assets. It restores PATH and `stillroom_datadir` on success and failure, including
+an initially absent override.
 No action reads or writes your normal Stillroom settings.
 
 | Action | Purpose and evidence |

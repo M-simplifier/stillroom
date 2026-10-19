@@ -1,11 +1,11 @@
 # Status
 
-Stillroom 0.8.0 targets Windows x64, tested on Windows 11 with GHC 9.6.7 and
+Stillroom 0.8.2 targets Windows x64, tested on Windows 11 with GHC 9.6.7 and
 h-raylib 5.6.0.0. It is a small utility with best-effort maintenance, not a
 medical device or a measured productivity intervention.
 
 The listening room provides procedural music, MP3/WAV/OGG folder playback,
-shuffle, crossfade, pause/next, saved settings, local background images, four
+shuffle, crossfade, pause/next, saved settings, local background images, six
 bundled wallpapers, monitor selection, fullscreen/compact mode, English/Japanese
 controls and single-instance activation. Image import and a local library,
 brightness controls and an embedded Windows icon are included.
@@ -25,9 +25,10 @@ validation, fixed-tick input, cross-seed automatic walking and rail-to-foot
 transfers. The native acceptance harness has 56 assertions covering audio
 clocks, MP3/procedural playback, preferences, scene selection, rendering,
 journey preparation, movement, save/reload and rest/work transitions.
-Twenty-two captures cover English/Japanese settings at 700 by 500 and larger
-sizes, quiet landscapes and the journey. Six development-tool boundary checks
-cover error propagation, environment restoration and incomplete packages.
+Twenty-eight captures cover English/Japanese settings at 700 by 500 and larger
+sizes, quiet landscapes, the journey and all six bundled wallpapers. Six
+development-tool boundary checks cover error propagation, environment
+restoration and incomplete packages.
 
 A separate long journey check renders 1,800 frames representing ten minutes
 of travel, visits all six habitats, and checks the 49 near / 81 distant chunk
@@ -52,6 +53,11 @@ windows skip drawing while audio continues. The earlier owner-confirmed fix for
 focus-change blackouts/audio interruption is prior release evidence. Other
 monitor, driver and GPU combinations remain unverified. Procedural scenery is
 stylized; photographic realism is not a verified claim.
+
+The Windows executable requests a high-performance GPU on NVIDIA Optimus and
+AMD PowerXpress hybrid systems. Explicit OS/user and device power policies can
+override this preference. It does not edit graphics settings or require a
+discrete GPU. GPU selection occurs at process startup, not when entering rest.
 
 Distribution uses the pinned Windows CI build, replaceable GMP DLL and matching
 source notices. The official English/Japanese page has an explicitly played
