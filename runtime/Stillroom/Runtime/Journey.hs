@@ -22,6 +22,8 @@ module Stillroom.Runtime.Journey
     advanceForCheck,
     fingerprintsForCheck,
     terrainMatchesForCheck,
+    PreviewQuality (..),
+    previewQuality,
   )
 where
 
@@ -43,6 +45,9 @@ import Stillroom.Runtime.Pictures qualified as Pictures
 import System.FilePath ((</>))
 
 data NativeWorld
+
+-- A local rendering study, deliberately outside persisted product preferences.
+data PreviewQuality = Standard | Detailed | Supersampled deriving (Eq, Show, Enum, Bounded)
 
 data JourneyRuntime = Runtime
   { native :: IORef (Maybe (Ptr NativeWorld)),
@@ -78,6 +83,17 @@ foreign import ccall unsafe "sr_journey_signature" nativeSignature :: Ptr Native
 foreign import ccall unsafe "sr_journey_far_signature" nativeFarSignature :: Ptr NativeWorld -> CInt -> CInt -> IO CULLong
 
 foreign import ccall unsafe "sr_journey_geometry_height" geometryHeight :: CUInt -> CDouble -> CDouble -> IO CDouble
+
+foreign import ccall safe "sr_journey_quality" nativeQuality :: Ptr NativeWorld -> CInt -> IO CInt
+
+previewQuality :: JourneyRuntime -> PreviewQuality -> IO ()
+previewQuality runtime quality = do
+  pointer <- ensure runtime
+  case pointer of
+    Nothing -> pure ()
+    Just p -> do
+      ok <- nativeQuality p (fromIntegral (fromEnum quality))
+      unless (ok == 1) (nativeError p >>= peekCString >>= writeIORef (problem runtime) . Just)
 
 withJourney :: (JourneyRuntime -> IO a) -> IO a
 withJourney = bracket acquire release

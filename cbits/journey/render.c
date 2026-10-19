@@ -25,6 +25,7 @@ typedef struct {
   Mesh railcar;
   double carS, carSpeed;
   int aboard;
+  int quality; // Preview only: 0 released, 1 detailed, 2 supersampled.
   Chunk chunks[CAPACITY], farChunks[FAR_CAPACITY];
   unsigned int generated, evicted, frames, farGenerated, farEvicted;
   double maxGenerationMs, lastGenerationMs;
@@ -319,6 +320,21 @@ void sr_journey_close(WalkWorld *w) {
 int sr_journey_ready(WalkWorld *w) {
   return w && w->n && w->n->ready && !w->n->errorText[0];
 }
+int sr_journey_quality(WalkWorld *w, int quality) {
+  if (!sr_journey_ready(w) || quality < 0 || quality > 2)
+    return 0;
+  if (w->quality == quality)
+    return 1;
+  Nature *s = w->n;
+  RenderTexture2D shadow = target(s, quality == 2 ? 4096 : quality == 1 ? 3072 : 2048,
+                                 quality == 2 ? 4096 : quality == 1 ? 3072 : 2048, 0);
+  if (!shadow.id) return 0;
+  freeTarget(s->shadowMap);
+  s->shadowMap = shadow;
+  w->quality = quality;
+  s->currentWidth = 0;
+  return sr_journey_ready(w);
+}
 const char *sr_journey_error(WalkWorld *w) {
   return w && w->n ? w->n->errorText : "World allocation failed";
 }
@@ -429,23 +445,30 @@ int sr_journey_draw(WalkWorld *w, double x, double y, double z, double yaw,
   w->nearMissing = findChunk(w, (int)floor(x / TILE), (int)floor(z / TILE)) < 0;
   if (w->nearMissing)
     return 0;
-  float ratio = fminf(1, fminf(1600.0f / width, 900.0f / height));
+  float scale = w->quality == 2 ? 1.5f : 1.0f;
+  float limitW = w->quality == 2 ? 2880 : w->quality == 1 ? 2560 : 1600;
+  float limitH = w->quality == 2 ? 1620 : w->quality == 1 ? 1440 : 900;
+  float ratio = fminf(scale, fminf(limitW / width, limitH / height));
   int rw = (int)fmaxf(1, width * ratio), rh = (int)fmaxf(1, height * ratio);
   if (rw != s->currentWidth || rh != s->currentHeight) {
     freeTarget(s->hdr);
     freeTarget(s->reflection);
     s->hdr = target(s, rw, rh, 1);
-    s->reflection = target(s, (rw + 1) / 2, (rh + 1) / 2, 1);
+    float reflectionScale = w->quality == 2 ? 1 : w->quality == 1 ? .75f : .5f;
+    s->reflection = target(s, (int)ceilf(rw * reflectionScale),
+                           (int)ceilf(rh * reflectionScale), 1);
     s->currentWidth = rw;
     s->currentHeight = rh;
   }
+  Shader qualityShaders[] = {s->landShader, s->waterShader, s->skyShader, s->postShader};
+  for (int i = 0; i < 4; i++) i1(qualityShaders[i], "uQuality", w->quality);
   Vector3 eye = {(float)x, (float)y, (float)z};
   Vector3 f = {(float)(sin(yaw) * cos(pitch)), (float)sin(pitch),
                (float)(-cos(yaw) * cos(pitch))};
   s->camera =
       (Camera3D){eye, Vector3Add(eye, f), {0, 1, 0}, 62, CAMERA_PERSPECTIVE};
   float t = (float)seconds;
-  const float texel = 96.0f / 2048.0f;
+  const float texel = 96.0f / s->shadowMap.depth.width;
   Vector3 center = {floorf(eye.x / texel) * texel, eye.y - 1.68f,
                     floorf(eye.z / texel) * texel};
   Camera3D light = {Vector3Add(center, Vector3Scale(s->sun, 130)),
@@ -517,6 +540,9 @@ int sr_journey_draw(WalkWorld *w, double x, double y, double z, double yaw,
   rlSetMatrixModelview(parentView);
   rlSetMatrixProjection(parentProjection);
   BeginShaderMode(s->postShader);
+  Vector2 outputResolution = {(float)width, (float)height};
+  SetShaderValue(s->postShader, GetShaderLocation(s->postShader, "uOutputResolution"),
+                 &outputResolution, SHADER_UNIFORM_VEC2);
   DrawTexturePro(s->hdr.texture, (Rectangle){0, 0, rw, -rh},
                  (Rectangle){left, top, width, height}, (Vector2){0, 0}, 0,
                  WHITE);
@@ -545,13 +571,14 @@ const char *sr_journey_info(WalkWorld *w) {
         triangles += w->chunks[i].g.meshes[j].triangleCount;
     }
   snprintf(w->info, sizeof(w->info),
-           "{\"farResident\":%d,\"farCapacity\":%d,\"farTriangles\":%d,"
+           "{\"quality\":%d,\"rasterWidth\":%d,\"rasterHeight\":%d,\"shadowWidth\":%d,\"reflectionWidth\":%d,\"farResident\":%d,\"farCapacity\":%d,\"farTriangles\":%d,"
            "\"farGenerated\":%u,\"farEvicted\":%u,\"resident\":%d,\"capacity\":"
            "%d,\"trees\":%d,\"blades\":%d,"
            "\"triangles\":%d,\"generated\":%u,\"evicted\":%u,\"frames\":%u,"
            "\"maxGenerationMs\":%.4f,\"lastGenerationMs\":%.4f,\"nearMissing\":"
            "%d,\"renderer\":\"%s\"}",
-           farResident, FAR_CAPACITY, farTriangles, w->farGenerated,
+           w->quality, w->n->currentWidth, w->n->currentHeight, w->n->shadowMap.depth.width,
+           w->n->reflection.texture.width, farResident, FAR_CAPACITY, farTriangles, w->farGenerated,
            w->farEvicted, resident, CAPACITY, trees, grass, triangles,
            w->generated, w->evicted, w->frames, w->maxGenerationMs,
            w->lastGenerationMs, w->nearMissing, glGetString(0x1F01));
