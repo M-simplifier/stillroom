@@ -36,7 +36,10 @@ The landscape update includes coherent sky and aerial colour, directional cloud
 shading, filtered water ripples and reflections, depth-dependent water absorption,
 subtle bed detail, material roughness, leaf transmission and softer shadows.
 Standard and above enable the richer material and water model; High and Ultra
-add blocker-based shadow filtering. No photograph or image-specific deformation
+add blocker-based shadow filtering in the quiet landscape renderer. Since 0.10,
+the journey instead uses receiver-plane-corrected visibility filtering with a
+fixed footprint, described in the [graphics foundation](graphics-foundation.md).
+No photograph or image-specific deformation
 is involved. These are stylized analytic approximations, not ray tracing or a
 complete physical atmosphere solver.
 

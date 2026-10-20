@@ -2,6 +2,10 @@
 
 Stillroom separates decisions from their execution.
 
+The journey renderer follows the same principle. Its typed geometry and
+observation core, product frame policy and native interpreter are described in
+[Functional graphics foundation](graphics-foundation.md).
+
 ```
 input / time -> Event -> step -> Session + [Effect]
                            |              |
@@ -186,8 +190,8 @@ There are 49 nearby 32 m chunks and 81 distant 128 m chunks. Preparation generat
 at most one of each per frame, leaving the desktop loop to pump music between
 steps. After preparation, travel streams/evicts chunks under the same bounds.
 Returning to work retains the cache; choosing a quiet scene frees it. Re-entry
-and new seeds never accumulate worlds. HDR rendering is capped at 1600×900;
-reflection is half-sized. Nested previews restore the parent framebuffer,
+and new seeds never accumulate worlds. HDR, reflection and shadow budgets follow
+the selected [graphics quality](graphics-quality.md). Nested previews restore the parent framebuffer,
 viewport and matrices before compositing. The gallery's journey thumbnail is a
 small captured poster so startup never generates the world merely for its card.
 

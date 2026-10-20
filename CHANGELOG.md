@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.10.0 — 2026-10-20
+
+- Stabilize the journey's railcar and shadows while preserving the original
+  vehicle dimensions, palette, movement and saved journeys.
+- Plan geometry references, relative coordinates, cameras and light-space
+  grids in Haskell. Main, shadow and reflection views consume the same frame
+  description; shadow writing and sampling share the same lowered projection.
+- Compile the original railcar's box assembly into exact, uniquely owned
+  exterior surfaces. Correct wheel winding and filter fine material detail.
+- Use receiver-plane shadow comparisons with visibility filtering, including
+  close-up surfaces. Derive the sky basis directly from the planned view.
+- Separate reusable space, box-union, mesh and observation modules from
+  Stillroom's scene policy and native encoding. Document laws, measurements,
+  and the remaining limits of the graphics foundation.
+
 ## 0.9.0 — 2026-10-19
 
 - Add saved Auto / Low / Standard / High / Ultra graphics quality in Rest settings.

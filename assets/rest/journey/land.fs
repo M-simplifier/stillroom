@@ -1,6 +1,7 @@
 in vec3 world;
 in vec3 normal;
 in vec3 original;
+in vec3 originalNormal;
 in vec2 uv;
 in vec4 tint;
 in vec4 lightSpace;
@@ -11,34 +12,58 @@ uniform int uKind;
 uniform int uShadowPass;
 uniform int uClip;
 uniform int uFarPass;
+// x = world metres/texel; y = light depth span; z,w = bias in metres.
+uniform vec4 uShadowUnits;
 out vec4 finalColor;
+float depthComparison(ivec2 cell, vec3 p, vec2 gradient, float bias) {
+    ivec2 size=textureSize(uShadow,0);
+    if(any(lessThan(cell,ivec2(0)))||any(greaterThanEqual(cell,size)))return 1.0;
+    // Compare at the actual texel centre on the RECEIVER plane. A wide
+    // filter must not compare every neighbouring depth to the central depth.
+    vec2 offset=(vec2(cell)+.5)/vec2(size)-p.xy;
+    float receiver=p.z+dot(gradient,offset)-bias;
+    return step(receiver,texelFetch(uShadow,cell,0).r);
+}
+float filteredComparison(vec2 sampleUV, vec3 p, vec2 gradient, float bias) {
+    vec2 texel=sampleUV*vec2(textureSize(uShadow,0))-.5;
+    ivec2 base=ivec2(floor(texel));
+    vec2 f=fract(texel);
+    float a=depthComparison(base,p,gradient,bias);
+    float b=depthComparison(base+ivec2(1,0),p,gradient,bias);
+    float c=depthComparison(base+ivec2(0,1),p,gradient,bias);
+    float d=depthComparison(base+ivec2(1,1),p,gradient,bias);
+    // Filter visibility, never interpolated raw depths.
+    return mix(mix(a,b,f.x),mix(c,d,f.x),f.y);
+}
 float shadow(vec3 n) {
     vec3 p=lightSpace.xyz/lightSpace.w*.5+.5;
-    if(p.x<0.0||p.x>1.0||p.y<0.0||p.y>1.0||p.z>1.0) return 1.0;
-    float bias=max(.00023,.0011*(1.0-dot(n,uSun))),v=0.0;
-    if(uQuality>1) {
-        vec2 px=1.0/vec2(textureSize(uShadow,0));
-        float blockers=0.0,total=0.0;
-        for(int i=0;i<6;i++) {
-            float a=float(i)*2.399963;
-            float z=texture(uShadow,p.xy+vec2(cos(a),sin(a))*sqrt(float(i)+.5)*px*2.0).r;
-            if(z<p.z-bias){total+=z;blockers+=1.0;}
+    vec3 dx=dFdx(p),dy=dFdy(p);
+    // Remove screen magnification before testing singularity. An absolute
+    // determinant cutoff rejects perfectly regular planes near the camera.
+    // Scale z as well: this leaves the receiver gradient unchanged.
+    float uvScale=max(max(abs(dx.x),abs(dx.y)),max(abs(dy.x),abs(dy.y)));
+    if(uvScale>0.0){dx/=uvScale;dy/=uvScale;}
+    float det=dx.x*dy.y-dx.y*dy.x;
+    // About eight binary32 epsilons in the normalized Jacobian.
+    vec2 gradient=abs(det)>1e-6
+        ? vec2(dy.y*dx.z-dx.y*dy.z,dx.x*dy.z-dy.x*dx.z)/det : vec2(0);
+    if(p.x<0.0||p.x>1.0||p.y<0.0||p.y>1.0||p.z<0.0||p.z>1.0)return 1.0;
+    float bias=max(uShadowUnits.z,uShadowUnits.w*(1.0-dot(n,uSun)))/uShadowUnits.y;
+    vec2 px=1.0/vec2(textureSize(uShadow,0));
+    float v=0.0;
+    // A fixed world-space footprint has no blocker-count-driven radius jumps.
+    // Higher tiers spend samples on a smooth tent filter, not animated noise.
+    if(uQuality==0) v=filteredComparison(p.xy,p,gradient,bias);
+    else {
+        float radius=clamp(.055/uShadowUnits.x,.75,2.5);
+        for(int x=-1;x<=1;x++)for(int y=-1;y<=1;y++) {
+            float weight=float((x==0?2:1)*(y==0?2:1));
+            v+=weight*filteredComparison(p.xy+vec2(x,y)*px*radius,p,gradient,bias);
         }
-        float penumbra=blockers>0.0?clamp((p.z-total/blockers)*750.0,1.2,5.5):1.2;
-        for(int i=0;i<16;i++) {
-            float a=float(i)*2.399963;
-            vec2 offset=vec2(cos(a),sin(a))*sqrt((float(i)+.5)/16.0)*penumbra;
-            v+=step(p.z-bias,texture(uShadow,p.xy+offset*px).r);
-        }
-        float edge=min(min(p.x,1.0-p.x),min(p.y,1.0-p.y));
-        return mix(1.0,.10+.90*v/16.0,smoothstep(.01,.10,edge));
-    }
-    for(int x=-1;x<=1;x++)for(int y=-1;y<=1;y++) {
-        float d=texture(uShadow,p.xy+vec2(x,y)/vec2(textureSize(uShadow,0))).r;
-        v+=step(p.z-bias,d);
+        v/=16.0;
     }
     float edge=min(min(p.x,1.0-p.x),min(p.y,1.0-p.y));
-    return mix(1.0,.18+.82*v/9.0,smoothstep(.01,.10,edge));
+    return mix(1.0,.14+.86*v,smoothstep(.01,.10,edge));
 }
 void main() {
     if(uClip==1&&world.y<.025) discard;
@@ -95,7 +120,9 @@ void main() {
         c*=mix(.46,1.15,sqrt(uv.x)); ao=mix(.47,1.0,uv.x);
     }
     if(uKind==4 || (uKind==0 && uv.x>1.5)) {
-        float grain=valueNoise(original.xz*vec2(4.0,45.0));
+        vec2 coordinates=original.xz*vec2(4.0,45.0);
+        float footprint=max(length(dFdx(coordinates)),length(dFdy(coordinates)));
+        float grain=mix(.5,valueNoise(coordinates),exp(-2.0*footprint*footprint));
         c=tint.rgb*(.93+.10*grain);
     }
     if(uQuality>0) {
@@ -118,11 +145,12 @@ void main() {
             // The railcar is generated too. Broad grain follows each wooden
             // surface and fades below a pixel instead of adding a noisy image.
             float wood=smoothstep(.08,.24,tint.r-tint.b);
-            vec2 grainPlane=abs(n.y)>.5?original.xz:vec2(original.x+original.z,original.y);
-            float grainFootprint=max(length(dFdx(grainPlane)),length(dFdy(grainPlane)));
+            vec2 grainPlane=abs(originalNormal.y)>.5?original.xz:vec2(original.x+original.z,original.y);
             float warp=valueNoise(grainPlane*vec2(2.0,.8));
-            float lines=valueNoise(vec2(grainPlane.x*2.5,grainPlane.y*55.0+warp*6.0));
-            float fineGrain=(lines-.5)*exp(-grainFootprint*22.0);
+            vec2 grainCoordinates=vec2(grainPlane.x*2.5,grainPlane.y*55.0+warp*6.0);
+            float grainFootprint=max(length(dFdx(grainCoordinates)),length(dFdy(grainCoordinates)));
+            float lines=valueNoise(grainCoordinates);
+            float fineGrain=(lines-.5)*exp(-2.0*grainFootprint*grainFootprint);
             c*=1.0+wood*(fineGrain*.22+(warp-.5)*.055);
             roughness=mix(roughness,.67,wood);
         }

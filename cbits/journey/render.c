@@ -3,6 +3,7 @@
 #include "geometry.h"
 #include "ecology.h"
 #include "railway.h"
+#include "frame.h"
 
 #define SIDE 7
 #define CAPACITY (SIDE * SIDE)
@@ -10,6 +11,8 @@
 #define FAR_SIDE 9
 #define FAR_CAPACITY (FAR_SIDE * FAR_SIDE)
 #define FAR_TILE 128
+__declspec(dllimport) void __stdcall glBindTexture(unsigned int, unsigned int);
+__declspec(dllimport) void __stdcall glGetTexLevelParameteriv(unsigned int, int, unsigned int, int *);
 double sr_journey_geometry_height(uint32_t seed, double x, double z) {
   selectWorld(seed);
   return (double)ground((float)x, (float)z);
@@ -23,13 +26,12 @@ typedef struct {
   Nature *n;
   uint32_t seed;
   Mesh railcar;
-  double carS, carSpeed;
-  int aboard;
   int quality, qualityCeiling; // 0 economy, 1 balanced, 2 detailed, 3 supersampled.
   Chunk chunks[CAPACITY], farChunks[FAR_CAPACITY];
   unsigned int generated, evicted, frames, farGenerated, farEvicted;
   double maxGenerationMs, lastGenerationMs;
   int centerX, centerZ, nearMissing;
+  float frame[SR_FRAME_FLOATS];
   char info[2048];
 } WalkWorld;
 
@@ -282,7 +284,30 @@ static int streamFar(WalkWorld *w, double x, double z) {
   }
   return makeChunk(w, c, bx, bz, 1) ? 1 : -1;
 }
-WalkWorld *sr_journey_open(uint32_t seed, const char *const *sources) {
+static Mesh uploadRailcar(Nature *s, const float *vertices, int count) {
+  Builder b = {0};
+  if (!vertices || count < 3 || count > 100000 || count % 3) {
+    snprintf(s->errorText, sizeof(s->errorText), "Invalid railcar boundary");
+    return (Mesh){0};
+  }
+  for (int i = 0; i < count * 10; i++)
+    if (!isfinite(vertices[i])) {
+      snprintf(s->errorText, sizeof(s->errorText), "Non-finite railcar boundary");
+      return (Mesh){0};
+    }
+  for (int i = 0; i < count; i++) {
+    const float *p = vertices + i * 10;
+    add(&b, vert((Vector3){p[0],p[1],p[2]}, (Vector3){p[3],p[4],p[5]},
+                 (Vector2){2,0}, -1, 0,
+                 (Color){(unsigned char)p[6],(unsigned char)p[7],
+                         (unsigned char)p[8],(unsigned char)p[9]}));
+  }
+  Mesh result = upload(s, &b);
+  free(b.v);
+  return result;
+}
+WalkWorld *sr_journey_open(uint32_t seed, const char *const *sources,
+                           const float *carVertices, int carVertexCount) {
   selectWorld(seed);
   WalkWorld *w = calloc(1, sizeof(WalkWorld));
   if (!w)
@@ -293,7 +318,7 @@ WalkWorld *sr_journey_open(uint32_t seed, const char *const *sources) {
   w->n = journeyNature_load(sources);
   if (w->n) {
     if (w->n->shadowMap.depth.width < 2048) w->quality = w->qualityCeiling = 0;
-    w->railcar = createRailcar(w->n);
+    w->railcar = uploadRailcar(w->n, carVertices, carVertexCount);
     w->n->scene = 0;
     w->n->sun = Vector3Normalize((Vector3){-.55f, .57f, .38f});
   }
@@ -353,9 +378,9 @@ static void allLand(WalkWorld *w, float t, int shadow, int clip, Camera3D cam) {
       Chunk *c = &w->farChunks[i];
       if (!c->valid)
         continue;
-      float dx = fmaxf(0, fabsf(cam.position.x - (c->x + .5f) * FAR_TILE) -
+      float dx = fmaxf(0, fabsf(s->referenceEye.x - (c->x + .5f) * FAR_TILE) -
                               FAR_TILE * .5f);
-      float dz = fmaxf(0, fabsf(cam.position.z - (c->z + .5f) * FAR_TILE) -
+      float dz = fmaxf(0, fabsf(s->referenceEye.z - (c->z + .5f) * FAR_TILE) -
                               FAR_TILE * .5f);
       if (dx * dx + dz * dz > 560 * 560)
         continue;
@@ -369,7 +394,7 @@ static void allLand(WalkWorld *w, float t, int shadow, int clip, Camera3D cam) {
     Chunk *c = &w->chunks[i];
     if (!c->valid)
       continue;
-    Vector3 reference = shadow ? s->camera.position : cam.position;
+    Vector3 reference = s->referenceEye;
     Vector3 p = {(c->x + .5f) * TILE, reference.y, (c->z + .5f) * TILE};
     float dist = Vector3Distance(p, reference);
     if (dist > (shadow ? 112 : 132))
@@ -383,24 +408,11 @@ static void allLand(WalkWorld *w, float t, int shadow, int clip, Camera3D cam) {
     takeGeometry(s);
   }
 }
-void sr_car_car(WalkWorld *w, double progress, double speed, int aboard) {
-  w->carS = progress;
-  w->carSpeed = speed;
-  w->aboard = aboard;
-}
 static void drawRailcar(WalkWorld *w, int shadow, int clip, Camera3D cam) {
   Nature *s = w->n;
-  double z = -w->carS, x = railX(z), y = railY(z);
-  if (Vector3Distance(cam.position, (Vector3){(float)x, (float)y, (float)z}) >
-      540)
+  Matrix model = frameMatrix(w->frame + SR_FRAME_OBJECT);
+  if (Vector3Distance(cam.position, (Vector3){model.m12, model.m13, model.m14}) > 540)
     return;
-  double angle = -atan2(-railSlopeX(z), 1.0);
-  // Level passenger camera; the body follows the gentle track grade.
-  double grade = atan2(railY(z - .1) - railY(z + .1),
-                       .2 * sqrt(1 + railSlopeX(z) * railSlopeX(z)));
-  Matrix model = MatrixMultiply(
-      MatrixMultiply(MatrixRotateX((float)grade), MatrixRotateY((float)angle)),
-      MatrixTranslate((float)x, (float)y, (float)z));
   i1(s->landShader, "uFarPass", 0);
   i1(s->landShader, "uKind", 4);
   i1(s->landShader, "uShadowPass", shadow);
@@ -408,21 +420,60 @@ static void drawRailcar(WalkWorld *w, int shadow, int clip, Camera3D cam) {
   v3(s->landShader, "uEye", cam.position);
   v3(s->landShader, "uSun", s->sun);
   SetShaderValueMatrix(
-      s->landShader, GetShaderLocation(s->landShader, "uLightVP"), s->lightVP);
+      s->landShader, GetShaderLocation(s->landShader, "uLightVP"), s->shadowField.clipFromRender);
   SetShaderValueMatrix(s->landShader,
                        GetShaderLocation(s->landShader, "uObject"), model);
-  bindTexture(s->landShader, "uShadow", s->shadowMap.depth, 9);
+  bindTexture(s->landShader, "uShadow", s->shadowField.image.depth, 9);
   s->material.shader = s->landShader;
   rlDisableBackfaceCulling();
   DrawMesh(w->railcar, s->material, MatrixIdentity());
   rlEnableBackfaceCulling();
 }
 
-int sr_journey_draw(WalkWorld *w, double x, double y, double z, double yaw,
-                    double pitch, double seconds, float left, float top,
-                    int width, int height) {
+// Resource choices are completed BEFORE the pure frame is planned. Allocation
+// fallback can change dimensions; those actual dimensions return to Haskell.
+int sr_journey_frame_targets(WalkWorld *w, double x, double z, int width,
+                             int height, int *sizes) {
+  if (!sr_journey_ready(w) || width < 1 || height < 1 || !sizes) return 0;
+  selectWorld(w->seed);
+  Nature *s = w->n;
+  if (streamOne(w, x, z) < 0 || streamFar(w, x, z) < 0) return 0;
+  w->nearMissing = findChunk(w, (int)floor(x / TILE), (int)floor(z / TILE)) < 0;
+  if (w->nearMissing || !budgetTargets(s, &w->quality, &w->qualityCeiling, width, height, 0)) return 0;
+  sizes[0] = s->currentWidth; sizes[1] = s->currentHeight;
+  sizes[2] = s->shadowMap.depth.width;
+  sizes[3] = s->reflection.texture.width; sizes[4] = s->reflection.texture.height;
+  return 1;
+}
+int sr_journey_frame_copy(WalkWorld *w, float *output, int count) {
+  if (!w || !output || count != SR_FRAME_FLOATS || !w->frames) return 0;
+  memcpy(output, w->frame, sizeof(w->frame));
+  return 1;
+}
+int sr_journey_frame_uniforms(WalkWorld *w, float *output, int count) {
+  if (!w || !w->frames || !output || count != 54) return 0;
+  typedef void (__stdcall *GetUniform)(unsigned int, int, float *);
+  GetUniform read = (GetUniform)rlGetProcAddress("glGetUniformfv");
+  if (!read) return 0;
+  const char *names[] = {"uObject", "uLightVP", "uClipFromRender", "uReferenceEye", "uOrigin"};
+  const int offsets[] = {0,16,32,48,51};
+  for (int i = 0; i < 5; i++) {
+    int location = GetShaderLocation(w->n->landShader, names[i]);
+    if (location < 0) return 0;
+    read(w->n->landShader.id, location, output + offsets[i]);
+  }
+  return glGetError() == 0;
+}
+int sr_journey_draw(WalkWorld *w, const float *frame, int count,
+                    float left, float top, int width, int height) {
   if (!sr_journey_ready(w) || width < 1 || height < 1)
     return 0;
+  Nature *s = w->n;
+  if (!validFrame(frame, count, s)) {
+    snprintf(s->errorText, sizeof(s->errorText), "Invalid graphics frame packet");
+    return 0;
+  }
+  memcpy(w->frame, frame, sizeof(w->frame));
   selectWorld(w->seed);
   rlDrawRenderBatchActive();
   int framebuffer = 0, viewport[4];
@@ -431,66 +482,62 @@ int sr_journey_draw(WalkWorld *w, double x, double y, double z, double yaw,
   Matrix parentView = rlGetMatrixModelview(),
          parentProjection = rlGetMatrixProjection();
   int parentW = rlGetFramebufferWidth(), parentH = rlGetFramebufferHeight();
-  Nature *s = w->n;
-  if (streamOne(w, x, z) < 0 || streamFar(w, x, z) < 0)
-    return 0;
-  w->nearMissing = findChunk(w, (int)floor(x / TILE), (int)floor(z / TILE)) < 0;
-  if (w->nearMissing)
-    return 0;
-  if (!budgetTargets(s, &w->quality, &w->qualityCeiling, width, height, 0)) return 0;
   int rw = s->currentWidth, rh = s->currentHeight;
   Shader qualityShaders[] = {s->landShader, s->waterShader, s->skyShader, s->postShader};
   for (int i = 0; i < 4; i++) i1(qualityShaders[i], "uQuality", w->quality);
-  Vector3 eye = {(float)x, (float)y, (float)z};
-  Vector3 f = {(float)(sin(yaw) * cos(pitch)), (float)sin(pitch),
-               (float)(-cos(yaw) * cos(pitch))};
-  s->camera =
-      (Camera3D){eye, Vector3Add(eye, f), {0, 1, 0}, 62, CAMERA_PERSPECTIVE};
-  float t = (float)seconds;
-  const float texel = 96.0f / s->shadowMap.depth.width;
-  Vector3 center = {floorf(eye.x / texel) * texel, eye.y - 1.68f,
-                    floorf(eye.z / texel) * texel};
-  Camera3D light = {Vector3Add(center, Vector3Scale(s->sun, 130)),
-                    center,
-                    {0, 1, 0},
-                    96,
-                    CAMERA_ORTHOGRAPHIC};
-  BeginTextureMode(s->shadowMap);
+  s->renderOrigin = frameVector(frame + 7);
+  s->referenceEye = frameVector(frame + 10);
+  s->sun = frameVector(frame + 13);
+  s->camera = frameCamera(frame + SR_FRAME_MAIN_PASS);
+  Vector3 eye = s->camera.position;
+  float t = frame[6];
+  Camera3D light = frameCamera(frame + SR_FRAME_SHADOW_PASS);
+  Camera3D mirror = frameCamera(frame + SR_FRAME_REFLECTION_PASS);
+  s->shadowField = (ProjectedField){s->shadowMap, frameMatrix(frame + SR_FRAME_LIGHT)};
+  s->reflectionField = (ProjectedField){s->reflection, frameMatrix(frame + SR_FRAME_REFLECTION)};
+  v3(s->landShader, "uReferenceEye", s->referenceEye);
+  v3(s->landShader, "uOrigin", s->renderOrigin);
+  v3(s->waterShader, "uOrigin", s->renderOrigin);
+  SetShaderValue(s->landShader, GetShaderLocation(s->landShader, "uShadowUnits"),
+                 frame + SR_FRAME_SHADOW_UNITS, SHADER_UNIFORM_VEC4);
+  BeginTextureMode(s->shadowField.image);
   ClearBackground(WHITE);
-  BeginMode3D(light);
-  s->lightVP = MatrixMultiply(rlGetMatrixModelview(), rlGetMatrixProjection());
+  beginFramePass(frame + SR_FRAME_SHADOW_PASS);
+  SetShaderValueMatrix(s->landShader, GetShaderLocation(s->landShader, "uClipFromRender"), s->shadowField.clipFromRender);
   allLand(w, t, 1, 0, light);
   drawRailcar(w, 1, 0, light);
   EndMode3D();
   EndTextureMode();
-  Camera3D mirror = s->camera;
-  mirror.position.y = -mirror.position.y;
-  mirror.target.y = -mirror.target.y;
-  BeginTextureMode(s->reflection);
+  BeginTextureMode(s->reflectionField.image);
   ClearBackground(BLACK);
-  sky(s, mirror, s->reflection.texture.width, s->reflection.texture.height);
-  BeginMode3D(mirror);
-  s->reflectionVP =
-      MatrixMultiply(rlGetMatrixModelview(), rlGetMatrixProjection());
+  sky(s, frameMatrix(frame + SR_FRAME_REFLECTION_PASS),
+      frameMatrix(frame + SR_FRAME_REFLECTION_PASS + 16),
+      s->reflection.texture.width, s->reflection.texture.height);
+  beginFramePass(frame + SR_FRAME_REFLECTION_PASS);
+  SetShaderValueMatrix(s->landShader, GetShaderLocation(s->landShader, "uClipFromRender"), s->reflectionField.clipFromRender);
   allLand(w, t, 0, 1, mirror);
   drawRailcar(w, 0, 1, mirror);
   EndMode3D();
   EndTextureMode();
   BeginTextureMode(s->hdr);
   ClearBackground(BLACK);
-  sky(s, s->camera, rw, rh);
-  BeginMode3D(s->camera);
+  sky(s, frameMatrix(frame + SR_FRAME_MAIN_PASS),
+      frameMatrix(frame + SR_FRAME_MAIN_PASS + 16), rw, rh);
+  beginFramePass(frame + SR_FRAME_MAIN_PASS);
+  Matrix mainClip = frameMatrix(frame + SR_FRAME_MAIN_CLIP);
+  SetShaderValueMatrix(s->landShader, GetShaderLocation(s->landShader, "uClipFromRender"), mainClip);
   allLand(w, t, 0, 0, s->camera);
   drawRailcar(w, 0, 0, s->camera);
   s->material.shader = s->waterShader;
+  SetShaderValueMatrix(s->waterShader, GetShaderLocation(s->waterShader, "uClipFromRender"), mainClip);
   v3(s->waterShader, "uEye", eye);
   v3(s->waterShader, "uSun", s->sun);
   f1(s->waterShader, "uTime", t);
   i1(s->waterShader, "uLandscape", 2);
   SetShaderValueMatrix(s->waterShader,
                        GetShaderLocation(s->waterShader, "uReflectionVP"),
-                       s->reflectionVP);
-  bindTexture(s->waterShader, "uReflection", s->reflection.texture, 10);
+                       s->reflectionField.clipFromRender);
+  bindTexture(s->waterShader, "uReflection", s->reflectionField.image.texture, 10);
   rlDisableBackfaceCulling();
   for (int pass = 1; pass >= 0; pass--) {
     i1(s->waterShader, "uFarPass", pass);
@@ -500,7 +547,8 @@ int sr_journey_draw(WalkWorld *w, double x, double y, double z, double yaw,
       Chunk *c = pass ? &w->farChunks[i] : &w->chunks[i];
       if (!c->valid || !c->g.water.vaoId)
         continue;
-      float rect[4] = {c->x * span - texel * .5f, c->z * span - texel * .5f,
+      float rect[4] = {c->x * span - s->renderOrigin.x - texel * .5f,
+                       c->z * span - s->renderOrigin.z - texel * .5f,
                        span + texel, span + texel};
       SetShaderValue(s->waterShader,
                      GetShaderLocation(s->waterShader, "uHeightRect"), rect,
@@ -535,6 +583,13 @@ int sr_journey_draw(WalkWorld *w, double x, double y, double z, double yaw,
 const char *sr_journey_info(WalkWorld *w) {
   int resident = 0, trees = 0, grass = 0, triangles = 0, farResident = 0,
       farTriangles = 0;
+  int previousTexture = 0, depthFormat = 0, depthBits = 0, depthType = 0;
+  glGetIntegerv(0x8069, &previousTexture);
+  glBindTexture(0x0DE1, w->n->shadowMap.depth.id);
+  glGetTexLevelParameteriv(0x0DE1, 0, 0x1003, &depthFormat);
+  glGetTexLevelParameteriv(0x0DE1, 0, 0x884A, &depthBits);
+  glGetTexLevelParameteriv(0x0DE1, 0, 0x8C16, &depthType);
+  glBindTexture(0x0DE1, (unsigned int)previousTexture);
   for (int i = 0; i < FAR_CAPACITY; i++)
     if (w->farChunks[i].valid) {
       farResident++;
@@ -555,11 +610,13 @@ const char *sr_journey_info(WalkWorld *w) {
            "%d,\"trees\":%d,\"blades\":%d,"
            "\"triangles\":%d,\"generated\":%u,\"evicted\":%u,\"frames\":%u,"
            "\"maxGenerationMs\":%.4f,\"lastGenerationMs\":%.4f,\"nearMissing\":"
-           "%d,\"renderer\":\"%s\"}",
+           "%d,\"depthFormat\":%d,\"depthBits\":%d,\"depthType\":%d,"
+           "\"carTriangles\":%d,\"frameVersion\":%.0f,\"renderer\":\"%s\"}",
            w->quality, w->n->currentWidth, w->n->currentHeight, w->n->shadowMap.depth.width,
            w->n->reflection.texture.width, farResident, FAR_CAPACITY, farTriangles, w->farGenerated,
            w->farEvicted, resident, CAPACITY, trees, grass, triangles,
            w->generated, w->evicted, w->frames, w->maxGenerationMs,
-           w->lastGenerationMs, w->nearMissing, glGetString(0x1F01));
+           w->lastGenerationMs, w->nearMissing, depthFormat, depthBits, depthType,
+           w->railcar.triangleCount, w->frame[0], glGetString(0x1F01));
   return w->info;
 }

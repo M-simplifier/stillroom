@@ -3,16 +3,18 @@ in vec3 vertexNormal;
 in vec2 vertexTexCoord;
 in vec2 vertexTexCoord2;
 in vec4 vertexColor;
-uniform mat4 mvp;
+uniform mat4 uClipFromRender;
 uniform mat4 uObject;
 uniform mat4 uLightVP;
 uniform sampler2D uBones;
 uniform int uKind;
 uniform int uFarPass;
-uniform vec3 uEye;
+uniform vec3 uReferenceEye;
+uniform vec3 uOrigin;
 out vec3 world;
 out vec3 normal;
 out vec3 original;
+out vec3 originalNormal;
 out vec2 uv;
 out vec4 tint;
 out vec4 lightSpace;
@@ -27,7 +29,7 @@ void bend(inout vec3 p,inout vec3 n,vec3 origin,float angle) {
 void main() {
     vec3 p=vertexPosition,n=vertexNormal;
     if(uKind==0 && vertexTexCoord.x<.5 && uFarPass==0) {
-        p.y=mix(p.y,vertexTexCoord2.x,smoothstep(55.0,85.0,distance(p.xz,uEye.xz)));
+        p.y=mix(p.y,vertexTexCoord2.x,smoothstep(55.0,85.0,distance(p.xz,uReferenceEye.xz)));
     }
     if(uKind==1||uKind==2) {
         if(uKind==2) {
@@ -47,7 +49,7 @@ void main() {
         }
     } else if(uKind==3) {
         float t=vertexTexCoord.x,phase=vertexTexCoord2.y;
-        float fade=1.0-smoothstep(27.0,46.0,distance(p.xz,uEye.xz));
+        float fade=1.0-smoothstep(27.0,46.0,distance(p.xz,uReferenceEye.xz));
         p.xz=mix(vertexTexCoord2,p.xz,fade);
         p.y=mix(vertexTexCoord.y,p.y,fade);
         float gust=wind(vertexTexCoord2,uTime);
@@ -55,8 +57,11 @@ void main() {
         p.x+=a*.32; p.z-=a*.085; p.y-=a*a*.055;
         n=normalize(n+vec3(a*.45,.1,0));
     }
+    // The object translation was made relative in Double before Float lowering.
+    // Static fields retain their world-space phase, then enter render space.
     if(uKind==4){p=(uObject*vec4(p,1.0)).xyz;n=mat3(uObject)*n;}
-    world=p;normal=n;original=vertexPosition;uv=vertexTexCoord;tint=vertexColor;foliageShape=vertexTexCoord2.y;
+    else p-=uOrigin;
+    world=p;normal=n;original=vertexPosition;originalNormal=vertexNormal;uv=vertexTexCoord;tint=vertexColor;foliageShape=vertexTexCoord2.y;
     lightSpace=uLightVP*vec4(p,1.0);
-    gl_Position=mvp*vec4(p,1.0);
+    gl_Position=uClipFromRender*vec4(p,1.0);
 }

@@ -71,6 +71,7 @@ try {
     if (-not $SkipTests) {
         & $Cabal test laws --test-show-details=direct @offlineFlag
         if ($LASTEXITCODE) { throw 'Property tests failed.' }
+        & (Join-Path $PSScriptRoot 'check-graphics-types.ps1')
     }
     & $Cabal check
     if ($LASTEXITCODE) { throw 'Package metadata check failed.' }

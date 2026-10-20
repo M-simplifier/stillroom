@@ -8,6 +8,7 @@ import Data.List (sort)
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Vector.Storable qualified as V
 import JourneyChecks (journeyChecks)
+import GraphicsChecks (graphicsChecks)
 import Stillroom.Domain
 import Stillroom.Graphics qualified as G
 import Stillroom.Interface qualified as UI
@@ -61,7 +62,8 @@ main = do
         law "automatic quality responds to sustained load without oscillation" (once propGraphicsLoad)
       ]
   journeysPassed <- journeyChecks
-  unless (all isSuccess results && journeysPassed) exitFailure
+  graphicsPassed <- graphicsChecks
+  unless (all isSuccess results && journeysPassed && graphicsPassed) exitFailure
   where
     law title p = putStrLn title >> quickCheckWithResult stdArgs {maxSuccess = 250} p
 
