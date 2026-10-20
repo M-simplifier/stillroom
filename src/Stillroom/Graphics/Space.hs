@@ -3,9 +3,9 @@
 -- | Typed coordinate spaces and homogeneous maps. Composition can only join
 -- matching spaces. All arithmetic remains Double until a backend lowers it.
 --
--- These are numerical operations, not a claim of real-number arithmetic:
--- identity/composition are checked with a tolerance; zero directions and
--- degenerate lenses produce non-finite maps which 'observe' rejects.
+-- These are numerical operations, not real-number arithmetic. Composition is
+-- subject to floating-point rounding; zero directions and degenerate lenses
+-- can produce non-finite maps which 'observe' rejects.
 module Stillroom.Graphics.Space
   ( World, Render, Object, View, Clip,
     Point (..), Direction (..), Transform,
