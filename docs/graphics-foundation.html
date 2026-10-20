@@ -3,8 +3,15 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <meta name="description" content="Stillroom 0.10の関数型グラフィック基盤。形、観測、実行を分け、動く風景の整合性を守るための設計と検証。">
-  <title>同じ世界を、矛盾なく描く。— Stillroom</title>
+  <meta name="description" content="Haskellで3D描画をどう設計するか。Stillroomのちらつきを直した事例から、座標の型、純粋な描画計画、形状の合成、GPUでの検証を紹介します。">
+  <meta name="theme-color" content="#12231e">
+  <meta property="og:title" content="Haskellでつくる3D描画の基盤 — Stillroom">
+  <meta property="og:description" content="画面・影・水面の反射を同じ世界から描く。型と純粋関数を、動くアプリの描画へつなぐ設計。">
+  <meta property="og:image" content="https://m-simplifier.github.io/stillroom/graphics-foundation.webp">
+  <title>Haskellでつくる3D描画の基盤 — Stillroom</title>
+  <link rel="canonical" href="https://m-simplifier.github.io/stillroom/graphics-foundation.html">
+  <link rel="alternate" hreflang="ja" href="https://m-simplifier.github.io/stillroom/graphics-foundation.html">
+  <link rel="alternate" hreflang="en" href="https://m-simplifier.github.io/stillroom/graphics-foundation-en.html">
   <link rel="stylesheet" href="graphics-foundation.css">
   <script src="graphics-foundation.js" defer></script>
 </head>
@@ -12,19 +19,19 @@
 <a class="skip" href="#content">本文へ</a>
 <header class="masthead wrap">
   <a class="brand" href="ja.html">◌ stillroom</a>
-  <nav aria-label="この資料の目次"><a href="#film">風景</a><a href="#design">設計</a><a href="#evidence">検証</a><a href="https://github.com/M-simplifier/stillroom">Source ↗</a></nav>
+  <nav aria-label="記事ナビゲーション"><a href="developers-ja.html">開発者向け</a><a href="#design">設計</a><a href="#evidence">検証</a><a href="graphics-foundation-en.html" lang="en" hreflang="en">English</a></nav>
 </header>
 <main id="content">
   <section class="opening wrap">
-    <p class="kicker">ENGINEERING NOTES · STILLROOM 0.10 · 20 OCT 2026</p>
-    <div class="title-row"><h1>同じ世界を、<br>矛盾なく描く。</h1><p class="intro">形があり、光があり、それを眺める人がいる。<br>その関係をコードにも残すことで、<br>動く風景の落ち着きを取り戻しました。</p></div>
-    <div class="cover"><img src="graphics-foundation.webp" width="1280" height="720" alt="新しい描画基盤で描いた、湖畔を進む木製のトロッコ"><span>ONE WORLD. DIFFERENT OBSERVATIONS.</span></div>
-    <p class="cover-note">Haskellで形と投影を決め、raylibとGLSLで描く。Stillroomの旅に組み込んだ、新しい描画基盤の記録です。</p>
+    <p class="kicker">開発ノート · Stillroom 0.10 · <time datetime="2026-10-20">2026年10月20日</time></p>
+    <div class="title-row"><h1>Haskellでつくる<br>3D描画の基盤</h1><p class="intro">画面・影・水面の反射は、同じ世界を違う視点から描いています。その関係を純粋な値で定義し、描画のずれを直した事例を紹介します。</p></div>
+    <div class="cover"><img src="graphics-foundation.webp" width="1280" height="720" alt="Stillroom 0.10の旅。湖畔を進む木製のトロッコ。"></div>
+    <p class="cover-note">Stillroomは、作業中に音楽を流し、休憩中に風景を眺めるWindowsアプリです。描画にはHaskell、raylib、GLSLを使っています。</p>
   </section>
 
   <section class="section wrap" id="film" aria-labelledby="film-title">
-    <div class="section-heading"><span class="index">01 / THE VIEW</span><h2 id="film-title">まず、動いているところを。</h2></div>
-    <p class="measure">同じ湖畔、同じ時刻列、同じ画質High。境界を左右に動かすと、公開版0.9と今回の0.10を見比べられます。再生するまでは静止しています。</p>
+    <div class="section-heading"><span class="index">01 / 比較</span><h2 id="film-title">動く車体と影のちらつきを直す</h2></div>
+    <p class="measure">トロッコの表面と影が、移動中にちらついていました。0.10では、重複面、座標の丸め、描画ごとの地形と投影の違いを修正しています。下の映像は同じ場所・時刻・画質Highでの比較です。</p>
     <figure class="comparison">
       <div class="screen">
         <video id="before" src="graphics-before.mp4" muted playsinline preload="metadata" aria-label="旧版0.9の旅の映像"></video>
@@ -37,15 +44,15 @@
       <figcaption>Windows / RTX 3050 · 1280×720 · 30fps · 16秒 · 音声なし。固定seed・開始位置で各480時刻を収録。描画時間に関わらず同じ時刻を描く比較映像であり、実時間の速度比較ではありません。</figcaption>
     </figure>
     <div class="triptych">
-      <article><span class="tiny">GEOMETRY</span><h3>元の形を、重ねずに。</h3><p>トロッコの寸法と配色はそのまま。重なる箱の内部と二重の外面を除き、ひとつの面にひとつの持ち主を与えました。</p></article>
-      <article><span class="tiny">PRECISION</span><h3>遠くへ進んでも、近い座標で。</h3><p>車体とカメラの位置を高精度で引き算してからGPUへ。大きな世界座標を先に丸めることで生じる、細部の揺れを抑えます。</p></article>
-      <article><span class="tiny">LIGHT</span><h3>影も、同じ世界の観測。</h3><p>形を決める視点と時刻を共有。影の格子を光の向きに固定し、面の傾きを考慮して影を比較・平滑化します。</p></article>
+      <article><span class="tiny">形状</span><h3>重複する面を取り除く</h3><p>車体の寸法と配色を保ち、箱の接合部と二重の外面を除きます。同じ場所の二つの面が描画を競う状態をなくします。</p></article>
+      <article><span class="tiny">精度</span><h3>近い原点からの座標を使う</h3><p>大きな世界座標から近傍の原点をDoubleで引き、そのあとFloatへ変換します。先に丸めて細部を失うのを防ぎます。</p></article>
+      <article><span class="tiny">影</span><h3>描く側と読む側をそろえる</h3><p>地形を決める基準と投影を共有します。影の格子を光の方向に固定し、面の傾きを補正してから影を平滑化します。</p></article>
     </div>
   </section>
 
   <section class="paper" id="design" aria-labelledby="design-title">
     <div class="wrap section">
-      <div class="section-heading"><span class="index">02 / THE DESIGN</span><h2 id="design-title">世界を決めることと、<br>世界を見ることを分ける。</h2></div>
+      <div class="section-heading"><span class="index">02 / 設計</span><h2 id="design-title">地形の選択と、描く視点を分ける</h2></div>
       <div class="prose-pair"><p>画面にはよく見える地面でも、影を描くときに別の形へ変わっていたら、影は合いません。従来は、描画に使うカメラが地形の細かさも決めていました。光や反射の視点に切り替わると、同じ地面の高さまで変わりえたのです。</p><p>新しい基盤では、<strong>形を決める基準と時刻を先に固定</strong>します。その世界を、人の目・光・水面越しの目がそれぞれ観測する。Haskellの純粋な値が、その共通の約束になります。</p></div>
       <div class="observation-diagram" aria-label="一つの形状コンテキストを、人の視点・光・反射の三つの観測で共有する">
         <div class="world-value"><span class="tiny">GEOMETRY CONTEXT</span><strong>この瞬間の、ひとつの世界</strong><span>形を決める視点 · 時刻 · 近傍の原点</span></div>
@@ -56,9 +63,9 @@
           <article><span class="orb mirror" aria-hidden="true">≈</span><h3>水面の向こうの目</h3><p>水に映る風景</p><code>reflectionPass</code></article>
         </div>
       </div>
-      <p class="aside">この三つの観測はStillroomの構成です。汎用部分には固定の「三つのパス」を埋め込みません。将来の地図や別カメラには、その用途に合う形状の選択を持たせられます。</p>
+      <p class="aside">三つの観測はStillroom固有の構成です。共通部分はパス数を固定せず、別の用途では、その用途に合う形状の選択と観測を定義できます。</p>
       <div class="code-story">
-        <div><span class="tiny">THE PURE BOUNDARY</span><h3>一瞬の描画計画を、ひとつの値に。</h3><p>GPUが実際に用意できた描画先の大きさと、現在の世界を入力します。計画が成立したら、描画に渡せる形式へ変換します。</p><p>純粋な計画にはGPUハンドルも描画命令もありません。数値の整合性を、ウィンドウを開かずに調べられます。</p></div>
+        <div><span class="tiny">純粋関数の境界</span><h3>描画計画を値として返す</h3><p>現在の世界と、GPUが確保できた描画先の大きさを渡すと、<code>planFrame</code> が投影などをまとめた計画を返します。不正な入力にはエラーを返します。</p><p>この計算はGPUを操作しません。同じ入力から同じ計画が得られるので、ウィンドウを開かずに調べられます。実行前に、計画をGPUへ渡す形式に変換します。</p></div>
         <div class="code-panel"><div class="code-label">実装の入口 / HASKELL</div><pre><code><span class="fn">planFrame</span>
   :: Targets
   -&gt; FrameInput
@@ -66,22 +73,22 @@
 
 <span class="fn">lowerFrame</span>
   :: FramePlan
-  -&gt; Either FrameEncodingError <span class="ty">FramePacket</span></code></pre><a href="https://github.com/M-simplifier/stillroom/blob/main/src/Stillroom/Journey/Frame.hs">Journey.Frameを読む ↗</a></div>
+  -&gt; Either FrameEncodingError <span class="ty">FramePacket</span></code></pre><a href="https://github.com/M-simplifier/stillroom/blob/v0.10.0/src/Stillroom/Journey/Frame.hs">Journey.Frameを読む ↗</a></div>
       </div>
       <div class="principles">
         <article><span>01</span><h3>座標の意味を型に残す</h3><p><code>Transform Object Render</code> は、車体の座標から描画用の座標への変換です。変換の接続先が合わない合成を、型検査で拒否します。</p><pre><code>compose :: Transform b c
         -&gt; Transform a b
         -&gt; Transform a c</code></pre></article>
-        <article><span>02</span><h3>画像と、読むための写像を一組に</h3><p>影を描いたときの投影を、その影を読む側でも使います。<code>Observation target</code> が対応を保持し、C側でも描画画像と投影を一組にして渡します。</p><p>検証済みの計画は、不透明な値として公開。外部から一部分だけを取り替える入口を閉じました。</p></article>
+        <article><span>02</span><h3>描画先と投影を一組に</h3><p>影を描いたときの投影を、その影を読む側でも使います。<code>Observation target</code> が対応を保持し、C側でも描画画像と投影を一組にして渡します。</p><p>計画の内部を直接書き換える操作を公開せず、検証済みの対応を部分更新で壊せないようにしています。</p></article>
         <article><span>03</span><h3>GPUへの変換を一か所に</h3><p>座標の計算はDouble、箱の接合はRational。最後に、有限なFloatだけを持つパケットへ変換します。</p><p>Cは資源の確保と描画を担います。Haskellの計画を受け取り、投影を別途計算し直しません。</p></article>
       </div>
     </div>
   </section>
 
   <section class="section wrap" aria-labelledby="shape-title">
-    <div class="section-heading"><span class="index">03 / THE SHAPE</span><h2 id="shape-title">組み立ててから、外側を取り出す。</h2></div>
+    <div class="section-heading"><span class="index">03 / 形状の合成</span><h2 id="shape-title">箱を組み立ててから、外面を求める</h2></div>
     <div class="shape-layout">
-      <div><p>隣り合う二つの箱を、それぞれ完成したメッシュとして足すと、接合部の面まで残ります。箱を組み立てたあとで外面を求めれば、隠れる面を初めから描かずに済みます。</p><p>だから、この二つの操作は同じではありません。単に「合成できる」と言う前に、<strong>何を合成しているのか</strong>を型と構造で区別しました。</p><p class="muted">対象は軸に沿った箱の集合です。任意の曲面を処理する汎用CSGを名乗るものではありません。</p></div>
+      <div><p>隣り合う二つの箱を、それぞれ完成したメッシュとして足すと、接合部の面まで残ります。箱を組み立てたあとで外面を求めれば、隠れる面を初めから描かずに済みます。</p><p>部品の結合と、境界の抽出は順序を入れ替えられません。そこで、<strong>箱の集合と描画用のメッシュを別の型</strong>にしています。</p><p class="muted">対象は軸に沿った箱です。同じ外面に複数の材質が重なる場合は、後に置いた部品の材質を使います。</p></div>
       <div class="assembly" id="assembly">
         <div class="choice" role="group" aria-label="面を取り出す順序"><button type="button" id="assembleFirst" aria-pressed="true">組み立ててから外面</button><button type="button" id="boundaryFirst" aria-pressed="false">先に、それぞれの外面</button></div>
         <svg viewBox="0 0 520 200" role="img" aria-labelledby="assembly-title"><title id="assembly-title">接する二つの箱の断面。組み立ててから外面を取ると中央の接合面は消える。</title>
@@ -95,49 +102,43 @@
         <p class="small">箱の中央断面を模式化。実装では三次元の外面を求めます。</p>
       </div>
     </div>
-    <div class="callout"><span class="tiny">EXACT UNTIL LOWERING</span><p>元の71個の箱をRationalで記述。境界の比較を丸めずに行い、739枚の外面へ整理。車輪を合わせた<strong>1,798個の三角形</strong>を、生成後に保持して使います。元の寸法や配色を変えて、ちらつきを隠す方法ではありません。</p></div>
+    <div class="callout"><span class="tiny">境界の計算には有理数を使う</span><p>車体の71個の箱を<code>Rational</code>で記述し、丸め誤差のない比較で739枚の外面へ整理します。車輪を合わせた<strong>1,798個の三角形</strong>は、一度生成して再利用します。</p></div>
   </section>
 
   <section class="paper" aria-labelledby="code-title">
     <div class="section wrap">
-      <div class="section-heading"><span class="index">04 / THE CODE</span><h2 id="code-title">コードを開いても、同じ構造がある。</h2></div>
-      <p class="measure">共通の数学、Stillroomの方針、ネイティブの実行を別の場所へ。以下のファイルが、そのまま設計の入口になっています。</p>
+      <div class="section-heading"><span class="index">04 / 実装</span><h2 id="code-title">数学、アプリの方針、GPU操作を分ける</h2></div>
+      <p class="measure">共通の型はトロッコを知る必要がなく、車体の定義はGPUの配列を知る必要がありません。0.10の実装は、次の順で読めます。</p>
       <div class="module-map">
-        <article><span class="tiny">REUSABLE MEANING</span><h3>共通の核</h3><a href="https://github.com/M-simplifier/stillroom/blob/main/src/Stillroom/Graphics/Space.hs"><code>Graphics.Space</code><span>座標空間と写像 ↗</span></a><a href="https://github.com/M-simplifier/stillroom/blob/main/src/Stillroom/Graphics/BoxUnion.hs"><code>Graphics.BoxUnion</code><span>正確な箱の外面 ↗</span></a><a href="https://github.com/M-simplifier/stillroom/blob/main/src/Stillroom/Graphics/Mesh.hs"><code>Graphics.Mesh</code><span>形と材質の表現 ↗</span></a><a href="https://github.com/M-simplifier/stillroom/blob/main/src/Stillroom/Graphics/Observation.hs"><code>Graphics.Observation</code><span>投影された画像 ↗</span></a></article>
-        <article><span class="tiny">STILLROOM POLICY</span><h3>このアプリの世界</h3><a href="https://github.com/M-simplifier/stillroom/blob/main/src/Stillroom/Journey/Railcar.hs"><code>Journey.Railcar</code><span>元の車体の形と色 ↗</span></a><a href="https://github.com/M-simplifier/stillroom/blob/main/src/Stillroom/Journey/Frame.hs"><code>Journey.Frame</code><span>一瞬の世界と三つの観測 ↗</span></a><p>共通の核は、トロッコや三つのパスを知りません。別の作品でも使える境界です。</p></article>
-        <article><span class="tiny">REPRESENTATION &amp; EXECUTION</span><h3>表現を変えて、描く</h3><a href="https://github.com/M-simplifier/stillroom/blob/main/runtime/Stillroom/Runtime/Journey/Packet.hs"><code>Runtime.Journey.Packet</code><span>計画をGPU用の値へ ↗</span></a><a href="https://github.com/M-simplifier/stillroom/blob/main/src/Stillroom/Graphics/Encoding/Mesh.hs"><code>Graphics.Encoding.Mesh</code><span>形を頂点列へ ↗</span></a><a href="https://github.com/M-simplifier/stillroom/blob/main/cbits/journey/render.c"><code>journey/render.c</code><span>資源を管理し描画を実行 ↗</span></a><p>配列の並びやGPUの都合を、形そのものの定義から切り離します。</p></article>
+        <article><span class="tiny">REUSABLE MEANING</span><h3>共通の核</h3><a href="https://github.com/M-simplifier/stillroom/blob/v0.10.0/src/Stillroom/Graphics/Space.hs"><code>Graphics.Space</code><span>座標空間と写像 ↗</span></a><a href="https://github.com/M-simplifier/stillroom/blob/v0.10.0/src/Stillroom/Graphics/BoxUnion.hs"><code>Graphics.BoxUnion</code><span>箱の外面の計算 ↗</span></a><a href="https://github.com/M-simplifier/stillroom/blob/v0.10.0/src/Stillroom/Graphics/Mesh.hs"><code>Graphics.Mesh</code><span>形と材質の表現 ↗</span></a><a href="https://github.com/M-simplifier/stillroom/blob/v0.10.0/src/Stillroom/Graphics/Observation.hs"><code>Graphics.Observation</code><span>描画先と投影 ↗</span></a></article>
+        <article><span class="tiny">STILLROOM POLICY</span><h3>このアプリの世界</h3><a href="https://github.com/M-simplifier/stillroom/blob/v0.10.0/src/Stillroom/Journey/Railcar.hs"><code>Journey.Railcar</code><span>元の車体の形と色 ↗</span></a><a href="https://github.com/M-simplifier/stillroom/blob/v0.10.0/src/Stillroom/Journey/Frame.hs"><code>Journey.Frame</code><span>一瞬の世界と三つの観測 ↗</span></a><p>共通の核は、トロッコや三つのパスを知りません。再利用を意図した境界です。</p></article>
+        <article><span class="tiny">REPRESENTATION &amp; EXECUTION</span><h3>表現を変えて、描く</h3><a href="https://github.com/M-simplifier/stillroom/blob/v0.10.0/runtime/Stillroom/Runtime/Journey/Packet.hs"><code>Runtime.Journey.Packet</code><span>計画をGPU用の値へ ↗</span></a><a href="https://github.com/M-simplifier/stillroom/blob/v0.10.0/src/Stillroom/Graphics/Encoding/Mesh.hs"><code>Graphics.Encoding.Mesh</code><span>形を頂点列へ ↗</span></a><a href="https://github.com/M-simplifier/stillroom/blob/v0.10.0/cbits/journey/render.c"><code>journey/render.c</code><span>資源を管理し描画を実行 ↗</span></a><p>配列の並びやGPUの都合を、形そのものの定義から切り離します。</p></article>
       </div>
       <p class="aside">実装はStillroomで使われている共通核です。まだ独立した汎用エンジンではありません。次の実際の利用先を通じて、共通化すべき部分を確かめていきます。</p>
     </div>
   </section>
 
   <section class="section wrap" id="evidence" aria-labelledby="evidence-title">
-    <div class="section-heading"><span class="index">05 / THE EVIDENCE</span><h2 id="evidence-title">見た目と、その裏側を確かめる。</h2></div>
-    <p class="measure">独立した技術監査と、本番実装の検証を組み合わせました。実装、有限のテスト、GPU上の観測、形式証明は区別しています。</p>
+    <div class="section-heading"><span class="index">05 / 検証</span><h2 id="evidence-title">型の外側も、実際の出力で確かめる</h2></div>
+    <p class="measure">型で座標空間を区別しても、行列の成分やGPUへの転送まで自動で正しくなるわけではありません。性質テストと独立した参照計算に加え、実際に生成した頂点とGPUの出力を照合しました。</p>
     <div class="evidence-table" role="region" aria-label="検証結果" tabindex="0">
       <table><thead><tr><th>確かめたこと</th><th>結果</th><th>言える範囲</th></tr></thead><tbody>
-        <tr><th>実際に出力された車体</th><td>1,798三角形<br>正の面積を持つ同一平面上の重複 <strong>0</strong></td><td>退化、法線と向きの不一致も0。独立の占有領域モデルが、箱の外面44,248区画と一致。</td></tr>
-        <tr><th>Haskell → Cの受け渡し</th><td><strong>215,760 bytes</strong> 一致</td><td>実際の車体頂点列。GPU上での実行とは別に検証。</td></tr>
-        <tr><th>フレームの数値監査</th><td><strong>5,670</strong> 入力<br>5,654受理 / 16拒否</td><td>本番のモジュール分離後も数値一致。ゼロの符号差があるため、全バイト同一とはしない。</td></tr>
-        <tr><th>監査で見つかった境界条件</th><td>近接面の影補正・上向きの空を修正</td><td>CPU Floatで反例を再実行。空の16,962観測で基底を確認。影補正の成分誤差は3×10⁻⁸未満。</td></tr>
-        <tr><th>形を決める視点の共有</th><td>合成頂点で主描画と影の高さ差<br><strong>3 m → 0 m</strong></td><td>実シェーダーを使ったGPU上の限定的な実験。全場面の保証ではない。</td></tr>
-        <tr><th>実GPUの車体座標</th><td><strong>67条件 × 5,394頂点 × 3パス</strong><br>影の描画・参照座標が全件ビット一致</td><td>凍結基盤での頂点出力。RTX 3050 / OpenGL 3.3。頂点シェーダーは本番と同一。意図的な誤行列・誤分岐も検出。</td></tr>
-        <tr><th>原点を切り替える瞬間</th><td>8組の切替で残差は最大<br><strong>0.00924 px</strong></td><td>Double基準の移動を除いた、車体頂点の投影誤差の変化。1600×900換算・画角内・w ≥ 0.5。画像全体の揺れの測定ではない。</td></tr>
-        <tr><th>公開APIの境界</th><td>正常な利用例を受理<br><strong>4種類</strong> の不正な利用を拒否</td><td>計画の部分差し替え、観測の写像の差し替え、座標空間の強制変換、不適合な合成をコンパイル検査。</td></tr>
-        <tr><th>製品としての動作</th><td><strong>55</strong> 性質テスト群 · <strong>56</strong> ネイティブ検査<br>28 UI画像 · 1,800フレームの旅</td><td>配布ZIPを展開し、開発環境への依存を外して起動。3風景×4画質のuniform読戻し差0。描画先の確保失敗・復帰も検査。</td></tr>
+        <tr><th>車体の形状</th><td>同一平面上の面の重複 <strong>0</strong></td><td>出力した1,798三角形を検査。独立の占有領域モデルでも、箱の外面を確認。</td></tr>
+        <tr><th>座標と投影</th><td><strong>67条件 × 5,394頂点 × 3パス</strong></td><td>RTX 3050 / OpenGL 3.3で、影を描く座標と参照する座標がビット一致。本番と同じ頂点シェーダーを使用。</td></tr>
+        <tr><th>公開API</th><td><strong>4種類</strong> の誤用を拒否</td><td>計画や投影の部分差し替え、座標空間の強制変換、不適合な合成がコンパイルで失敗することを検査。</td></tr>
+        <tr><th>製品の動作</th><td><strong>55</strong> 性質・回帰テスト群<br><strong>56</strong> 配布版の検査</td><td>形状、投影、状態遷移のテストに加え、配布ZIPの起動、品質切り替え、描画先の復旧を確認。</td></tr>
       </tbody></table>
     </div>
-    <div class="limits"><h3>残る境界も、設計の一部に。</h3><p>形式証明や、あらゆるGPU・経路での無欠陥を主張するものではありません。静的な地形や植生には、世界座標をFloatにしてから原点を引く従来の経路が残り、遠方を模した8対照点では最大0.03単位・主画面換算3.97ピクセルの誤差がありました。車体で確かめた精度を、世界全体へ一般化はできません。元の車輪の小さな隙間も保持しており、車体全体が水密な立体という意味でもありません。</p></div>
+    <div class="limits"><h3>検証の範囲</h3><p>これは有限のテストと特定GPUでの観測です。静的地形と植生には、遠い世界座標をFloatへ変換すると精度を失う経路が残っています。車体の結果を世界全体へ一般化はできません。<a href="https://github.com/M-simplifier/stillroom/blob/v0.10.0/docs/graphics-foundation.md#verification-and-limits">数値、条件、残る制限</a>は技術資料に記載しています。</p></div>
   </section>
 
   <section class="closing wrap">
-    <span class="index">WHAT CHANGED</span>
-    <h2>関数型で、きれいになる。<br>その意味を、正確に。</h2>
-    <p>画面を直接よくしたのは、幾何・精度・影の具体的な修正です。<br>Haskellで得たのは、それらの関係を一つの設計に置き、<br><strong>次に変更するときも、整合性を守りやすくする基盤</strong>でした。</p>
-    <p class="muted">ほかの言語でも実現できる設計です。今回の価値は、純粋な値・型・合成・検証を、動く製品の描画までつなげられたことにあります。</p>
-    <div class="closing-links"><a class="button" href="https://github.com/M-simplifier/stillroom/releases/latest">Stillroomをダウンロード <span>↓</span></a><a href="https://github.com/M-simplifier/stillroom/blob/main/docs/graphics-foundation.md">技術資料と参考文献 ↗</a></div>
+    <h2>Haskellが担う役割</h2>
+    <p>見た目を改善したのは、形状・精度・影の具体的な修正です。Haskellでは、それらの計算を純粋な値と関数で表し、座標の取り違えや計画の部分更新を型と公開APIで防ぎます。GPUとの境界は、実際の出力を検証します。</p>
+    <p class="muted">この設計は他の言語でも実現できます。Stillroomでは、関数型の道具を使って関係をコードに残し、変更後にも確かめられる形にしました。独立した汎用エンジンへの切り出しは、今後の課題です。</p>
+    <div class="closing-links"><a class="button" href="https://github.com/M-simplifier/stillroom/tree/v0.10.0/src/Stillroom/Graphics">ソースコードを読む <span>↗</span></a><a href="https://github.com/M-simplifier/stillroom/blob/v0.10.0/docs/graphics-foundation.md#sources">技術資料と参考文献 ↗</a></div>
   </section>
 </main>
-<footer class="wrap"><a class="brand" href="ja.html">◌ stillroom</a><p>音楽と静かな画面で作業を支え、ひと息のあと、また作業へ。</p><a href="ja.html">アプリについて →</a></footer>
+<footer class="wrap"><a class="brand" href="ja.html">◌ stillroom</a><p><a href="developers-ja.html">開発者向け</a></p><a href="ja.html">アプリについて →</a></footer>
 </body>
 </html>

@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="description" content="Stillroom development notes: graphics in Haskell, typed coordinates, pure rendering plans, source code and verification.">
+  <meta name="theme-color" content="#12231e">
+  <meta property="og:title" content="Building Stillroom">
+  <meta property="og:description" content="A music and scenery app built with Haskell and raylib. Explore its design and implementation.">
+  <meta property="og:image" content="https://m-simplifier.github.io/stillroom/graphics-foundation.webp">
+  <title>Developers — Stillroom</title>
+  <link rel="canonical" href="https://m-simplifier.github.io/stillroom/developers.html">
+  <link rel="alternate" hreflang="en" href="https://m-simplifier.github.io/stillroom/developers.html">
+  <link rel="alternate" hreflang="ja" href="https://m-simplifier.github.io/stillroom/developers-ja.html">
+  <link rel="stylesheet" href="graphics-foundation.css">
+  <link rel="stylesheet" href="developers.css">
+</head>
+<body class="en">
+<a class="skip" href="#content">Skip to content</a>
+<header class="masthead wrap">
+  <a class="brand" href="./">◌ stillroom</a>
+  <nav aria-label="Main navigation"><a href="./">The app</a><a href="https://github.com/M-simplifier/stillroom">GitHub ↗</a><a href="developers-ja.html" lang="ja" hreflang="ja">日本語</a></nav>
+</header>
+<main class="developer-home wrap" id="content">
+  <div class="developer-intro">
+    <p class="kicker">Developers</p>
+    <h1>Building Stillroom</h1>
+    <p>Stillroom is a music and scenery app built with Haskell and raylib.<br>These notes connect the design to the code that runs it.</p>
+  </div>
+  <article class="feature-story">
+    <a href="graphics-foundation-en.html">
+      <img src="graphics-foundation.webp" width="1280" height="720" alt="A railcar beside a lake, with shadows on its wooden body and scenery reflected in the water.">
+      <div class="feature-copy"><p class="kicker">Graphics · 20 October 2026</p><h2>A 3D rendering<br>core in Haskell</h2><p>Geometry, shadows and reflections should describe the same world. Fixing flicker led to typed coordinates, pure frame plans and an explicit GPU boundary.</p><span class="read-story">Read the article <span aria-hidden="true">→</span></span></div>
+    </a>
+  </article>
+  <section class="developer-resources" aria-labelledby="resources-title">
+    <h2 id="resources-title">Code and documentation</h2>
+    <div class="resource-list">
+      <a href="https://github.com/M-simplifier/stillroom"><h3>Source code <span aria-hidden="true">↗</span></h3><p>MIT licensed. Build instructions, tests and changes.</p></a>
+      <a href="https://github.com/M-simplifier/stillroom/blob/main/docs/architecture.md"><h3>Application architecture <span aria-hidden="true">↗</span></h3><p>State transitions, music playback and native resource ownership.</p></a>
+      <a href="https://github.com/M-simplifier/stillroom/blob/main/docs/graphics-foundation.md"><h3>Graphics reference <span aria-hidden="true">↗</span></h3><p>Module responsibilities, verification conditions and sources.</p></a>
+    </div>
+  </section>
+</main>
+<footer class="wrap"><a class="brand" href="./">◌ stillroom</a><p>Haskell · raylib · OpenGL</p><a href="./">About the app →</a></footer>
+</body>
+</html>

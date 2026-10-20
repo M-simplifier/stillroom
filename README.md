@@ -5,6 +5,7 @@ leave it alone and the controls disappear into a quiet, static screen.
 
 [Download for Windows](https://github.com/M-simplifier/stillroom/releases/latest)
 · [Website](https://m-simplifier.github.io/stillroom/)
+· [Developer notes](https://m-simplifier.github.io/stillroom/developers.html)
 · [Guide](docs/guide.md) · [休息モードの使い方](docs/rest-mode.md)
 · [Architecture](docs/architecture.md) · [Graphics foundation](docs/graphics-foundation.md) · [Performance](docs/performance.md)
 · [Interface design](docs/design.md)

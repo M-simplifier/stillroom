@@ -1,0 +1,35 @@
+.developer-home { padding-top: 48px; padding-bottom: 72px; }
+.developer-intro { max-width: 820px; margin-bottom: 45px; }
+.developer-intro .kicker { margin-bottom: 18px; }
+.developer-intro h1 { font-size: clamp(36px, 4vw, 54px); }
+.developer-intro > p:last-child { margin: 24px 0 0; color: var(--muted); }
+.feature-story { border-block: 1px solid var(--line); }
+.feature-story > a { display: grid; grid-template-columns: 1.2fr 1fr; gap: 46px; align-items: center; padding-block: 28px; text-decoration: none; }
+.feature-story img { display: block; width: 100%; height: auto; border-radius: 4px; }
+.feature-copy .kicker { font-size: 11px; letter-spacing: .02em; margin-bottom: 16px; }
+.feature-copy h2 { font-size: clamp(27px, 2.6vw, 37px); }
+.feature-copy > p:not(.kicker) { font-size: 14px; color: var(--muted); margin: 18px 0; }
+.read-story { display: inline-flex; gap: 24px; font-size: 13px; border-bottom: 1px solid #7c947f; padding-bottom: 4px; }
+.feature-story > a:hover .read-story { border-color: var(--ink); }
+.developer-resources { margin-top: 62px; }
+.developer-resources > h2 { font-size: 24px; }
+.resource-list { display: grid; grid-template-columns: repeat(3, 1fr); gap: 32px; margin-top: 28px; }
+.resource-list > a { border-top: 1px solid var(--line); padding-top: 13px; text-decoration: none; }
+.resource-list h3 { display: flex; justify-content: space-between; gap: 15px; font-size: 16px; margin-bottom: 9px; }
+.resource-list p { font-size: 13px; color: var(--muted); margin: 0; }
+.resource-list a:hover h3 { text-decoration: underline; text-underline-offset: 5px; }
+.masthead nav a:last-child { display: inline; }
+.en h1, .en h2 { letter-spacing: -.025em; line-height: 1.22; }
+@media (max-width: 800px) {
+  .developer-home { padding-top: 26px; padding-bottom: 50px; }
+  .feature-story > a { grid-template-columns: 1fr; gap: 24px; padding-bottom: 32px; }
+  .feature-copy { max-width: 620px; }
+  .resource-list { grid-template-columns: 1fr; gap: 28px; }
+  .developer-intro br { display: none; }
+  .developer-resources { margin-top: 40px; }
+}
+@media (max-width: 500px) {
+  .masthead nav { gap: 13px; font-size: 11px; }
+  .masthead nav a:nth-child(2) { display: none; }
+  .developer-intro > p:last-child { font-size: 14px; }
+}
