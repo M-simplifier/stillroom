@@ -5,7 +5,9 @@ relationship between geometry, its observations, and GPU execution explicit.
 The work targets a stable moving view: changing the rendering pass must not
 accidentally change the terrain it projects.
 
-[Visual design and before/after report (Japanese)](https://m-simplifier.github.io/stillroom/graphics-foundation.html)
+[Illustrated article](https://m-simplifier.github.io/stillroom/graphics-foundation-en.html)
+· [日本語](https://m-simplifier.github.io/stillroom/graphics-foundation.html)
+· [Developer notes](https://m-simplifier.github.io/stillroom/developers.html)
 
 ## Read the code in this order
 
