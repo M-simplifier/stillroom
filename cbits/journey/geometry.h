@@ -35,6 +35,12 @@ typedef struct {
   Texture2D bones, height;
   int boneCount, treeCount, grassCount;
 } Geometry;
+// Borrowed for a frame, after target selection. Allocation/free remain owned
+// by Nature; both producer and consumer use this image-and-projection pair.
+typedef struct {
+  RenderTexture2D image;
+  Matrix clipFromRender;
+} ProjectedField;
 typedef struct Nature {
   Builder builders[4];
   Mesh meshes[4], waterMesh;
@@ -50,8 +56,8 @@ typedef struct Nature {
   long cachedTick;
   uint32_t seed;
   char errorText[256], infoText[1024];
-  Matrix lightVP, reflectionVP;
-  Vector3 sun;
+  ProjectedField shadowField, reflectionField;
+  Vector3 sun, referenceEye, renderOrigin;
   Camera3D camera;
   const char *common;
   Geometry cached[3];
@@ -604,11 +610,13 @@ static void journeyNature_reference(Nature *s, int enabled) {
   int size = s->reference ? 2048 : 1536;
   s->shadowMap = target(s, size, size, 0);
 }
-static void sky(Nature *s, Camera3D cam, int w, int h) {
+static void sky(Nature *s, Matrix view, Matrix projection, int w, int h) {
   i1(s->skyShader, "uLandscape", s->scene);
-  Vector3 f = Vector3Normalize(Vector3Subtract(cam.target, cam.position)),
-          r = Vector3Normalize(Vector3CrossProduct(f, cam.up)),
-          u = Vector3CrossProduct(r, f);
+  // Consume the planned basis. Adding a tiny forward vector to a Float eye
+  // and subtracting it again can erase the direction near a vertical view.
+  Vector3 r = {view.m0, view.m4, view.m8},
+          u = {view.m1, view.m5, view.m9},
+          f = {-view.m2, -view.m6, -view.m10};
   Vector2 res = {(float)w, (float)h};
   SetShaderValue(s->skyShader, GetShaderLocation(s->skyShader, "uResolution"),
                  &res, SHADER_UNIFORM_VEC2);
@@ -616,7 +624,7 @@ static void sky(Nature *s, Camera3D cam, int w, int h) {
   v3(s->skyShader, "uRight", r);
   v3(s->skyShader, "uUp", u);
   v3(s->skyShader, "uSun", s->sun);
-  f1(s->skyShader, "uTanFov", tanf(cam.fovy * DEG2RAD * .5f));
+  f1(s->skyShader, "uTanFov", 1.0f / projection.m5);
   BeginShaderMode(s->skyShader);
   DrawRectangle(0, 0, w, h, WHITE);
   EndShaderMode();
@@ -630,9 +638,9 @@ static void world(Nature *s, float t, int mask, int shadow, int clip,
   v3(s->landShader, "uEye", cam.position);
   v3(s->landShader, "uSun", s->sun);
   SetShaderValueMatrix(
-      s->landShader, GetShaderLocation(s->landShader, "uLightVP"), s->lightVP);
+      s->landShader, GetShaderLocation(s->landShader, "uLightVP"), s->shadowField.clipFromRender);
   bindTexture(s->landShader, "uBones", s->boneTexture, 8);
-  bindTexture(s->landShader, "uShadow", s->shadowMap.depth, 9);
+  bindTexture(s->landShader, "uShadow", s->shadowField.image.depth, 9);
   rlDisableBackfaceCulling();
   for (int i = 0; i < 4; i++) {
     if (i == 3 && (shadow || !(mask & 4)))

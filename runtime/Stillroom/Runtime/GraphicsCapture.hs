@@ -86,6 +86,10 @@ runQualityCapture folder = do
           Runtime.quality runtime quality
           replicateM_ 3 (frame runtime 1600 900)
           healthy runtime
+          packetMatches <- Runtime.frameMatchesForCheck runtime
+          uniformError <- Runtime.frameUniformErrorForCheck runtime
+          unless (packetMatches && maybe False (<0.001) uniformError)
+            (throwIO (userError ("Frame packet/uniform disagreement: " ++ show uniformError)))
           screenshot (folder </> name ++ "-" ++ show quality ++ ".png")
           times <- forM [1..12 :: Int] $ \_ -> do
             finishGPU
@@ -99,7 +103,8 @@ runQualityCapture folder = do
           unless (after==before && unchanged) (throwIO (userError "Quality changed the journey or geometry"))
           renderer <- Runtime.info runtime
           pure (object ["quality" .= show quality,"frameMs" .= times,"sortedMs" .= sort times,
-                        "worldAndPoseUnchanged" .= True,"renderer" .= (decodeStrict' (BC.pack renderer) :: Maybe Value)])
+                        "worldAndPoseUnchanged" .= True,"framePacketMatches" .= packetMatches,
+                        "maxUniformError" .= uniformError,"renderer" .= (decodeStrict' (BC.pack renderer) :: Maybe Value)])
         pure (object ["scene" .= (name :: String),"progress" .= J.progress (J.car start),"levels" .= levels])
       -- Verify downshifting reallocates the native targets and allows resizing.
       Runtime.quality runtime G.Balanced

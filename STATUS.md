@@ -1,6 +1,6 @@
 # Status
 
-Stillroom 0.9.0 targets Windows x64, tested on Windows 11 with GHC 9.6.7 and
+Stillroom 0.10.0 targets Windows x64, tested on Windows 11 with GHC 9.6.7 and
 h-raylib 5.6.0.0. It is a small utility with best-effort maintenance, not a
 medical device or a measured productivity intervention.
 
@@ -25,10 +25,16 @@ hysteresis. Quality changes render targets and shading, never navigation or
 world geometry. See [graphics quality](docs/graphics-quality.md) for budgets
 and measurement boundaries.
 
-The current source passes 46 property/regression groups. They cover the pure
+The current source passes 55 property/regression groups. They cover the pure
 session/interface, seeds and interleaved native field queries, bookmark
 validation, fixed-tick input, cross-seed automatic walking and rail-to-foot
-transfers. The native acceptance harness has 56 assertions covering audio
+transfers, exact box boundaries, emitted mesh winding, projection and origin
+laws, rejected frame encodings, and independence of reflection resolution.
+The journey's functional graphics foundation and scoped acceptance evidence
+are described in [graphics foundation](docs/graphics-foundation.md).
+The build also accepts a valid graphics API client and rejects four invalid
+clients, protecting coordinate-space roles and the opaque plan boundaries.
+The native acceptance harness has 56 assertions covering audio
 clocks, MP3/procedural playback, preferences, scene selection, rendering,
 journey preparation, movement, save/reload and rest/work transitions.
 Twenty-eight captures cover English/Japanese settings at 700 by 500 and larger

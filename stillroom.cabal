@@ -1,6 +1,6 @@
 cabal-version: 3.8
 name: stillroom
-version: 0.9.0.0
+version: 0.10.0.0
 synopsis: A quiet, local-first listening room
 description: A Windows listening room with a pure Haskell core and procedural music.
 license: MIT
@@ -12,7 +12,7 @@ build-type: Simple
 tested-with: GHC == 9.6.7
 homepage: https://m-simplifier.github.io/stillroom/
 bug-reports: https://github.com/M-simplifier/stillroom/issues
-extra-source-files: cbits/native.c, cbits/nature.c, cbits/graphics.c, cbits/*.h, cbits/journey/*.h, cbits/journey/*.c, cbits/include/*.h, cbits/icon.rc, cbits/stillroom.manifest, assets/icon/*.svg, assets/icon/*.ico, docs/*.md, tools/*.ps1, tools/*.py, licenses/*.txt, licenses/*.md
+extra-source-files: cbits/native.c, cbits/nature.c, cbits/graphics.c, cbits/*.h, cbits/journey/*.h, cbits/journey/*.c, cbits/include/*.h, cbits/icon.rc, cbits/stillroom.manifest, assets/icon/*.svg, assets/icon/*.ico, docs/*.md, tools/*.ps1, tools/*.py, test/types/*.hs, licenses/*.txt, licenses/*.md
 extra-doc-files: README.md, CHANGELOG.md, STATUS.md, CONTRIBUTING.md, MAINTAINERS.md
 data-files: assets/fonts/NotoSansJP.otf, assets/fonts/OFL.txt, assets/backgrounds/*.png, assets/icon/*.png, assets/rest/procedural.fs, assets/rest/nature/*.glsl, assets/rest/nature/*.vs, assets/rest/nature/*.fs, assets/rest/journey/*.glsl, assets/rest/journey/*.vs, assets/rest/journey/*.fs, assets/rest/journey/*.png
 
@@ -23,7 +23,13 @@ common shared
 library
   import: shared
   hs-source-dirs: src
-  exposed-modules: Stillroom.Domain, Stillroom.Graphics, Stillroom.Shuffle, Stillroom.Session, Stillroom.Synthesis, Stillroom.Interface, Stillroom.Journey.World, Stillroom.Journey.Navigation, Stillroom.Journey.Walk, Stillroom.Journey.Ride
+  exposed-modules: Stillroom.Domain, Stillroom.Graphics,
+    Stillroom.Graphics.Space, Stillroom.Graphics.BoxUnion, Stillroom.Graphics.Mesh,
+    Stillroom.Graphics.Observation, Stillroom.Journey.Frame,
+    Stillroom.Graphics.Encoding.Mesh,
+    Stillroom.Shuffle, Stillroom.Session, Stillroom.Synthesis, Stillroom.Interface,
+    Stillroom.Journey.World, Stillroom.Journey.Navigation, Stillroom.Journey.Walk,
+    Stillroom.Journey.Ride, Stillroom.Journey.Railcar
   c-sources: cbits/journey/world.c
   build-depends: base >=4.18 && <4.19, containers >=0.6 && <0.7,
     array >=0.5 && <0.6, vector >=0.13 && <0.14, random >=1.2 && <1.4
@@ -35,7 +41,7 @@ executable stillroom
   other-modules: Stillroom.Runtime.Audio, Stillroom.Runtime.Desktop,
     Stillroom.Runtime.Storage, Stillroom.Runtime.Native, Stillroom.Runtime.Render,
     Stillroom.Runtime.Pictures, Stillroom.Runtime.Rest, Stillroom.Runtime.Graphics, Stillroom.Runtime.Benchmark,
-    Stillroom.Runtime.Typeface, Stillroom.Runtime.Capture, Stillroom.Runtime.Nature, Stillroom.Runtime.Journey, Stillroom.Runtime.JourneyStorage, Stillroom.Runtime.JourneyCheck, Stillroom.Runtime.GraphicsCapture, Stillroom.Runtime.GraphicsCheck, Paths_stillroom
+    Stillroom.Runtime.Typeface, Stillroom.Runtime.Capture, Stillroom.Runtime.Nature, Stillroom.Runtime.Journey, Stillroom.Runtime.JourneyStorage, Stillroom.Runtime.JourneyCheck, Stillroom.Runtime.Journey.Packet, Stillroom.Runtime.GraphicsCapture, Stillroom.Runtime.GraphicsCheck, Paths_stillroom
   autogen-modules: Paths_stillroom
   build-depends: base >=4.18 && <4.19, stillroom, h-raylib ==5.6.0.0,
     aeson >=2.2 && <2.4, bytestring >=0.11 && <0.12, containers >=0.6 && <0.7,
@@ -54,7 +60,7 @@ test-suite laws
   type: exitcode-stdio-1.0
   main-is: Main.hs
   hs-source-dirs: test, runtime
-  other-modules: Stillroom.Runtime.Storage, Stillroom.Runtime.JourneyStorage, JourneyChecks
+  other-modules: Stillroom.Runtime.Storage, Stillroom.Runtime.JourneyStorage, JourneyChecks, GraphicsChecks, Stillroom.Runtime.Journey.Packet
   build-depends: base >=4.18 && <4.19, stillroom, containers >=0.6 && <0.7,
     vector >=0.13 && <0.14, QuickCheck >=2.15 && <2.19,
     aeson >=2.2 && <2.4, bytestring >=0.11 && <0.12, directory >=1.3 && <1.4,

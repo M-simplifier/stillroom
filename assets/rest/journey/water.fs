@@ -1,4 +1,5 @@
 in vec3 world;
+in vec3 fieldPosition;
 in vec4 reflectionSpace;
 uniform vec3 uEye;
 uniform sampler2D uReflection;
@@ -14,14 +15,14 @@ void main() {
     float depth=-ground;
     if(depth<.01)discard;
     vec2 d=vec2(0);
-    float gust=wind(world.xz,uTime),amp=.008;
+    float gust=wind(fieldPosition.xz,uTime),amp=.008;
     float footprint=max(length(dFdx(world.xz)),length(dFdy(world.xz)));
     for(int i=0;i<7;i++) {
         float k=1.2*pow(1.65,float(i));
         float a=.42+float(i)*1.8;
         vec2 dir=vec2(cos(a),sin(a));
-        vec2 current=world.xz+vec2(0,uLandscape==2?uTime*.23:0.0);
-        if(uQuality>0)current+=vec2(valueNoise(world.xz*.075),valueNoise(world.xz*.075+37.0))*.55;
+        vec2 current=fieldPosition.xz+vec2(0,uLandscape==2?uTime*.23:0.0);
+        if(uQuality>0)current+=vec2(valueNoise(fieldPosition.xz*.075),valueNoise(fieldPosition.xz*.075+37.0))*.55;
         float ph=dot(current,dir)*k-uTime*sqrt(9.81*k)*.31;
         float atten=exp(-.25*k*k*footprint*footprint);
         d+=dir*cos(ph)*amp*k*atten*(.7+.35*gust);
@@ -43,12 +44,12 @@ void main() {
         reflected+=texture(uReflection,clamp(uv+vec2(0,spread.y),.002,.998)).rgb*.15;
         reflected+=texture(uReflection,clamp(uv-vec2(0,spread.y),.002,.998)).rgb*.15;
         float path=depth/max(v.y,.22);
-        float pebbles=valueNoise(world.xz*4.5);
-        float fine=mix(.5,valueNoise(world.xz*19.0),exp(-footprint*25.0));
+        float pebbles=valueNoise(fieldPosition.xz*4.5);
+        float fine=mix(.5,valueNoise(fieldPosition.xz*19.0),exp(-footprint*25.0));
         vec3 bed=mix(vec3(.16,.185,.12),vec3(.37,.34,.23),pebbles)*(.84+.24*fine);
         vec3 absorption=exp(-path*vec3(.43,.16,.10));
         vec3 below=bed*absorption*.82+vec3(.018,.105,.116)*(1.0-absorption);
-        float caustic=pow(max(0.0,sin(world.x*2.3+sin(world.z*1.7+uTime*.22))*sin(world.z*2.5-sin(world.x*1.3-uTime*.19))),5.0);
+        float caustic=pow(max(0.0,sin(fieldPosition.x*2.3+sin(fieldPosition.z*1.7+uTime*.22))*sin(fieldPosition.z*2.5-sin(fieldPosition.x*1.3-uTime*.19))),5.0);
         below+=vec3(.12,.14,.07)*caustic*exp(-path*.8)*exp(-footprint*8.0);
         float reflectionWeight=clamp(fres+.035,0.0,1.0);
         vec3 color=mix(below,reflected,reflectionWeight);
@@ -66,11 +67,11 @@ void main() {
         finalColor=vec4(fogged(color,world,uEye),1.0);
         return;
     }
-    float speck=valueNoise(world.xz*5.0);
+    float speck=valueNoise(fieldPosition.xz*5.0);
     vec3 bed=mix(vec3(.22,.22,.105),vec3(.40,.39,.20),speck);
     vec3 absorb=exp(-depth*vec3(.40,.18,.12));
     vec3 below=mix(vec3(.022,.105,.105),bed*.75,absorb);
-    float caustic=pow(.5+.5*sin(world.x*5.0+sin(world.z*3.0+uTime*.4)+uTime*.7),7.0);
+    float caustic=pow(.5+.5*sin(fieldPosition.x*5.0+sin(fieldPosition.z*3.0+uTime*.4)+uTime*.7),7.0);
     below+=vec3(.08,.10,.05)*caustic*exp(-depth*1.4);
     vec3 c=mix(below,reflected,clamp(fres+.12,0.0,1.0));
     vec3 h=normalize(v+uSun);

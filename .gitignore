@@ -25,6 +25,8 @@
 !/cbits/*.manifest
 !/test/
 !/test/*.hs
+!/test/types/
+!/test/types/*.hs
 !/tools/
 !/tools/*.ps1
 !/tools/verify-rest-frames.py
