@@ -41,8 +41,8 @@ the binary was built from that exact commit.
 three settings pages in English and Japanese at 700×500, plus the Japanese rest
 gallery at 1280×800. It adds all three landscapes at 1280×720 and 1920×1080,
 and the landscape gallery in both languages at minimum size plus desktop size.
-It uses a fixed scene time, bundled forest background and
-original preset title. It requires a real graphics context and fails if the
+It uses a fixed scene time, bundled water background and
+built-in piano title. It requires a real graphics context and fails if the
 procedural shader or thumbnails cannot load. It opens no audio device, picker
 or personal library. Inspect the PNGs for layout, clipping and legibility;
 producing the files alone does not certify a good interface.

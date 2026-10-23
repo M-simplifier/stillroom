@@ -70,7 +70,7 @@ function Invoke-Inspection([string]$Mode, [string]$ReportName) {
     } finally { $process.Dispose() }
     $report = Get-Content -LiteralPath (Join-Path $folder $ReportName) -Raw -Encoding UTF8 | ConvertFrom-Json
     if ($Mode -eq 'capture-ui') {
-        if (-not $report.completed -or $report.count -ne 28) { throw 'UI capture is incomplete.' }
+        if (-not $report.completed -or $report.count -ne 32) { throw 'UI capture is incomplete.' }
         foreach ($capture in $report.captures) {
             if (-not (Test-Path -LiteralPath (Join-Path $folder $capture.file) -PathType Leaf)) { throw "Capture missing: $($capture.file)" }
         }

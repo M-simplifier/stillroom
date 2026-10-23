@@ -43,6 +43,7 @@ allInterfaceText =
     ++ "休息静止景色明るさ動き設定背景をクリック、またはRで休息。クリックかEscで戻る休息の景色を描画できません。クリックかEscで戻ります。"
     ++ " · 画質自動は描画負荷に合わせて調整します。最高画質は消費電力が増えます。"
     ++ "作業中の景色音楽再生中の曲表示言語画像の明るさ音は休息中も、そのまま続きます。"
+    ++ "内蔵の音楽は、少しずつ変わりながら続きます。旅の音オフひらけた湖朝霧の森暖かな水面青い稜線"
     ++ "眺める。降りて歩く。また乗る。Eで停車してから、近くの地面へ。Escで作業へ。旅の続きは、また次に。"
     ++ concat [restSceneName l scene ++ restSceneDescription l scene | l <- [English, Japanese], scene <- [minBound .. maxBound]]
     ++ concat
@@ -161,9 +162,9 @@ renderWithFocus font assets w h s picture pictureCaption track message mouse foc
           text (label "Image brightness" "画像の明るさ") rx (y + rh - 76) 14 secondary
         MusicSettings -> do
           text (label "Music" "音楽") px (y + 88) 24 primary
-          text (label "NOW PLAYING" "再生中の曲") px (y + 132) 14 secondary
-          wrapped track px (y + 158) pw 18 primary
-          wrapped (label "The music stays with you while you rest." "音は休息中も、そのまま続きます。") px (y + 316) pw 16 secondary
+          text (label "NOW PLAYING" "再生中の曲") px (y + 125) 14 secondary
+          fitted track px (y + 149) pw 18 primary
+          wrapped (label "Built-in music changes gently as you listen." "内蔵の音楽は、少しずつ変わりながら続きます。") px (y + 358) pw 16 secondary
           text (label "Display" "表示") rx (y + 88) 24 primary
           text (label "Language" "言語") rx (y + 260) 16 secondary
       forM_ message $ \notice -> fitted notice (x + 24) (min (fromIntegral h - 21) (y + rh + 6)) (rw - 48) 12 primary

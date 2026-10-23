@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.11.0 — 2026-10-24
+
+- Start with soft piano and a still, code-generated water landscape. Include
+  four reproducible working backgrounds while preserving existing choices.
+- Replace the three-minute built-in loops with four evolving Haskell scores.
+  Choose a mood directly; Next changes mood. Personal folders keep their playlists.
+- Mix pre-rendered instruments in bounded sample windows. Keep exact musical
+  time, validated sample banks and playback independent of drawing stalls.
+- Add wind, leaves, nearby water and railcar sound driven by the journey.
+  Ease music down during the journey and restore it on return; allow sounds off.
+- Include offline generators, pinned piano-source hashes, attribution and
+  regression checks for mixing, composition, environment phases and migration.
+
 ## 0.10.0 — 2026-10-20
 
 - Stabilize the journey's railcar and shadows while preserving the original

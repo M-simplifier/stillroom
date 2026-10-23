@@ -1,12 +1,12 @@
 # Using Stillroom
 
-Extract the ZIP to a permanent folder and open `stillroom.exe`. The four built-in
-presets play automatically in shuffled order. Create a shortcut to the executable
+Extract the ZIP to a permanent folder and open `stillroom.exe`. Soft piano starts
+automatically. Create a shortcut to the executable
 or pin it to Start for a direct launch. Launching again brings the existing window
 forward instead of starting a second player.
 
 On first launch, a second monitor is preferred when available. The default screen
-is static dark green. Move the mouse over it to reveal controls. In fullscreen,
+is a static water landscape. Move the mouse over it to reveal controls. In fullscreen,
 controls disappear after 4.5 seconds without activity. The Settings menu stays
 visible until closed. Compact mode always keeps controls visible.
 
@@ -31,7 +31,7 @@ Motion and brightness remain separate choices. [Details](graphics-quality.md).
 | Tab / Shift-Tab | Focus the next / previous visible action |
 | Enter / Space with a focused control | Activate that action |
 | Space without control focus | Pause or resume |
-| N | Next track |
+| N | Next built-in mood, or next file in your music folder |
 | + / - | Adjust volume |
 | Click volume bar | Set volume |
 | R / click background while working | Enter a break; R always returns |
@@ -57,13 +57,15 @@ unavailable library falls back to built-in music at startup. Removing files duri
 playback can affect future loads. FLAC, playlists, streaming and per-track
 loudness normalization are not supported in this release.
 
-Linen, Moss, Orbit and Night are three-minute algorithmic scores with soft tones
-and a restrained pulse. They are generated in small buffers, not downloaded or
-stored as recordings. Choose a comfortable volume for your listening environment.
+Choose **Soft piano**, **Warm keys**, **Quiet pulse** or **Wood & air** in Music & app.
+Each continues in the same mood, with gradual variations and no timed ending.
+The score is generated locally and played through bundled instruments; no
+Python installation or network connection is needed. Next changes the mood.
+Choose a comfortable volume for your listening environment.
 
-In **Settings → Background**, choose **My images** to see the image library. Six static
-wallpapers are included: Mist lake, Quiet forest, Soft dunes, Night field,
-Afternoon lake and Woodland pond.
+In **Settings → Background**, choose **Landscapes & images** to see the image library.
+Open water, First light, Honey mist and Blue distance are generated from code.
+The six earlier wallpapers remain available, along with your imported images.
 Use **Previous / Next** to choose one. Images keep their aspect ratio and fill
 the window by cropping the edges; there is no automatic slideshow or animation.
 
@@ -84,6 +86,11 @@ then **Continue the journey**. A new world takes a few seconds to prepare while
 music keeps playing. The railcar starts gently. Space stops/starts it; Up/Down
 select one of three paces; E stops and steps onto nearby safe ground. Bridges
 or steep banks can refuse a stop: press Space to continue to another place.
+
+Wind, foliage, nearby water and the railcar follow your surroundings and speed.
+Music becomes quieter during the journey and returns smoothly on exit.
+Turn **Journey sounds** off in Rest settings for music alone at its normal level.
+Pause and master volume apply to both layers.
 
 On foot, WASD walks and Space starts/stops automatic walking. Trees, large rocks
 and water constrain the route. The parked car waits where you left it; E boards
@@ -127,7 +134,7 @@ See the [shader research notes](shader-research.md) for techniques and reference
 
 Settings are saved in `%APPDATA%/Stillroom/settings.json`: volume, language,
 background, selected image, brightness, rest scene/motion/brightness, window mode,
-monitor and music folder. Close the app and delete that
+monitor, music folder, built-in mood and journey-sound choice. Close the app and delete that
 file to reset. It is not part of the release and is never transmitted.
 
 While playing, Stillroom asks Windows to keep the system awake; fullscreen also

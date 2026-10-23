@@ -7,6 +7,7 @@ module Stillroom.Runtime.Journey
   ( JourneyRuntime,
     withJourney,
     model,
+    soundscape,
     replace,
     enter,
     suspend,
@@ -40,6 +41,7 @@ import Raylib.Core qualified as R
 import Raylib.Core.Shapes (drawRectangleRec)
 import Raylib.Types
 import Stillroom.Domain (Language (..))
+import Stillroom.Audio.Environment (EnvironmentInput, environmentInput)
 import Stillroom.Graphics (Tier)
 import Stillroom.Journey.Frame qualified as F
 import Stillroom.Runtime.Journey.Packet qualified as Packet
@@ -50,6 +52,24 @@ import Stillroom.Journey.Walk qualified as W
 import Stillroom.Journey.World qualified as World
 import Stillroom.Runtime.Pictures qualified as Pictures
 import System.FilePath ((</>))
+
+-- Geometry is sampled on the frame thread, never in the audio supplier.
+-- Sound receives only the few physical quantities it needs to interpolate.
+soundscape :: JourneyRuntime -> IO EnvironmentInput
+soundscape runtime = do
+  j <- model runtime
+  let walker = J.view j
+      seed = J.worldSeed j
+      x = W.posX walker
+      z = W.posZ walker
+      forest = case W.habitatAt seed x z of
+        W.Meadow -> 0.28
+        W.Birchwood -> 0.85
+        W.Pines -> 0.70
+        W.Heath -> 0.20
+        W.Wetland -> 0.45
+        W.Dunes -> 0.10
+  pure (environmentInput (J.seat j == J.Aboard) (J.speed (J.car j)) forest (W.shoreDistance seed x z))
 
 data NativeWorld
 

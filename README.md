@@ -13,12 +13,14 @@ leave it alone and the controls disappear into a quiet, static screen.
 
 ![Stillroom in compact mode](docs/player.png)
 
-- Four original procedural presets, synthesized locally. No account or downloads.
+- Four gently evolving built-in scores: soft piano, warm keys, quiet pulse and
+  wood & air. No account or additional downloads; choose a mood and let it continue.
 - Or choose a folder of your own MP3, WAV or OGG files.
 - Shuffle without immediate repeats when at least two playable tracks exist.
-- Continuous playback with equal-power crossfades limited by both track lengths.
+- Your own finite tracks blend with equal-power crossfades. Built-in music has no timed ending.
 - Static green, slate, black or illustrated lake backgrounds while working.
-- Six quiet image backgrounds, or import your own PNG, JPEG or BMP. Choose
+- Ten quiet image backgrounds, including four landscapes generated from code,
+  or import your own PNG, JPEG or BMP. Choose
   an image and its brightness; neither track changes nor time switch it for you.
 - Choose from eleven procedural rest scenes in a thumbnail gallery with a live
   preview: three landscapes with trees, grass and water, plus eight scenes of
@@ -29,6 +31,9 @@ leave it alone and the controls disappear into a quiet, static screen.
   railcar, stop and step onto safe ground, walk freely or enable automatic walking.
   Your seed and place are saved between breaks and launches. New landscapes are
   an explicit choice in Settings → Rest → Journey.
+- Wind, leaves, nearby water and the moving railcar accompany the journey.
+  Music becomes quieter during the ride and returns when you resume work.
+  Turn journey sounds off in Rest settings if you prefer music alone.
 - Click the background or press **R** to rest. **Esc/R** returns to work immediately.
   The eleven quiet scenes also leave on click; the journey uses click to look
   around and has a visible return button. Music continues throughout.
@@ -88,7 +93,8 @@ This is an early **Windows-only** utility. It makes no clinical or measured
 productivity claims. See [status and verification limits](STATUS.md).
 
 Code, original synthesis and original scenery are **MIT** licensed. Dependencies
-retain their licenses; the font is **SIL OFL 1.1**. No Suno recordings are
+retain their licenses; the font is **SIL OFL 1.1** and the processed Salamander
+piano recordings are **CC BY 3.0**. No Suno recordings are
 distributed. User music retains its original rights and is never uploaded.
 See [music licensing](docs/music-licensing.md), [asset provenance](docs/assets.md),
 and [third-party notices](licenses/README.md).

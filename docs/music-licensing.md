@@ -1,8 +1,10 @@
 # Music licensing
 
-Stillroom distributes no Suno recordings. Its built-in presets are original
-procedural compositions implemented in the MIT-licensed source. Selecting a local
-folder does not change the rights in those recordings.
+Stillroom distributes no Suno recordings. Its scores and generated instruments
+are MIT licensed. Soft piano uses processed Salamander Grand Piano v3 samples
+by Alexander Holm under CC BY 3.0. The recordings retain that license; see
+[attribution and modifications](../licenses/builtin-audio.md).
+Selecting a local folder does not change the rights in those recordings.
 
 ## Suno review — 11 October 2026
 

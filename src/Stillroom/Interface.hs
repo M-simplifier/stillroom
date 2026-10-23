@@ -42,7 +42,7 @@ backgroundName s choice = case choice of
   Slate -> local s "Slate" "スレート"
   Black -> local s "Black" "黒"
   Lake -> local s "Drawn lake" "描かれた湖"
-  Picture -> local s "My images" "画像の背景"
+  Picture -> local s "Landscapes & images" "風景・画像"
 
 settingsBounds :: Int -> Int -> Bounds
 settingsBounds w h = Bounds ((fromIntegral w - rw) / 2) ((fromIntegral h - rh) / 2) rw rh
@@ -128,19 +128,24 @@ controls w h s
              )
           ++ shades (px + pw * 0.49) (y + rh - 102) (pw * 0.51) ChooseRestShade
           ++ [c (Bounds px (y + rh - 52) pw 38) (if restScene s == RailJourney then local s "Continue the journey" "旅を続ける" else local s "Rest in this scene" "この景色で、ひと息") ToggleRest Primary]
+          ++ [c (Bounds rx (y + rh - 52) rightWidth 38)
+                (if journeySound s then local s "Journey sounds · on" "旅の音 · オン" else local s "Journey sounds · off" "旅の音 · オフ")
+                ToggleJourneySound Segment | restCollection s == Journeys]
       DisplaySettings ->
         [ c (Bounds rx (y + 114 + fromIntegral i * 44) rightWidth 38) (backgroundName s choice) (ChooseBackground choice) (Swatch choice)
-        | (i, choice) <- zip [0 :: Int ..] [Forest, Slate, Black, Lake, Picture]
+        | (i, choice) <- zip [0 :: Int ..] [Picture, Forest, Slate, Black, Lake]
         ]
           ++ [ c (Bounds px (y + rh - 102) 40 32) (local s "Previous image" "前の画像") (BrowsePicture PreviousPicture) Subtle,
-               c (Bounds (px + 48) (y + rh - 102) (pw - 96) 32) (local s "Add image…" "画像を追加…") OpenPicture Subtle,
+               c (Bounds (px + 48) (y + rh - 102) (pw - 96) 32) (local s "Add your image…" "自分の画像を追加…") OpenPicture Subtle,
                c (Bounds (px + pw - 40) (y + rh - 102) 40 32) (local s "Next image" "次の画像") (BrowsePicture NextPicture) Subtle,
                c (Bounds px (y + rh - 52) pw 38) (local s "Remove imported copy" "登録した画像を解除") RemovePicture Subtle
              ]
           ++ shades rx (y + rh - 52) rightWidth ChoosePictureShade
       MusicSettings ->
-        [ c (Bounds px (y + 208) pw 40) (local s "Choose a music folder…" "音楽フォルダーを選ぶ…") OpenMusic Subtle,
-          c (Bounds px (y + 258) pw 40) (local s "Use built-in music" "内蔵の音楽を使う") UsePresets Subtle,
+        [c (Bounds (px + fromIntegral (i `mod` 2) * (pw + 8) / 2) (y + 190 + fromIntegral (i `div` 2) * 46) ((pw - 8) / 2) 38)
+           (presetLabel (language s) preset) (ChooseMusicPreset preset) Segment
+        | (i,preset) <- zip [0 :: Int ..] [Linen,Night,Orbit,Moss]]
+        ++ [ c (Bounds px (y + 302) pw 40) (local s "Choose your music folder…" "自分の音楽フォルダーを選ぶ…") OpenMusic Subtle,
           c (Bounds rx (y + 132) rightWidth 40) (local s "Move to another display" "別のディスプレイへ移す") NextScreen Subtle,
           c (Bounds rx (y + 182) rightWidth 40) (if windowMode s == Fullscreen then local s "Use a window" "ウィンドウで使う" else local s "Use fullscreen" "全画面で使う") ToggleWindow Subtle,
           c (Bounds rx (y + 292) rightWidth 40) "日本語 / English" ToggleLanguage Subtle,
@@ -188,6 +193,8 @@ selected s (Intent event) = case event of
   ShowRestCollection value -> restCollection s == value
   ChooseRestMotion value -> restMotion s == value
   ChooseGraphicsQuality value -> graphicsQuality s == value
+  ChooseMusicPreset value -> builtInMusic s && musicPreset s == value
+  ToggleJourneySound -> journeySound s
   ChooseRestShade value -> restShade s == value
   ChoosePictureShade value -> pictureShade s == value
   ShowRestSettings -> settingsPage s == RestSettings

@@ -36,15 +36,15 @@ runCapture folder = do
   bracket (R.initWindow 700 500 "Stillroom UI capture") (R.closeWindow . Just) $ \window -> do
     R.setTargetFPS 0
     started <- R.getTime
-    bracket (View.loadTypeface window ["Linen"]) (View.unloadTypeface window) $ \font -> do
+    bracket (View.loadTypeface window ["Soft piano"]) (View.unloadTypeface window) $ \font -> do
       Rest.withRestAssets window $ \assets -> do
         ready <- Rest.proceduralReady assets
         unless (ready && Rest.thumbnailsReady assets) $
           throwIO (userError "UI capture requires the procedural shader and all thumbnails.")
         entries <- Pictures.discoverPictures (folder </> "backgrounds")
         entry <-
-          maybe (throwIO (userError "UI capture requires the bundled forest image.")) pure $
-            Pictures.findPicture (Just "bundled:02-quiet-forest.png") (filter ((== "bundled:02-quiet-forest.png") . Pictures.pictureKey) entries)
+          maybe (throwIO (userError "UI capture requires the bundled open water image.")) pure $
+            Pictures.findPicture (Just "bundled:open-water.png") entries
         prepared <- Pictures.preparePicture entry >>= either throwIO pure
         texture <- Pictures.uploadPicture window prepared
         frames <- forM views $ \(name, lang, page, opened, w, h, scene, mode) -> do
@@ -63,11 +63,11 @@ runCapture folder = do
                     viewingMode = mode,
                     restShade = Original
                   }
-              caption = "2 / " ++ show (length entries) ++ UI.local state "   Quiet forest" "   静かな森"
+              caption = "1 / " ++ show (length entries) ++ UI.local state "   Open water" "   ひらけた水辺"
               focus = if page == MusicSettings then Just (UI.Intent OpenMusic) else Nothing
               draw =
                 bracket_ R.beginDrawing R.endDrawing $
-                  View.renderWithFocus font assets w h state (Just texture) caption "Linen" Nothing (-1, -1) focus
+                  View.renderWithFocus font assets w h state (Just texture) caption (presetLabel lang Linen) Nothing (-1, -1) focus
               file = name ++ ".png"
           -- Lazy journey loading uses the same bounded steps as the app.
           -- These deterministic captures have no music device to pump.

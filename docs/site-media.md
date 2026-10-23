@@ -1,5 +1,10 @@
 # Website film
 
+The player images (`room-en.png`, `room-ja.png`, and `player.png`) were updated
+on 2026-10-24 using the 0.11 production UI capture command. They show the new
+default water landscape and soft piano. The journey film below retains its
+explicit 0.10 version label and has no audio.
+
 The product page's `journey.mp4` was recorded on 2026-10-20 from the published
 Windows x64 **v0.10.0** package, with its bundled assets and no source override.
 The executable's SHA-256 is

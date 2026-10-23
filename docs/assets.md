@@ -1,9 +1,14 @@
 # Asset provenance
 
-- **Music:** original sample-free algorithms in `Stillroom.Synthesis`, MIT.
-  No bundled recordings or third-party samples.
+- **Music:** original Haskell scores and generated instruments, MIT, with
+  processed Salamander Grand Piano v3 recordings by Alexander Holm, CC BY 3.0.
+  See [attribution](../licenses/builtin-audio.md) and [generators](../tools/audio/README.md).
+- **Journey sounds:** seven original code-generated loops/one-shots, MIT.
 - **Scenery:** original static geometry in `Runtime.Render`, MIT.
-- **Wallpapers:** six assets created with the built-in OpenAI image generation
+- **Generated wallpapers:** Open water, First light, Honey mist and Blue distance
+  come from [code and seeds](../tools/wallpapers/README.md), MIT. They are rendered
+  offline and remain static during work.
+- **Earlier wallpapers:** six assets created with the built-in OpenAI image generation
   tool: four on 2026-10-11, plus Afternoon lake and Woodland pond on 2026-10-15.
   No reference images or third-party source material were supplied. The latter
   two were originally made for a rest-mode experiment and are now included,

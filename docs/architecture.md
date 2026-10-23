@@ -38,15 +38,22 @@ permutation, and cycle boundaries avoid immediate repeats. Excluding a failed
 candidate starts a new cycle and preserves the last accepted item. Removing the
 last candidate produces `Nothing`, not a retry loop.
 
-`Synthesis` maps a preset and an integer sample index to stereo samples using
-oscillators, envelopes, deterministic noise and chord/beat schedules. Adjacent
-blocks are equivalent to their concatenation. No external samples, synthesizer
-service or music model is involved. A storable vector provides bounded PCM
-buffers without making composition depend on wall time.
+`Audio.Composition` queries bounded windows of an evolving score. Rational beats
+become Integer sample positions; seeded phrases vary without a growing history.
+`Audio.Mix` validates immutable sample banks once and sums overlapping voices.
+The piano uses credited Salamander recordings; other instruments are generated
+from code. `Synthesis` retains the earlier oscillator path for compatibility.
+`Audio.Environment` advances loop phases, smooths gains and places bounded body
+sounds by travel distance. Geometry queries remain on the frame thread.
+See [audio design and reproduction](builtin-world.md).
 
 ## Effect boundary
 
-`Runtime.Audio` owns two decks and the audio device through `bracket`. Replacement
+`Runtime.Audio` owns two music decks, independent ambience and the device on a
+bound supplier thread. Supply and controls are serialized, independently of
+drawing. Continuous sources have no duration or automatic advance. Ambience
+eases music to 0.40 and restores it on exit; master and pause affect all streams.
+Replacement
 decks are acquired before old ones are released. Decoder input bytes remain alive
 until the decoder closes; reading through Haskell also supports Unicode paths.
 Synchronous decoding failures remove candidates; asynchronous cancellation

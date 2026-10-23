@@ -1,21 +1,28 @@
 # Status
 
-Stillroom 0.10.0 targets Windows x64, tested on Windows 11 with GHC 9.6.7 and
+Stillroom 0.11.0 targets Windows x64, tested on Windows 11 with GHC 9.6.7 and
 h-raylib 5.6.0.0. It is a small utility with best-effort maintenance, not a
 medical device or a measured productivity intervention.
 
-The listening room provides procedural music, MP3/WAV/OGG folder playback,
-shuffle, crossfade, pause/next, saved settings, local background images, six
+The listening room provides four continuously composed music moods, MP3/WAV/OGG
+folder playback, shuffle, crossfade, pause/next, saved settings, local background images, ten
 bundled wallpapers, monitor selection, fullscreen/compact mode, English/Japanese
 controls and single-instance activation. Image import and a local library,
 brightness controls and an embedded Windows icon are included.
+Fresh settings start with soft piano and a still water landscape. Existing
+preferences and personal music folders are retained. The new sample banks and
+four static landscapes have reproducible generation tools; the piano samples
+carry a CC BY 3.0 attribution alongside the project's MIT license.
 
 Rest settings offer three collections. Journey connects a procedural railcar
 ride, free walking and automatic strolling in one world of six habitats,
 lakes and hills. It saves the seed and place between breaks and launches;
 New landscape explicitly replaces that journey. Nature and Light & sky retain
 the eleven earlier exit-only scenes, including three generated landscapes.
-Music continues in every scene. Journey permits movement and looking around;
+Music continues in every scene. Journey adds wind, leaves, water and vehicle
+sounds, with quieter music while these sounds are enabled. The layer follows
+the terrain, movement and seat, and can be disabled in Rest settings.
+Journey permits movement and looking around;
 Esc/R, focus loss and its visible return button return to work. The quiet scenes
 also accept a background click to return.
 
@@ -25,11 +32,15 @@ hysteresis. Quality changes render targets and shading, never navigation or
 world geometry. See [graphics quality](docs/graphics-quality.md) for budgets
 and measurement boundaries.
 
-The current source passes 55 property/regression groups. They cover the pure
+The current source passes 71 property/regression groups. They cover the pure
 session/interface, seeds and interleaved native field queries, bookmark
 validation, fixed-tick input, cross-seed automatic walking and rail-to-foot
 transfers, exact box boundaries, emitted mesh winding, projection and origin
 laws, rejected frame encodings, and independence of reflection resolution.
+Audio checks cover sample alignment, partition-independent rendering, bounded
+composition queries, environment transitions and saved source selection.
+See [built-in music and scenery](docs/builtin-world.md) for the design,
+reproduction commands and bounded audio evidence.
 The journey's functional graphics foundation and scoped acceptance evidence
 are described in [graphics foundation](docs/graphics-foundation.md).
 The build also accepts a valid graphics API client and rejects four invalid
@@ -37,8 +48,8 @@ clients, protecting coordinate-space roles and the opaque plan boundaries.
 The native acceptance harness has 56 assertions covering audio
 clocks, MP3/procedural playback, preferences, scene selection, rendering,
 journey preparation, movement, save/reload and rest/work transitions.
-Twenty-eight captures cover English/Japanese settings at 700 by 500 and larger
-sizes, quiet landscapes, the journey and all six bundled wallpapers. Six
+Thirty-two captures cover English/Japanese settings at 700 by 500 and larger
+sizes, quiet landscapes, the journey and all ten bundled wallpapers. Six
 development-tool boundary checks cover error propagation, environment
 restoration and incomplete packages.
 

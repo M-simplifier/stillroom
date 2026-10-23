@@ -1,0 +1,57 @@
+{
+  "work": "Salamander Grand Piano v3",
+  "author": "Alexander Holm",
+  "remapped_by": "kinwie",
+  "repository": "https://github.com/sfzinstruments/SalamanderGrandPiano",
+  "commit": "3382bf9496bba2486f5ab0de55a264d1dfc38404",
+  "license": "CC-BY-3.0",
+  "license_url": "https://creativecommons.org/licenses/by/3.0/",
+  "selection_pool": [
+    {
+      "file": "A3v3.flac",
+      "native_midi": 57,
+      "sha256": "8c5608fb5b9963f07e9d65fe59bbe2a84a9160f922bb96a71ed235485e93a0ce"
+    },
+    {
+      "file": "A4v3.flac",
+      "native_midi": 69,
+      "sha256": "9529b14e963a73a320d1a1f47915649e99d42832ca1d9d592624d9fb625b7544"
+    },
+    {
+      "file": "C3v3.flac",
+      "native_midi": 48,
+      "sha256": "4a0fd7ec75a9d9b6bf3cc03a0ec18dcfc2901a96ffd94fa573ecae41b419e124"
+    },
+    {
+      "file": "C4v3.flac",
+      "native_midi": 60,
+      "sha256": "c3cb4ce2d16885ab6dfd8250e0d447b56d51a187546f96e2ee2f95a4c93669fb"
+    },
+    {
+      "file": "C5v3.flac",
+      "native_midi": 72,
+      "sha256": "a5cbfa00f5c72db28dee402f813aadb451c2fc85a365aef49caf0844c615328a"
+    },
+    {
+      "file": "D#3v3.flac",
+      "native_midi": 51,
+      "sha256": "25ff52c8f24059d5d96ecc271cdf76d865b3b57d7fc9ffec0113b7d1d82201ec"
+    },
+    {
+      "file": "D#4v3.flac",
+      "native_midi": 63,
+      "sha256": "f85d124728e8bd345848fe14d67957bbabaf16fe04609f9dbc2e76b39f49c647"
+    },
+    {
+      "file": "F#3v3.flac",
+      "native_midi": 54,
+      "sha256": "af3a5e903335da49303d4accad92b6d22be77516248b406d478b8d712e4a2d03"
+    },
+    {
+      "file": "F#4v3.flac",
+      "native_midi": 66,
+      "sha256": "e6a4c96e16191062502c11f4041c2fb0e46693da614371aee09b632ac8f7de3c"
+    }
+  ],
+  "license_sha256": "e6bc9e9c474700b708f568bac9e5a8a9bcb2b1dad53442f5ba449fcb848b8e76"
+}
