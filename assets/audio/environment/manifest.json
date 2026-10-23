@@ -1,0 +1,75 @@
+{
+  "sample_rate": 44100,
+  "channels": 2,
+  "format": "WAV PCM_16",
+  "generator": "tools/audio/make_environment.py",
+  "generator_sha256": "da193ca638ecac19339f5ed1e318d2e8ea513a958c27e7f40a87ea89ff187b6f",
+  "helpers_sha256": "85574112bc887dd02a33bbf24b6c21c23c94c50db77a327c348fe860da300033",
+  "dependencies": {
+    "python": "3.12.14",
+    "numpy": "2.5.3",
+    "scipy": "1.18.1",
+    "soundfile": "0.14.0",
+    "libsndfile": "1.2.2"
+  },
+  "seed": 20261024,
+  "source": "Seeded original synthesis; no borrowed recordings or samples.",
+  "samples": [
+    {
+      "key": "wind",
+      "frames": 498771,
+      "loop": true,
+      "peak": 0.09972413629293442,
+      "sha256": "ad2f2f9f4f2c0f9953a507992d1ac7033853cc2f8dde5f0497f034052a2612ed",
+      "license": "MIT"
+    },
+    {
+      "key": "leaves",
+      "frames": 605493,
+      "loop": true,
+      "peak": 0.052551496773958206,
+      "sha256": "8e20a18f1273084f78cdf33a222c473b216942b9b41aa5dca943c7087c4b1bef",
+      "license": "MIT"
+    },
+    {
+      "key": "water",
+      "frames": 449379,
+      "loop": true,
+      "peak": 0.12426093965768814,
+      "sha256": "b3dd482390c262167d5355e67421ddc4f378676503154bcaf9f23caaa99dd863",
+      "license": "MIT"
+    },
+    {
+      "key": "wheel",
+      "frames": 348831,
+      "loop": true,
+      "peak": 0.09919868409633636,
+      "sha256": "4ffbdbaaa8325b101291f4e80e01950f7db46a3cd944b392ed26fc67788db0c9",
+      "license": "MIT"
+    },
+    {
+      "key": "body-1",
+      "frames": 25137,
+      "loop": false,
+      "peak": 0.07446204870939255,
+      "sha256": "46095263d36987f66a6a611f7aeec1e5e5f74ba0fd69b89c502aeb828d6e1dad",
+      "license": "MIT"
+    },
+    {
+      "key": "body-2",
+      "frames": 28224,
+      "loop": false,
+      "peak": 0.08305369317531586,
+      "sha256": "12917bdeb837112b1d1eb60b4b8bd69bdde0a3db75e0eac09f97902f19ed3b2f",
+      "license": "MIT"
+    },
+    {
+      "key": "body-3",
+      "frames": 22932,
+      "loop": false,
+      "peak": 0.061672139912843704,
+      "sha256": "81303c1e568c177adc07a99cb6f905601188ff3648b0348b92b771546df29ef9",
+      "license": "MIT"
+    }
+  ]
+}

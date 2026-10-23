@@ -26,6 +26,7 @@ import Stillroom.Interface qualified as UI
 import Stillroom.Journey.Ride qualified as Ride
 import Stillroom.Journey.World qualified as World
 import Stillroom.Runtime.Audio qualified as Audio
+import Stillroom.Runtime.Audio.Builtin qualified as Builtin
 import Stillroom.Runtime.Capture (screenshot)
 import Stillroom.Runtime.Journey qualified as Journey
 import Stillroom.Runtime.JourneyStorage qualified as JourneyStorage
@@ -71,8 +72,9 @@ runDesktop statePath checkDirectory overrideFolder = do
   (loaded, initialNotice) <- readPreferences statePath languageValue
   let preferences = loaded {savedFolder = case overrideFolder of Just p -> Just p; Nothing -> savedFolder loaded}
       prefs = if isJust checkDirectory then preferences {savedVolume = 0, savedWindow = Compact, savedLanguage = English} else preferences
-  tracksResult <- maybe (pure (Right presetTracks)) scanFolder (savedFolder prefs)
-  let tracks = either (const presetTracks) id tracksResult
+  let builtins = presetTrack (savedMusicPreset prefs)
+  tracksResult <- maybe (pure (Right builtins)) scanFolder (savedFolder prefs)
+  let tracks = either (const builtins) id tracksResult
       notice = either (const (Just "Music folder unavailable; built-in music is playing.")) (const initialNotice) tracksResult
   R.setTraceLogLevel LogWarning
   R.setConfigFlags ([VsyncHint, WindowAlwaysRun, WindowResizable] ++ [WindowHidden | isJust checkDirectory])
@@ -89,15 +91,16 @@ runDesktop statePath checkDirectory overrideFolder = do
     Rest.withRestAssets window $ \rests -> do
       JourneyStorage.readJourney (takeDirectory statePath </> "journey.json") >>= Journey.restoreModel (Rest.journey rests)
       seed <- round . (* 1000000) <$> getPOSIXTime
+      (musicSource, ambienceSource) <- Builtin.loadBuiltinSources (fromIntegral seed)
       let start chosen startupNotice =
             -- A failed library restarts the audio session. Acquire a fresh font
             -- too: an earlier picture/music change may have released the first
             -- font. The current font is always closed before the GL context.
             withSessionFont window (map trackTitle (NE.toList chosen) ++ map Pictures.pictureName pictures) $
-              \liveFont -> Audio.withEngine chosen seed (loudness (restoreSession prefs)) $ \audio -> do
+              \liveFont -> Audio.withEngineLayers musicSource ambienceSource chosen seed (loudness (restoreSession prefs)) $ \audio -> do
                 desktop <-
                   Desktop
-                    <$> newIORef (restoreSession prefs)
+                    <$> newIORef ((restoreSession prefs) {builtInMusic = all isBuiltIn (NE.toList chosen)})
                     <*> newIORef prefs
                     <*> newIORef startupNotice
                     <*> newIORef False
@@ -153,8 +156,9 @@ runDesktop statePath checkDirectory overrideFolder = do
       result <- tryJust onlyLibraryFailure (start tracks notice)
       case result of
         Right success -> pure success
-        Left _ -> start presetTracks (Just "Music files could not be decoded; built-in music is playing.")
+        Left _ -> start builtins (Just "Music files could not be decoded; built-in music is playing.")
   where
+    isBuiltIn track = case trackSource track of LocalFile _ -> False; _ -> True
     onlyLibraryFailure Audio.NoPlayableTracks = Just ()
     onlyLibraryFailure _ = Nothing
 
@@ -255,7 +259,7 @@ apply desktop event = do
       saveJourney desktop
     SelectPresets -> do
       seed <- round . (* 1000000) <$> getPOSIXTime
-      Audio.replaceLibrary (engine desktop) presetTracks seed
+      Audio.replaceLibrary (engine desktop) (presetTrack (musicPreset updated)) seed
       modifyIORef' (preferencesRef desktop) useBuiltInMusic
       writeIORef (noticeRef desktop) Nothing
     PickMusicFolder -> do
@@ -376,6 +380,7 @@ receiveMusic window desktop = do
                 oldFont <- atomicModifyIORef' (fontRef desktop) (\old -> (newFont, old))
                 View.unloadTypeface window oldFont
                 modifyIORef' (preferencesRef desktop) (useMusicFolder folder)
+                modifyIORef' (sessionRef desktop) (\s -> s {builtInMusic = False})
                 writeIORef (noticeRef desktop) Nothing
                 save desktop
         apply desktop Activity
@@ -494,6 +499,10 @@ loop window desktop checkDirectory checkPhase checks pausePosition began previou
       (secondsValue elapsed)
       (clicked && viewingMode sBefore == Resting)
       (dx, dy)
+  ambience <- if viewingMode state == Resting && restScene state == RailJourney && journeySound state
+    then Just <$> Journey.soundscape (Rest.journey (restAssets desktop))
+    else pure Nothing
+  Audio.setAmbience (engine desktop) ambience
   let shown = controlsVisible state
   hidden <- R.isCursorHidden
   let journeyRest = viewingMode state == Resting && restScene state == RailJourney
@@ -512,6 +521,10 @@ loop window desktop checkDirectory checkPhase checks pausePosition began previou
         Just (entry, _) ->
           let position = length (takeWhile ((/= Pictures.pictureKey entry) . Pictures.pictureKey) entries) + 1
               name = case Pictures.pictureKey entry of
+                "bundled:open-water.png" -> if language state == Japanese then "ひらけた湖" else "Open water"
+                "bundled:first-light.png" -> if language state == Japanese then "朝霧の森" else "First light"
+                "bundled:honey-mist.png" -> if language state == Japanese then "暖かな水面" else "Honey mist"
+                "bundled:blue-distance.png" -> if language state == Japanese then "青い稜線" else "Blue distance"
                 "bundled:01-mist-lake.png" -> if language state == Japanese then "霧の湖" else "Mist lake"
                 "bundled:02-quiet-forest.png" -> if language state == Japanese then "静かな森" else "Quiet forest"
                 "bundled:03-soft-dunes.png" -> if language state == Japanese then "砂丘" else "Soft dunes"
@@ -522,7 +535,7 @@ loop window desktop checkDirectory checkPhase checks pausePosition began previou
            in show position ++ " / " ++ show (length entries) ++ "   " ++ name
   -- EndDrawing still polls input and paces the loop; music is pumped above.
   when (not invisible || isJust checkDirectory) $
-    View.renderWithFocus font (restAssets desktop) drawWidth drawHeight state (snd <$> picture) caption (Audio.title sound) (notice `orElse` Audio.audioWarning sound) (mx, my) drawFocus
+    View.renderWithFocus font (restAssets desktop) drawWidth drawHeight state (snd <$> picture) caption (if builtInMusic state then presetLabel (language state) (musicPreset state) else Audio.title sound) (notice `orElse` Audio.audioWarning sound) (mx, my) drawFocus
   R.endDrawing
   forM_ checkDirectory $ \_ -> do
     pending <- atomicModifyIORef' (checkSwitchStart desktop) (\value -> (Nothing, value))
@@ -600,7 +613,7 @@ checkStep window desktop folder phaseRef checks pausePosition elapsed = do
     0 | elapsed > 0.7 -> do
       record "autoplay clock advances" (Audio.audible sound && Audio.position sound > 0.1)
       entries <- readIORef (picturesRef desktop)
-      record "six bundled pictures are available" (length (filter ((== Pictures.Bundled) . Pictures.pictureOrigin) entries) == 6)
+      record "ten bundled pictures are available" (length (filter ((== Pictures.Bundled) . Pictures.pictureOrigin) entries) == 10)
       current <- readIORef (pictureRef desktop)
       record "startup uploads a valid picture texture" (maybe False (\(_, texture) -> texture'width texture > 0 && texture'height texture > 0) current)
       forM_ current $ \(entry, _) -> do
@@ -628,7 +641,11 @@ checkStep window desktop folder phaseRef checks pausePosition elapsed = do
       let corrupt = folder </> "broken.png"
       BS.writeFile corrupt (BS.pack [0, 1, 2, 3])
       requestPicture desktop (fmap Just <$> Pictures.importPicture (pictureDirectory desktop) corrupt)
-      Audio.seekForCheck (engine desktop) (Audio.duration sound - 4)
+      -- Continuous music has no pretend end. Exercise the finite playlist
+      -- contract with explicitly finite fixtures, then return to built-ins.
+      Audio.replaceLibrary (engine desktop)
+        (NE.map (\p -> Track (TrackId (fromEnum p)) (presetName p) (Procedural p)) allPresets) 413091
+      Audio.seekForCheck (engine desktop) 176
       advance
       pure False
     4 | elapsed > 3.9 -> do
@@ -640,6 +657,7 @@ checkStep window desktop folder phaseRef checks pausePosition elapsed = do
       pure False
     5 | elapsed > 8 -> do
       record "automatic next track" (Audio.transitionCount sound >= 1)
+      apply desktop UsePresets
       apply desktop ToggleWindow
       handle <- R.getWindowHandle
       prefs <- readIORef (preferencesRef desktop)
@@ -679,7 +697,8 @@ checkStep window desktop folder phaseRef checks pausePosition elapsed = do
       pure False
     9 | elapsed > 10.7 -> do
       current <- readIORef (pictureRef desktop)
-      record "next image uploads the next bundled picture" (maybe False ((== "bundled:02-quiet-forest.png") . Pictures.pictureKey . fst) current)
+      record "next image uploads the next bundled picture" (maybe False ((== "bundled:first-light.png") . Pictures.pictureKey . fst) current)
+      apply desktop (ChoosePictureShade Original)
       apply desktop CyclePictureShade
       prefs <- readIORef (preferencesRef desktop)
       (reloaded, warning) <- readPreferences (preferencesPath desktop) English
@@ -729,7 +748,7 @@ checkStep window desktop folder phaseRef checks pausePosition elapsed = do
       record "music clock continues through rest and motion" (Audio.audible sound && Audio.position sound > before + 0.3)
       beforeRest <- readIORef (sessionRef desktop)
       beforePrefs <- readIORef (preferencesRef desktop)
-      mapM_ (apply desktop) ([TogglePlayback, NextTrack, ChangeVolume 0.2, ToggleWindow, NextScreen, ToggleSettings, ShowRestSettings, ShowDisplaySettings, OpenMusic, UsePresets, OpenPicture, BrowsePicture NextPicture, RemovePicture, CyclePictureShade, ToggleLanguage, ToggleRestMotion, CycleRestShade] ++ map ChooseRestScene [minBound .. maxBound])
+      mapM_ (apply desktop) ([TogglePlayback, NextTrack, ChangeVolume 0.2, ToggleWindow, NextScreen, ToggleSettings, ShowRestSettings, ShowDisplaySettings, OpenMusic, UsePresets, ChooseMusicPreset Night, ToggleJourneySound, OpenPicture, BrowsePicture NextPicture, RemovePicture, CyclePictureShade, ToggleLanguage, ToggleRestMotion, CycleRestShade] ++ map ChooseRestScene [minBound .. maxBound])
       afterRest <- readIORef (sessionRef desktop)
       afterPrefs <- readIORef (preferencesRef desktop)
       record "rest rejects settings, transport, volume, file and scene actions" (beforeRest == afterRest && beforePrefs == afterPrefs)

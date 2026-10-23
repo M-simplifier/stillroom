@@ -1,0 +1,675 @@
+{
+  "sample_rate": 44100,
+  "channels": 2,
+  "format": "WAV PCM_16",
+  "generator": "tools/audio/make_instruments.py",
+  "generator_sha256": "d4ca2db9c1484dda497c23a6170a05fc79a0ab2caaa1173c4d578b2c3da16d53",
+  "helpers_sha256": "85574112bc887dd02a33bbf24b6c21c23c94c50db77a327c348fe860da300033",
+  "keys_sha256": "3e7ddc02a55f4e8fdcd75eca2f6ac9a3da8825266d81ceb11e14806706979d51",
+  "dependencies": {
+    "python": "3.12.14",
+    "numpy": "2.5.3",
+    "scipy": "1.18.1",
+    "soundfile": "0.14.0",
+    "libsndfile": "1.2.2"
+  },
+  "piano_source": {
+    "work": "Salamander Grand Piano v3",
+    "author": "Alexander Holm",
+    "remapped_by": "kinwie",
+    "repository": "https://github.com/sfzinstruments/SalamanderGrandPiano",
+    "commit": "3382bf9496bba2486f5ab0de55a264d1dfc38404",
+    "license": "CC-BY-3.0",
+    "license_url": "https://creativecommons.org/licenses/by/3.0/",
+    "license_sha256": "e6bc9e9c474700b708f568bac9e5a8a9bcb2b1dad53442f5ba449fcb848b8e76"
+  },
+  "instruments": [
+    {
+      "key": "air-48",
+      "frames": 961379,
+      "peak": 0.17449478561582638,
+      "source": {
+        "generator": "make_instruments.py",
+        "license": "MIT"
+      },
+      "sha256": "e070153623457de13591fbd615b36159a802cea4a1644d92129a4d35275362fa"
+    },
+    {
+      "key": "air-50",
+      "frames": 961379,
+      "peak": 0.24792345047453992,
+      "source": {
+        "generator": "make_instruments.py",
+        "license": "MIT"
+      },
+      "sha256": "ed476697eebe185426ed88c170a78d3cd9fedf63f786082e1167f88e66a9754e"
+    },
+    {
+      "key": "air-52",
+      "frames": 961379,
+      "peak": 0.22118499662918595,
+      "source": {
+        "generator": "make_instruments.py",
+        "license": "MIT"
+      },
+      "sha256": "0943fe5518be43597fe9d508defc637e97ce0f9dc1f1e655cd5c49da1bb9e169"
+    },
+    {
+      "key": "air-53",
+      "frames": 961379,
+      "peak": 0.26206528104749655,
+      "source": {
+        "generator": "make_instruments.py",
+        "license": "MIT"
+      },
+      "sha256": "ae63b915f4cf3486191f6736523c6420ca5831ba12b0a24efc747ebe6690056b"
+    },
+    {
+      "key": "air-54",
+      "frames": 961379,
+      "peak": 0.20163335356433426,
+      "source": {
+        "generator": "make_instruments.py",
+        "license": "MIT"
+      },
+      "sha256": "29c6bae21c8e0c307904fefe5c84ff985b0c15a0ce3908cc09e1ab154293e1f1"
+    },
+    {
+      "key": "air-55",
+      "frames": 961379,
+      "peak": 0.16826407511848404,
+      "source": {
+        "generator": "make_instruments.py",
+        "license": "MIT"
+      },
+      "sha256": "3021d8cf7edd597ecf63fc7f06ab9d651e71370c32b63f2990567bbe86dc39b1"
+    },
+    {
+      "key": "air-57",
+      "frames": 961379,
+      "peak": 0.19626699192522695,
+      "source": {
+        "generator": "make_instruments.py",
+        "license": "MIT"
+      },
+      "sha256": "df637ba1813bc323abb57d71e308e4abcf48351eb7181c350f1465916bf69c1d"
+    },
+    {
+      "key": "air-58",
+      "frames": 961379,
+      "peak": 0.20165826677117848,
+      "source": {
+        "generator": "make_instruments.py",
+        "license": "MIT"
+      },
+      "sha256": "6df91805765650e7417ce9c93266c140f4cd36d388efe923df0c5f37f2ee4716"
+    },
+    {
+      "key": "air-59",
+      "frames": 961379,
+      "peak": 0.18448273499888104,
+      "source": {
+        "generator": "make_instruments.py",
+        "license": "MIT"
+      },
+      "sha256": "46bb65ad7dff8a534a738d5bd26cb19857248e03bf4b34ecd67d60325451fa93"
+    },
+    {
+      "key": "air-60",
+      "frames": 961379,
+      "peak": 0.23410155503652424,
+      "source": {
+        "generator": "make_instruments.py",
+        "license": "MIT"
+      },
+      "sha256": "c3a04d12a9cb238f45d9907f3c2f44fa1ac04b2347a5b832b879c9ec4d582e90"
+    },
+    {
+      "key": "air-61",
+      "frames": 961379,
+      "peak": 0.21649809492620423,
+      "source": {
+        "generator": "make_instruments.py",
+        "license": "MIT"
+      },
+      "sha256": "121ec72d181e6819dd23284ee60de59745ec7633f129bfb1f223094de9e6677d"
+    },
+    {
+      "key": "air-62",
+      "frames": 961379,
+      "peak": 0.2296847681108959,
+      "source": {
+        "generator": "make_instruments.py",
+        "license": "MIT"
+      },
+      "sha256": "e25405eaaa5fcfdfdf36f4af64d9889081bb63806d48fb109abfa28d77935db8"
+    },
+    {
+      "key": "air-64",
+      "frames": 961379,
+      "peak": 0.24847459043334078,
+      "source": {
+        "generator": "make_instruments.py",
+        "license": "MIT"
+      },
+      "sha256": "6395b0b213d0ecc674810ac61b5b2e0419805c97af39963bbb7ef0ace07ce9e4"
+    },
+    {
+      "key": "air-65",
+      "frames": 961379,
+      "peak": 0.22175443541947365,
+      "source": {
+        "generator": "make_instruments.py",
+        "license": "MIT"
+      },
+      "sha256": "21cec07f5f945b120ae50a6f81eff4352f861cfca51e25dc0e2868ff7259536d"
+    },
+    {
+      "key": "air-66",
+      "frames": 961379,
+      "peak": 0.18597230507658033,
+      "source": {
+        "generator": "make_instruments.py",
+        "license": "MIT"
+      },
+      "sha256": "310fa91cd5059f4177f33d2e944c4b9853233cc488bfbc342035043567ff4e59"
+    },
+    {
+      "key": "air-67",
+      "frames": 961379,
+      "peak": 0.2184200642752093,
+      "source": {
+        "generator": "make_instruments.py",
+        "license": "MIT"
+      },
+      "sha256": "ce5c2f5ad2bf8253127d6f5ddf650a11587c96a69e0aee83f7a923a6ee8ba27f"
+    },
+    {
+      "key": "bass-41",
+      "frames": 520379,
+      "peak": 0.23687936319702974,
+      "source": {
+        "generator": "make_instruments.py",
+        "license": "MIT"
+      },
+      "sha256": "ce57201536d9719b567a9ed2e502abc159128671f590b7c9e71b2cc07caa1783"
+    },
+    {
+      "key": "bass-43",
+      "frames": 520379,
+      "peak": 0.23792701228822144,
+      "source": {
+        "generator": "make_instruments.py",
+        "license": "MIT"
+      },
+      "sha256": "7dc9713bc51d3b0461da253320f6f9345228c49946c8c06b1faa24c865f88eba"
+    },
+    {
+      "key": "bass-45",
+      "frames": 520379,
+      "peak": 0.2277158461850304,
+      "source": {
+        "generator": "make_instruments.py",
+        "license": "MIT"
+      },
+      "sha256": "b66cc4e756ba3cd2af93b291c0ccc4fa5a40c41fc9a24e760c037d5a6f23d845"
+    },
+    {
+      "key": "bass-46",
+      "frames": 520379,
+      "peak": 0.22963432473114476,
+      "source": {
+        "generator": "make_instruments.py",
+        "license": "MIT"
+      },
+      "sha256": "0ec429c47ffa656689772835a60a002da3c9a4c070d33313b56a82e0595ecb74"
+    },
+    {
+      "key": "bass-47",
+      "frames": 520379,
+      "peak": 0.21804400403431423,
+      "source": {
+        "generator": "make_instruments.py",
+        "license": "MIT"
+      },
+      "sha256": "fecfb93b1b9e2c3a059ebb99b3d03b2be4ab1b854a5626cf191d271dd6333d0f"
+    },
+    {
+      "key": "bass-48",
+      "frames": 520379,
+      "peak": 0.21635922526476284,
+      "source": {
+        "generator": "make_instruments.py",
+        "license": "MIT"
+      },
+      "sha256": "33e9e2a85d27730bf02e1238ed5bda86880b44cb7975c3eebed612b65419013e"
+    },
+    {
+      "key": "bass-50",
+      "frames": 520379,
+      "peak": 0.22493885535769764,
+      "source": {
+        "generator": "make_instruments.py",
+        "license": "MIT"
+      },
+      "sha256": "458691915266c59fe1189ec85e033d702566f688db4d79ed6883b28847c96810"
+    },
+    {
+      "key": "brush-0",
+      "frames": 149939,
+      "peak": 0.08847421889826987,
+      "source": {
+        "generator": "make_instruments.py",
+        "license": "MIT"
+      },
+      "sha256": "70f3a56e7dac2c7bfdc384c4b055c812c7da39eba8f08702583bf99b88b2bd29"
+    },
+    {
+      "key": "felt-50",
+      "frames": 459880,
+      "peak": 0.41353939826579156,
+      "source": {
+        "file": "D#3v3.flac",
+        "sha256": "25ff52c8f24059d5d96ecc271cdf76d865b3b57d7fc9ffec0113b7d1d82201ec",
+        "native_midi": 51,
+        "license": "CC-BY-3.0",
+        "author": "Alexander Holm"
+      },
+      "sha256": "cfc2e5af5cb9eb0452f94e16aeb76c4ef65da3fd5ef47e88d17797687e816ac1"
+    },
+    {
+      "key": "felt-52",
+      "frames": 423179,
+      "peak": 0.42103318573729404,
+      "source": {
+        "file": "D#3v3.flac",
+        "sha256": "25ff52c8f24059d5d96ecc271cdf76d865b3b57d7fc9ffec0113b7d1d82201ec",
+        "native_midi": 51,
+        "license": "CC-BY-3.0",
+        "author": "Alexander Holm"
+      },
+      "sha256": "c4ea150026109390481179f49b61892506a5f2678d2532477d70196c7b971f2d"
+    },
+    {
+      "key": "felt-54",
+      "frames": 440999,
+      "peak": 0.4587432128738347,
+      "source": {
+        "file": "F#3v3.flac",
+        "sha256": "af3a5e903335da49303d4accad92b6d22be77516248b406d478b8d712e4a2d03",
+        "native_midi": 54,
+        "license": "CC-BY-3.0",
+        "author": "Alexander Holm"
+      },
+      "sha256": "50e74b770caca41e22c8a83d270be86df7d8ffcc5f749c2685f70830442fdd61"
+    },
+    {
+      "key": "felt-57",
+      "frames": 440999,
+      "peak": 0.4665599470182704,
+      "source": {
+        "file": "A3v3.flac",
+        "sha256": "8c5608fb5b9963f07e9d65fe59bbe2a84a9160f922bb96a71ed235485e93a0ce",
+        "native_midi": 57,
+        "license": "CC-BY-3.0",
+        "author": "Alexander Holm"
+      },
+      "sha256": "bf2f98f6aac1cb441021f267331cf63e718af9616aea88ba3310b34aabe14072"
+    },
+    {
+      "key": "felt-59",
+      "frames": 459880,
+      "peak": 0.4447010645210102,
+      "source": {
+        "file": "C4v3.flac",
+        "sha256": "c3cb4ce2d16885ab6dfd8250e0d447b56d51a187546f96e2ee2f95a4c93669fb",
+        "native_midi": 60,
+        "license": "CC-BY-3.0",
+        "author": "Alexander Holm"
+      },
+      "sha256": "1e15b8e750e27c387cd73241712cc99fa40525b85ba044d2b1e9a8d2bcd997bd"
+    },
+    {
+      "key": "felt-61",
+      "frames": 423179,
+      "peak": 0.4477066270770156,
+      "source": {
+        "file": "C4v3.flac",
+        "sha256": "c3cb4ce2d16885ab6dfd8250e0d447b56d51a187546f96e2ee2f95a4c93669fb",
+        "native_midi": 60,
+        "license": "CC-BY-3.0",
+        "author": "Alexander Holm"
+      },
+      "sha256": "54480d3e6f0809c674352ef456fdaa085ec46417bb8d87d901762619d91cd51f"
+    },
+    {
+      "key": "felt-62",
+      "frames": 459880,
+      "peak": 0.4646823482544722,
+      "source": {
+        "file": "D#4v3.flac",
+        "sha256": "f85d124728e8bd345848fe14d67957bbabaf16fe04609f9dbc2e76b39f49c647",
+        "native_midi": 63,
+        "license": "CC-BY-3.0",
+        "author": "Alexander Holm"
+      },
+      "sha256": "89587632d6997c826be35d6a5c3ae74ec1731b1fba3ba134e935839e5e96a221"
+    },
+    {
+      "key": "felt-64",
+      "frames": 423179,
+      "peak": 0.46431253193262706,
+      "source": {
+        "file": "D#4v3.flac",
+        "sha256": "f85d124728e8bd345848fe14d67957bbabaf16fe04609f9dbc2e76b39f49c647",
+        "native_midi": 63,
+        "license": "CC-BY-3.0",
+        "author": "Alexander Holm"
+      },
+      "sha256": "72494ed8df7d9f0038d93f12a20a1b6b5e2b21207094e640e36d1e05eda4c299"
+    },
+    {
+      "key": "felt-66",
+      "frames": 440999,
+      "peak": 0.46640039895886987,
+      "source": {
+        "file": "F#4v3.flac",
+        "sha256": "e6a4c96e16191062502c11f4041c2fb0e46693da614371aee09b632ac8f7de3c",
+        "native_midi": 66,
+        "license": "CC-BY-3.0",
+        "author": "Alexander Holm"
+      },
+      "sha256": "80e999c1c472d18d0aa41c41a3e00736affd46abe7458d487301090046881144"
+    },
+    {
+      "key": "keys-48",
+      "frames": 410129,
+      "peak": 0.22233771173735223,
+      "source": {
+        "generator": "make_instruments.py",
+        "license": "MIT"
+      },
+      "sha256": "bcaba6fc67960e147c24560371d31b2334d3a716caefbb766956991467dd6e25"
+    },
+    {
+      "key": "keys-50",
+      "frames": 410129,
+      "peak": 0.22838800056899636,
+      "source": {
+        "generator": "make_instruments.py",
+        "license": "MIT"
+      },
+      "sha256": "ecdbf9cd53e6e5b2bdc2d32e5573c1ba7f6c8014487e488de189b9a599684064"
+    },
+    {
+      "key": "keys-52",
+      "frames": 410129,
+      "peak": 0.236235192290643,
+      "source": {
+        "generator": "make_instruments.py",
+        "license": "MIT"
+      },
+      "sha256": "19bff293b06fc8f645c535d607e22c6f14dc92a6c4890453504714bb672b8923"
+    },
+    {
+      "key": "keys-55",
+      "frames": 410129,
+      "peak": 0.22077058640879896,
+      "source": {
+        "generator": "make_instruments.py",
+        "license": "MIT"
+      },
+      "sha256": "500c90afdcb260e6722ac55ca21eb4573d9783aceca2ea62b4f3c70a55ca7baa"
+    },
+    {
+      "key": "keys-57",
+      "frames": 410129,
+      "peak": 0.21536624997697254,
+      "source": {
+        "generator": "make_instruments.py",
+        "license": "MIT"
+      },
+      "sha256": "6afe3bf5e340579bbdbbf743a9f23254eb73acd439837ba87a0e73d22a4f6a0c"
+    },
+    {
+      "key": "keys-59",
+      "frames": 410129,
+      "peak": 0.20992946234570128,
+      "source": {
+        "generator": "make_instruments.py",
+        "license": "MIT"
+      },
+      "sha256": "619613a16e014bf8eaa06ffaa0dc341b2ee7d99c25d45880d77750ea78174d0b"
+    },
+    {
+      "key": "keys-60",
+      "frames": 410129,
+      "peak": 0.22871170425812268,
+      "source": {
+        "generator": "make_instruments.py",
+        "license": "MIT"
+      },
+      "sha256": "c7af239f8f3154d41c8690765cb0ab8a72aca7700e191edbcd7345908d7a9034"
+    },
+    {
+      "key": "keys-62",
+      "frames": 410129,
+      "peak": 0.22912853618253343,
+      "source": {
+        "generator": "make_instruments.py",
+        "license": "MIT"
+      },
+      "sha256": "12b910a98dba568736bbc2d4a3eadf1179659fb7c82a0e1383e3d09595bc6fb6"
+    },
+    {
+      "key": "keys-64",
+      "frames": 410129,
+      "peak": 0.2489505719397594,
+      "source": {
+        "generator": "make_instruments.py",
+        "license": "MIT"
+      },
+      "sha256": "bde987b0a0f4144d4353448a3fef5106c999157a4bef00ce27080ce0d9634ab1"
+    },
+    {
+      "key": "kick-0",
+      "frames": 154349,
+      "peak": 0.2493369840512851,
+      "source": {
+        "generator": "make_instruments.py",
+        "license": "MIT"
+      },
+      "sha256": "6d768a01449b2088e3efc38eb3b9da6107b7b201501d4ced94641a5cc4780453"
+    },
+    {
+      "key": "pluck-48",
+      "frames": 321929,
+      "peak": 0.24046785189490352,
+      "source": {
+        "generator": "make_instruments.py",
+        "license": "MIT"
+      },
+      "sha256": "db639e831d9e2523bda020f0f39a926e92ae821d03d86b028ed0ffa58e1c7de4"
+    },
+    {
+      "key": "pluck-50",
+      "frames": 321929,
+      "peak": 0.2428193980750915,
+      "source": {
+        "generator": "make_instruments.py",
+        "license": "MIT"
+      },
+      "sha256": "2fee8de4ba9302fdff88ea76dbac4d123863fad571e6c0fcb4ce6472324f8484"
+    },
+    {
+      "key": "pluck-52",
+      "frames": 321929,
+      "peak": 0.2528071763541764,
+      "source": {
+        "generator": "make_instruments.py",
+        "license": "MIT"
+      },
+      "sha256": "f92c04dd78f7a505d0e2982ea99c7dab02f395868b13d8ed1a12d70d09ecbccd"
+    },
+    {
+      "key": "pluck-55",
+      "frames": 321929,
+      "peak": 0.23591734409573784,
+      "source": {
+        "generator": "make_instruments.py",
+        "license": "MIT"
+      },
+      "sha256": "db0922b663d7f3e4e7d85b3ecb32c40e5f12bcd1301428a021a8ac75b5a94598"
+    },
+    {
+      "key": "pluck-57",
+      "frames": 321929,
+      "peak": 0.2375514238733721,
+      "source": {
+        "generator": "make_instruments.py",
+        "license": "MIT"
+      },
+      "sha256": "d467d5f59beb2bb14d3448eb3e765e2166bc73e036fbecc13b033efe68f66a65"
+    },
+    {
+      "key": "pluck-59",
+      "frames": 321929,
+      "peak": 0.23242476908684903,
+      "source": {
+        "generator": "make_instruments.py",
+        "license": "MIT"
+      },
+      "sha256": "b66867e06f4852a4f34c8aa8d05bd152a4e2d87e689a23331c97d0725b1c4de5"
+    },
+    {
+      "key": "pluck-60",
+      "frames": 321929,
+      "peak": 0.24636006045582154,
+      "source": {
+        "generator": "make_instruments.py",
+        "license": "MIT"
+      },
+      "sha256": "19e019783d48192adbd57e793ce2fc79c465eee6087fefe32e2537771fdb1bd9"
+    },
+    {
+      "key": "pluck-62",
+      "frames": 321929,
+      "peak": 0.23816501585213823,
+      "source": {
+        "generator": "make_instruments.py",
+        "license": "MIT"
+      },
+      "sha256": "e180462aead380c8966af45b10023841ad594ba2f06c25df7b7ab63eaf42e33e"
+    },
+    {
+      "key": "pluck-64",
+      "frames": 321929,
+      "peak": 0.26676470450192674,
+      "source": {
+        "generator": "make_instruments.py",
+        "license": "MIT"
+      },
+      "sha256": "4d589248ae227f09a9dfe93a23ffecc5a1b9e25647223d19313021854ed10f75"
+    },
+    {
+      "key": "wood-50",
+      "frames": 321929,
+      "peak": 0.2774075501214113,
+      "source": {
+        "generator": "make_instruments.py",
+        "license": "MIT"
+      },
+      "sha256": "9d3ee42daf61cdc110042aa1faf570a86e45b81527c2787e3ae61819fd3cb77a"
+    },
+    {
+      "key": "wood-53",
+      "frames": 321929,
+      "peak": 0.29890835580157255,
+      "source": {
+        "generator": "make_instruments.py",
+        "license": "MIT"
+      },
+      "sha256": "8f88caf959ac7495d70f40c37ef96ff0a686a48133b095aa28141e5ec931dd1c"
+    },
+    {
+      "key": "wood-55",
+      "frames": 321929,
+      "peak": 0.251239760273252,
+      "source": {
+        "generator": "make_instruments.py",
+        "license": "MIT"
+      },
+      "sha256": "8b1093c45a6934d7297a3e871e34baa41f1805fc863d2aeb50cb3eae3755be39"
+    },
+    {
+      "key": "wood-57",
+      "frames": 321929,
+      "peak": 0.2511449661465986,
+      "source": {
+        "generator": "make_instruments.py",
+        "license": "MIT"
+      },
+      "sha256": "5d062e7f2d3f860024d6b5b8538ad8fd72576591255e3f4333cc29ddd5987d25"
+    },
+    {
+      "key": "wood-58",
+      "frames": 321929,
+      "peak": 0.2606105148187074,
+      "source": {
+        "generator": "make_instruments.py",
+        "license": "MIT"
+      },
+      "sha256": "d19486eddb2afec940b14f3e90dd933d39d2fb27fcf24f9d47758b0387125f7a"
+    },
+    {
+      "key": "wood-60",
+      "frames": 321929,
+      "peak": 0.2529593797522366,
+      "source": {
+        "generator": "make_instruments.py",
+        "license": "MIT"
+      },
+      "sha256": "9190454ff10f2403f06e7e158a2170a46efb7510a01693f6dcdbf90d64ac9549"
+    },
+    {
+      "key": "wood-62",
+      "frames": 321929,
+      "peak": 0.25361320144802363,
+      "source": {
+        "generator": "make_instruments.py",
+        "license": "MIT"
+      },
+      "sha256": "f4673dae4ce0b8078c1de5a47048551338e3d83800da767192f359905845c998"
+    },
+    {
+      "key": "wood-64",
+      "frames": 321929,
+      "peak": 0.2781226045555114,
+      "source": {
+        "generator": "make_instruments.py",
+        "license": "MIT"
+      },
+      "sha256": "2f4d5a3ba4f8041db8c0dff76214e9bda142e6ed9d5c9af5e192bff7a38f640c"
+    },
+    {
+      "key": "wood-65",
+      "frames": 321929,
+      "peak": 0.25927305529934536,
+      "source": {
+        "generator": "make_instruments.py",
+        "license": "MIT"
+      },
+      "sha256": "0212a4cce1d3085fbc300e539ec5066239afb966b5d1667344a9c49603162b4b"
+    },
+    {
+      "key": "wood-67",
+      "frames": 321929,
+      "peak": 0.2489567156496936,
+      "source": {
+        "generator": "make_instruments.py",
+        "license": "MIT"
+      },
+      "sha256": "5e566ab3585b7ddb141e1b2f0d4fc4e6518dee5130fec1229fabdd25527670e4"
+    }
+  ]
+}

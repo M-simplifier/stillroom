@@ -26,6 +26,9 @@ data Session = Session
     restMotion :: !RestMotion,
     restShade :: !PictureShade,
     graphicsQuality :: !GraphicsQuality,
+    musicPreset :: !Preset,
+    builtInMusic :: !Bool,
+    journeySound :: !Bool,
     restSeconds :: !Double,
     restHintSeconds :: !Double,
     idleSeconds :: !Double
@@ -62,6 +65,8 @@ data Event
   | NextScreen
   | OpenMusic
   | UsePresets
+  | ChooseMusicPreset Preset
+  | ToggleJourneySound
   | ToggleLanguage
   | Activity
   | Elapse Seconds
@@ -83,7 +88,7 @@ data Effect
   deriving (Eq, Show)
 
 initialSession :: Volume -> Session
-initialSession v = Session Playing v Forest Original Fullscreen English False RestSettings Working TidalLight Atmospheres Gentle Soft Automatic 0 0 0
+initialSession v = Session Playing v Forest Original Fullscreen English False RestSettings Working TidalLight Atmospheres Gentle Soft Automatic Linen True True 0 0 0
 
 step :: Event -> Session -> (Session, [Effect])
 step event original
@@ -134,7 +139,9 @@ stepAllowed event original = case event of
      in (awake {transport = p}, [ApplyTransport p])
   ChangeVolume d -> step (SetVolume (adjustVolume d (loudness original))) awake
   SetVolume v -> (awake {loudness = v}, [ApplyVolume v, Persist])
-  NextTrack -> (awake, [SkipTrack])
+  NextTrack
+    | builtInMusic original -> step (ChooseMusicPreset (nextPreset (musicPreset original))) awake
+    | otherwise -> (awake, [SkipTrack])
   ChooseBackground b -> (awake {background = b}, [Persist])
   OpenPicture -> (awake, [PickPicture])
   BrowsePicture direction -> (awake, [SelectPicture direction])
@@ -153,7 +160,9 @@ stepAllowed event original = case event of
   ShowMusicSettings -> (awake {settingsOpen = True, settingsPage = MusicSettings, viewingMode = Working}, [])
   NextScreen -> (awake, [MoveScreen, Persist])
   OpenMusic -> (awake, [PickMusicFolder])
-  UsePresets -> (awake, [SelectPresets, Persist])
+  UsePresets -> (awake {builtInMusic = True}, [SelectPresets, Persist])
+  ChooseMusicPreset preset -> (awake {musicPreset = preset, builtInMusic = True}, [SelectPresets, Persist])
+  ToggleJourneySound -> (awake {journeySound = not (journeySound original)}, [Persist])
   ToggleLanguage -> (awake {language = if language original == English then Japanese else English}, [Persist])
   where
     awake = original {idleSeconds = 0}

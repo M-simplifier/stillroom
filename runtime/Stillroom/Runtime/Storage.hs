@@ -11,6 +11,7 @@ module Stillroom.Runtime.Storage
     restoreSession,
     scanFolder,
     presetTracks,
+    presetTrack,
     LibraryError (..),
   )
 where
@@ -43,14 +44,16 @@ data Preferences = Preferences
     savedRestScene :: !RestScene,
     savedRestMotion :: !RestMotion,
     savedRestShade :: !PictureShade,
-    savedGraphicsQuality :: !GraphicsQuality
+    savedGraphicsQuality :: !GraphicsQuality,
+    savedMusicPreset :: !Preset,
+    savedJourneySound :: !Bool
   }
   deriving (Eq, Show)
 
 instance ToJSON Preferences where
   toJSON p =
     object
-      [ "version" .= (8 :: Int),
+      [ "version" .= (9 :: Int),
         "volume" .= savedVolume p,
         "background" .= show (savedBackground p),
         "window" .= show (savedWindow p),
@@ -63,13 +66,15 @@ instance ToJSON Preferences where
         "restScene" .= show (savedRestScene p),
         "restMotion" .= show (savedRestMotion p),
         "restShade" .= show (savedRestShade p),
-        "graphicsQuality" .= show (savedGraphicsQuality p)
+        "graphicsQuality" .= show (savedGraphicsQuality p),
+        "musicPreset" .= show (savedMusicPreset p),
+        "journeySound" .= savedJourneySound p
       ]
 
 instance FromJSON Preferences where
   parseJSON = withObject "preferences" $ \o -> do
     version <- o .:? "version" .!= (1 :: Int)
-    when (version `notElem` [1, 2, 3, 4, 5, 6, 7, 8]) (fail "unsupported preference version")
+    when (version `notElem` [1, 2, 3, 4, 5, 6, 7, 8, 9]) (fail "unsupported preference version")
     v <- o .:? "volume" .!= 0.35
     b <- o .:? "background" .!= "Forest"
     w <- o .:? "window" .!= "Fullscreen"
@@ -83,11 +88,14 @@ instance FromJSON Preferences where
     motion <- o .:? "restMotion" .!= "Gentle"
     restBrightness <- o .:? "restShade" .!= "Soft"
     quality <- o .:? "graphicsQuality" .!= "Automatic"
+    music <- o .:? "musicPreset" .!= "Linen"
+    sound <- o .:? "journeySound" .!= True
+    parsedMusic <- maybe (fail "unknown music preset") pure (readMaybe music)
     parsedQuality <- maybe (fail "unknown graphics quality") pure (readMaybe quality)
     parsedVolume <- either (const (fail "invalid volume")) pure (volume v)
     case (readMaybe b, readMaybe w, readMaybe l, readMaybe shade, readRestScene scene, readMaybe motion, readMaybe restBrightness) of
       (Just backgroundValue, Just windowValue, Just languageValue, Just shadeValue, Just sceneValue, Just motionValue, Just restShadeValue) ->
-        pure (Preferences (volumeValue parsedVolume) backgroundValue windowValue languageValue screen folder previous picture shadeValue sceneValue motionValue restShadeValue parsedQuality)
+        pure (Preferences (volumeValue parsedVolume) backgroundValue windowValue languageValue screen folder previous picture shadeValue sceneValue motionValue restShadeValue parsedQuality parsedMusic sound)
       _ -> fail "unknown preference value"
 
 -- Retired local photo experiments migrate at the boundary, without retaining
@@ -98,7 +106,7 @@ readRestScene "WoodlandPond" = Just Shallows
 readRestScene name = readMaybe name
 
 defaults :: Language -> Preferences
-defaults languageValue = Preferences 0.35 Forest Fullscreen languageValue "" Nothing Nothing Nothing Original TidalLight Gentle Soft Automatic
+defaults languageValue = Preferences 0.35 Picture Fullscreen languageValue "" Nothing Nothing (Just "bundled:open-water.png") Soft TidalLight Gentle Soft Automatic Linen True
 
 readPreferences :: FilePath -> Language -> IO (Preferences, Maybe String)
 readPreferences file languageValue = do
@@ -129,6 +137,9 @@ restoreSession p =
       restMotion = savedRestMotion p,
       restShade = savedRestShade p,
       graphicsQuality = savedGraphicsQuality p,
+      musicPreset = savedMusicPreset p,
+      builtInMusic = savedFolder p == Nothing,
+      journeySound = savedJourneySound p,
       windowMode = savedWindow p,
       language = savedLanguage p
     }
@@ -143,6 +154,8 @@ fromSession s p =
       savedRestMotion = restMotion s,
       savedRestShade = restShade s,
       savedGraphicsQuality = graphicsQuality s,
+      savedMusicPreset = musicPreset s,
+      savedJourneySound = journeySound s,
       savedWindow = windowMode s,
       savedLanguage = language s
     }
@@ -176,4 +189,7 @@ scanFolder folder = do
     make i file = Track (TrackId i) (take 120 (takeBaseName file)) (LocalFile file)
 
 presetTracks :: NonEmpty Track
-presetTracks = NE.zipWith (\i p -> Track (TrackId i) (presetName p) (Procedural p)) (0 :| [1 ..]) allPresets
+presetTracks = NE.zipWith (\i p -> Track (TrackId i) (presetName p) (Continuous p)) (0 :| [1 ..]) allPresets
+
+presetTrack :: Preset -> NonEmpty Track
+presetTrack p = Track (TrackId (fromEnum p)) (presetName p) (Continuous p) :| []

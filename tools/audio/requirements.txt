@@ -1,0 +1,4 @@
+# Tested with CPython 3.12.14, Windows x86-64; soundfile uses libsndfile 1.2.2.
+numpy==2.5.3
+scipy==1.18.1
+soundfile==0.14.0

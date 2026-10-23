@@ -33,6 +33,8 @@ module Stillroom.Domain
     Preset (..),
     allPresets,
     presetName,
+    presetLabel,
+    nextPreset,
     presetDuration,
     Source (..),
     Track (..),
@@ -198,14 +200,30 @@ allPresets :: NonEmpty Preset
 allPresets = Linen :| [Moss, Orbit, Night]
 
 presetName :: Preset -> String
-presetName = show
+presetName Linen = "Soft piano"
+presetName Night = "Warm keys"
+presetName Orbit = "Quiet pulse"
+presetName Moss = "Wood & air"
+
+presetLabel :: Language -> Preset -> String
+presetLabel English p = presetName p
+presetLabel Japanese Linen = "やわらかなピアノ"
+presetLabel Japanese Night = "あたたかな鍵盤"
+presetLabel Japanese Orbit = "静かな拍"
+presetLabel Japanese Moss = "木と空気"
+
+nextPreset :: Preset -> Preset
+nextPreset Linen = Night
+nextPreset Night = Orbit
+nextPreset Orbit = Moss
+nextPreset Moss = Linen
 
 presetDuration :: Preset -> Seconds
 presetDuration _ = Seconds 180
 
 newtype TrackId = TrackId Int deriving (Eq, Ord, Show)
 
-data Source = Procedural Preset | LocalFile FilePath deriving (Eq, Show)
+data Source = Procedural Preset | Continuous Preset | LocalFile FilePath deriving (Eq, Show)
 
 data Track = Track {trackId :: !TrackId, trackTitle :: !String, trackSource :: !Source}
   deriving (Eq, Show)

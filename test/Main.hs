@@ -2,13 +2,15 @@
 
 module Main (main) where
 
-import Control.Monad (unless)
+import Control.Monad (forM, unless)
 import Data.Aeson (eitherDecode, encode, object, (.=))
 import Data.List (sort)
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Vector.Storable qualified as V
 import JourneyChecks (journeyChecks)
 import GraphicsChecks (graphicsChecks)
+import AudioChecks (audioChecks)
+import EnvironmentChecks (environmentChecks)
 import Stillroom.Domain
 import Stillroom.Graphics qualified as G
 import Stillroom.Interface qualified as UI
@@ -40,6 +42,8 @@ main = do
         law "unknown preference versions are rejected" (once propVersion),
         law "ordinary controls never reconfigure the window" (once propWindowEffects),
         law "built-in music preserves the user's previous folder" (once propRememberFolder),
+        law "built-in choices and imported next remain distinct" (once propMusicChoices),
+        law "new installations have complete built-ins and legacy choices survive" (once propBuiltinDefaults),
         law "version 1 settings migrate without losing music or display" (once propMigrate),
         law "picture controls preserve playback and window state" (once propPictureControls),
         law "picture shading cycles through bounded levels" (once propPictureShade),
@@ -63,7 +67,12 @@ main = do
       ]
   journeysPassed <- journeyChecks
   graphicsPassed <- graphicsChecks
-  unless (all isSuccess results && journeysPassed && graphicsPassed) exitFailure
+  audioPassed <- forM (audioChecks ++ environmentChecks) $ \(title, check) -> do
+    putStrLn title
+    passed <- check
+    putStrLn (if passed then "+++ OK, passed 1 test." else "*** Failed.")
+    pure passed
+  unless (all isSuccess results && journeysPassed && graphicsPassed && and audioPassed) exitFailure
   where
     law title p = putStrLn title >> quickCheckWithResult stdArgs {maxSuccess = 250} p
 
@@ -167,14 +176,40 @@ propPreferences (NonNegative n) =
             savedRestScene = toEnum (n `mod` (1 + fromEnum (maxBound :: RestScene))),
             savedRestMotion = toEnum ((n `div` 2) `mod` 2),
             savedRestShade = toEnum ((n `div` 3) `mod` 3),
-            savedGraphicsQuality = toEnum (n `mod` 5)
+            savedGraphicsQuality = toEnum (n `mod` 5),
+            savedMusicPreset = toEnum (n `mod` 4),
+            savedJourneySound = even n
           }
    in eitherDecode (encode p) == Right p
 
 propVersion :: Bool
-propVersion = case (eitherDecode (encode (object ["version" .= (9 :: Int)])) :: Either String Preferences) of
+propVersion = case (eitherDecode (encode (object ["version" .= (10 :: Int)])) :: Either String Preferences) of
   Left _ -> True
   Right _ -> False
+
+propMusicChoices :: Bool
+propMusicChoices =
+  let original = initialSession defaultVolume
+      (chosen, effects) = step (ChooseMusicPreset Night) original
+      (next, nextEffects) = step NextTrack chosen
+      (personal, personalEffects) = step NextTrack (original {builtInMusic = False})
+      resting = original {viewingMode = Resting}
+   in musicPreset chosen == Night && builtInMusic chosen && effects == [SelectPresets,Persist]
+      && musicPreset next == Orbit && nextEffects == [SelectPresets,Persist]
+      && not (builtInMusic personal) && personalEffects == [SkipTrack]
+      && step (ChooseMusicPreset Night) resting == (resting,[])
+      && step ToggleJourneySound resting == (resting,[])
+
+propBuiltinDefaults :: Bool
+propBuiltinDefaults =
+  let fresh = defaults Japanese
+      legacy = eitherDecode (encode (object ["version" .= (8 :: Int),"background" .= ("Black" :: String),"musicFolder" .= ("my music" :: String)]))
+   in savedBackground fresh == Picture && savedPicture fresh == Just "bundled:open-water.png"
+      && savedMusicPreset fresh == Linen && savedJourneySound fresh
+      && case legacy of
+        Right p -> savedBackground p == Black && savedFolder p == Just "my music"
+                   && savedMusicPreset p == Linen && savedJourneySound p
+        Left (_ :: String) -> False
 
 propWindowEffects :: Bool
 propWindowEffects =

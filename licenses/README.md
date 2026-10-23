@@ -1,5 +1,8 @@
 # Third-party notices
 
+The piano recordings are CC BY 3.0, separate from the software's MIT license.
+See [built-in audio attribution](builtin-audio.md).
+
 Stillroom source and original synthesis are MIT licensed. Dependencies and the font retain their own licenses. These notices correspond to the pinned Windows executable dependency closure; the test and build tools are not shipped.
 
 | Package | Version | License | Notice |
