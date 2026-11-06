@@ -1,6 +1,6 @@
 # The quiet line
 
-Stillroom 0.8 adds a single connected journey to the rest gallery. A small
+The Journey collection offers a single connected landscape. A small
 observation railcar moves through generated countryside. Stop near safe ground,
 step outside, walk freely or use automatic strolling, then return to the waiting
 car. Esc returns to the working view and keeps the place for the next break.
@@ -52,6 +52,11 @@ uploads that result, retains the bounded near/far caches and executes the shared
 `Journey.Frame.FramePlan` for shadow, reflection and main views. Changing the
 quality budget changes targets and shading while keeping the seed and geometry.
 
+Geometry fingerprints are explicit diagnostics. Ordinary generation completes
+and packs the render buffers without hashing them. The long journey check opts
+into canonical fingerprints and retains only their evaluated values after
+upload; it does not keep old CPU vertex arrays for delayed hashes.
+
 Walking queries the analytical Double field. The renderer samples Float raster
 coordinates and uses actual triangle interpolation for grass roots and LOD
 morphing. A cell's centre can differ from the analytical surface between grid
@@ -91,7 +96,10 @@ separate evidence.
 The native suite is opt-in; ordinary `cabal test` keeps the pure laws usable
 without an OpenGL context.
 
-### Local Haskell migration, 2026-11-06
+### Initial Haskell migration measurement, 2026-11-06
+
+This subsection records the migration before the later 0.12 optimizations.
+Its figures describe that development build, not the final 0.12 distribution.
 
 The same 960×540 Standard-quality diagnostic was run from the frozen public
 0.11.0 executable and the local Haskell build on the same Windows 11 / RTX 3050
@@ -105,7 +113,7 @@ real-time playback.
 | Local Haskell renderer, effective GHC `-O2` | 72.03 s | 74.77 ms |
 | Public 0.11.0 C renderer, run immediately afterward | 40.43 s | 50.67 ms |
 
-The final comparison ran these two executables consecutively to limit drift
+That comparison ran these two executables consecutively to limit drift
 from clocks and other desktop work. The Stillroom package sets `optimization: 2`
 in `cabal.project`; verification checked actual library and executable compiler
 calls for `-O2`. Dependency settings remain unchanged. Cabal's overall profile
@@ -133,10 +141,11 @@ different performance questions; generation hitches remain possible.
 Five further CPU candidates were rejected by measurement and reverted: vertex
 unpacking, removal of vector bounds checks, shared vegetation rows, an alternative
 habitat accumulator, and prepared rail controls inside placement queries.
-The final nine landscape modules retain the accepted source hashes. The last
-placement probe saved about 7.8 ms across 1,040 representative chunk cases; it did not explain the
-25 s generation total or justify another implementation. This migration is a
-local trial and does not replace the public release.
+At that checkpoint, the nine landscape modules retained their accepted source
+hashes. The last placement probe saved about 7.8 ms across 1,040 representative
+chunk cases; it did not explain the 25 s generation total or justify adopting
+those candidates. Subsequent changes are checked against the same frozen
+geometry and rendered-scene references rather than inheriting these timings.
 
 ### Original 0.8 study
 

@@ -1,5 +1,11 @@
 # Rendering cost and the Haskell/C boundary
 
+The measurements below retain their original 0.6 and 0.7 workloads. Version 0.12
+moves landscape generation, GPU resource ownership and pass execution into the
+Haskell runtime; h-raylib and GLSL remain at the graphics boundary. See
+[journey verification](journeys.md#verification-and-limits) for the migration's
+conditions and the distinction between ordinary rendering and diagnostic hashes.
+
 ## 0.7 landscape quality and cost
 
 The new landscape renderer batches geometry behind one native call. It retains

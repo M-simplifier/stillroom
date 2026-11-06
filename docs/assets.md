@@ -28,15 +28,17 @@
   generated locally from the same shader. [Research notes](shader-research.md)
   distinguish references from the independent implementation; no Seascape code is
   bundled.
-- **Procedural landscapes:** original generation in `cbits/nature.c` and shaders
-  in `assets/rest/nature/`, MIT. Three scenes generate terrain, vegetation, stones,
+- **Procedural landscapes:** original Haskell generation in `src/Stillroom/Landscape/`
+  and shaders in `assets/rest/nature/`, MIT. Three scenes generate terrain, vegetation, stones,
   height/bone data and reflections; no landscape image, authored model, video or
   noise texture is distributed. [Landscape research](procedural-landscapes.md)
-  distinguishes references from implemented techniques. The unmodified raylib,
-  raymath and rlgl headers in `cbits/include/` come from pinned h-raylib 5.6.0.0;
-  their zlib notices remain in the headers and `licenses/raylib-native.txt`.
-- **Journey:** original Haskell reducers, terrain/rail/plant generation in
-  `cbits/journey/` and shaders in `assets/rest/journey/`, MIT. No model, terrain
+  distinguishes references from implemented techniques. Native raylib components
+  come through pinned h-raylib 5.6.0.0; their notices remain in
+  `licenses/raylib-native.txt`. The former application C renderer and copied
+  raylib headers are no longer part of the application source.
+- **Journey:** original Haskell reducers in `src/Stillroom/Journey/`,
+  terrain/rail/plant generation in `src/Stillroom/Landscape/`, and shaders in
+  `assets/rest/journey/`, MIT. No model, terrain
   image or video is sampled by the live journey. `poster.png` is a 320×180 native
   capture used only by the gallery card. The official site's 16-second silent
   film uses the production Ultra renderer, captured at a fixed clock and encoded

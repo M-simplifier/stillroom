@@ -1,19 +1,16 @@
 # Status
 
-The public baseline is Stillroom 0.11.0 for Windows x64, tested on Windows 11 with GHC 9.6.7 and
+Stillroom 0.12.0 targets Windows x64, tested on Windows 11 with GHC 9.6.7 and
 h-raylib 5.6.0.0. It is a small utility with best-effort maintenance, not a
 medical device or a measured productivity intervention.
 
-The working branch contains an unpublished Haskell graphics migration. Seeded
-field queries, CPU landscape construction, retained GPU resources and pass
-execution now live in Haskell; GLSL and pinned h-raylib remain dependencies.
-The application C boundary is `cbits/native.c` for Windows. This local work is
-separate from the published 0.11.0 package and has not been released.
-The final Stillroom library and executable use confirmed GHC `-O2`, with
-dependency settings unchanged. The matched accelerated journey took 72.03 s
-against 40.43 s for the immediately following public C control: a remaining
-1.78× cost. This is a verified local trial, not a replacement for the public
-build. Conditions and retained earlier measurements are in [journeys](docs/journeys.md).
+Version 0.12 moves seeded field queries, CPU landscape construction, retained
+GPU resources and pass execution into Haskell. OpenGL, GLSL and pinned h-raylib
+remain dependencies. The application C boundary is `cbits/native.c` for Windows.
+The Stillroom library and executable use GHC `-O2`, with dependency versions
+unchanged. Ordinary rendering omits diagnostic geometry hashes; explicit
+verification runs retain the complete canonical fingerprints. Conditions and
+retained development measurements are in [journeys](docs/journeys.md).
 
 The listening room provides four continuously composed music moods, MP3/WAV/OGG
 folder playback, shuffle, crossfade, pause/next, saved settings, local background images, ten

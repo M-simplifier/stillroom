@@ -27,6 +27,7 @@
     <div class="title-row"><h1>A 3D rendering<br>core in Haskell</h1><p class="intro">The main view, shadows and water reflections depict one world from different viewpoints. Defining that relationship with pure values helped us fix disagreements between them.</p></div>
     <div class="cover"><img src="graphics-foundation.webp" width="1280" height="720" alt="A wooden railcar passing a lake in Stillroom 0.10."></div>
     <p class="cover-note">Stillroom is a Windows app for music while working and scenery during breaks. Its renderer uses Haskell, raylib and GLSL.</p>
+    <p class="aside">Implementation update for 0.12: Haskell now generates landscape geometry, owns retained GPU resources and executes the passes through h-raylib. OpenGL and GLSL perform the GPU work; the small application C boundary handles Windows integration. The films and numerical study below retain their original 0.10 scope.</p>
   </section>
 
   <section class="section wrap" id="film" aria-labelledby="film-title">
@@ -65,22 +66,23 @@
       </div>
       <p class="aside">These three observations are Stillroom's policy. The reusable core does not fix the number of passes. Another application can define its own geometry selection and observations.</p>
       <div class="code-story">
-        <div><span class="tiny">The pure boundary</span><h3>Return a frame plan as a value</h3><p>Given the current world and the dimensions of targets actually allocated by the GPU, <code>planFrame</code> returns a plan containing its projections. Invalid inputs return an error.</p><p>This calculation does not operate the GPU. The same inputs produce the same plan, so it can be checked without opening a window. Before execution, the plan is lowered to a representation the renderer can consume.</p></div>
+        <div><span class="tiny">The pure boundary</span><h3>Return a frame plan as a value</h3><p>Given the current world and the dimensions of targets actually allocated by the GPU, <code>planFrame</code> returns a plan containing its projections. Invalid inputs return an error.</p><p>This calculation does not operate the GPU. The same inputs produce the same plan, so it can be checked without opening a window. The Haskell renderer consumes the typed plan directly; <code>lowerFrame</code> provides a finite packet for diagnostics.</p></div>
         <div class="code-panel"><div class="code-label">Haskell / Entry points</div><pre><code><span class="fn">planFrame</span>
   :: Targets
   -&gt; FrameInput
   -&gt; Either PlanError <span class="ty">FramePlan</span>
 
+-- Diagnostic encoding
 <span class="fn">lowerFrame</span>
   :: FramePlan
-  -&gt; Either FrameEncodingError <span class="ty">FramePacket</span></code></pre><a href="https://github.com/M-simplifier/stillroom/blob/v0.10.0/src/Stillroom/Journey/Frame.hs">Read Journey.Frame ↗</a></div>
+  -&gt; Either FrameEncodingError <span class="ty">FramePacket</span></code></pre><a href="https://github.com/M-simplifier/stillroom/blob/v0.12.0/src/Stillroom/Journey/Frame.hs">Read Journey.Frame ↗</a></div>
       </div>
       <div class="principles">
         <article><span>01</span><h3>Put coordinate spaces in types</h3><p><code>Transform Object Render</code> maps object coordinates into render coordinates. The type checker rejects composition when the adjacent spaces do not match.</p><pre><code>compose :: Transform b c
         -&gt; Transform a b
         -&gt; Transform a c</code></pre></article>
-        <article><span>02</span><h3>Pair a target with its projection</h3><p>The shadow reader uses the projection that wrote the shadow. <code>Observation target</code> keeps this relationship; the C boundary also passes the image and map together.</p><p>The public API cannot replace one field of a validated plan. Its internal representation stays opaque.</p></article>
-        <article><span>03</span><h3>Lower at one boundary</h3><p>Transforms use Double; box boundaries use Rational. Validated packets contain finite Float values for the native renderer.</p><p>C owns GPU resources and executes the plan. It does not independently reconstruct the projections.</p></article>
+        <article><span>02</span><h3>Pair a target with its projection</h3><p>The shadow reader uses the projection that wrote the shadow. <code>Observation target</code> keeps this relationship; the Haskell GPU runtime carries the image and map together.</p><p>The public API cannot replace one field of a validated plan. Its internal representation stays opaque.</p></article>
+        <article><span>03</span><h3>Lower at one boundary</h3><p>Transforms use Double; box boundaries use Rational. Coordinates and matrices become Float at the GPU boundary.</p><p>The Haskell runtime owns resource lifetimes and submits the plan through h-raylib. GLSL uses those matrices for the vertex and pixel calculations.</p></article>
       </div>
     </div>
   </section>
@@ -107,11 +109,11 @@
   <section class="paper" aria-labelledby="code-title">
     <div class="section wrap">
       <div class="section-heading"><span class="index">04 / Implementation</span><h2 id="code-title">Separate mathematics, application policy and GPU operations</h2></div>
-      <p class="measure">The shared types need not know about a railcar. The railcar definition need not know the GPU's array layout. Read the version 0.10 code in this order.</p>
+      <p class="measure">The shared types need not know about a railcar. The railcar definition need not know the GPU's array layout. Read the version 0.12 code in this order.</p>
       <div class="module-map">
-        <article><span class="tiny">Reusable core</span><h3>Spaces, shapes and observations</h3><a href="https://github.com/M-simplifier/stillroom/blob/v0.10.0/src/Stillroom/Graphics/Space.hs"><code>Graphics.Space</code><span>Coordinate spaces and maps ↗</span></a><a href="https://github.com/M-simplifier/stillroom/blob/v0.10.0/src/Stillroom/Graphics/BoxUnion.hs"><code>Graphics.BoxUnion</code><span>Exact box boundaries ↗</span></a><a href="https://github.com/M-simplifier/stillroom/blob/v0.10.0/src/Stillroom/Graphics/Mesh.hs"><code>Graphics.Mesh</code><span>Geometry and appearance ↗</span></a><a href="https://github.com/M-simplifier/stillroom/blob/v0.10.0/src/Stillroom/Graphics/Observation.hs"><code>Graphics.Observation</code><span>A target and its projection ↗</span></a></article>
-        <article><span class="tiny">Application policy</span><h3>Stillroom's world</h3><a href="https://github.com/M-simplifier/stillroom/blob/v0.10.0/src/Stillroom/Journey/Railcar.hs"><code>Journey.Railcar</code><span>The railcar's shape and colours ↗</span></a><a href="https://github.com/M-simplifier/stillroom/blob/v0.10.0/src/Stillroom/Journey/Frame.hs"><code>Journey.Frame</code><span>A world and three observations ↗</span></a><p>The shared core contains neither the railcar nor a fixed three-pass schedule.</p></article>
-        <article><span class="tiny">Encoding and execution</span><h3>Transfer and draw</h3><a href="https://github.com/M-simplifier/stillroom/blob/v0.10.0/runtime/Stillroom/Runtime/Journey/Packet.hs"><code>Runtime.Journey.Packet</code><span>A frame's native encoding ↗</span></a><a href="https://github.com/M-simplifier/stillroom/blob/v0.10.0/src/Stillroom/Graphics/Encoding/Mesh.hs"><code>Graphics.Encoding.Mesh</code><span>Geometry as vertex data ↗</span></a><a href="https://github.com/M-simplifier/stillroom/blob/v0.10.0/cbits/journey/render.c"><code>journey/render.c</code><span>Resource ownership and execution ↗</span></a><p>Array layout and GPU conventions stay outside the geometry's definition.</p></article>
+        <article><span class="tiny">Reusable core</span><h3>Spaces, shapes and observations</h3><a href="https://github.com/M-simplifier/stillroom/blob/v0.12.0/src/Stillroom/Graphics/Space.hs"><code>Graphics.Space</code><span>Coordinate spaces and maps ↗</span></a><a href="https://github.com/M-simplifier/stillroom/blob/v0.12.0/src/Stillroom/Graphics/BoxUnion.hs"><code>Graphics.BoxUnion</code><span>Exact box boundaries ↗</span></a><a href="https://github.com/M-simplifier/stillroom/blob/v0.12.0/src/Stillroom/Graphics/Mesh.hs"><code>Graphics.Mesh</code><span>Geometry and appearance ↗</span></a><a href="https://github.com/M-simplifier/stillroom/blob/v0.12.0/src/Stillroom/Graphics/Observation.hs"><code>Graphics.Observation</code><span>A target and its projection ↗</span></a></article>
+        <article><span class="tiny">Application policy</span><h3>Stillroom's world</h3><a href="https://github.com/M-simplifier/stillroom/blob/v0.12.0/src/Stillroom/Journey/Railcar.hs"><code>Journey.Railcar</code><span>The railcar's shape and colours ↗</span></a><a href="https://github.com/M-simplifier/stillroom/blob/v0.12.0/src/Stillroom/Journey/Frame.hs"><code>Journey.Frame</code><span>A world and three observations ↗</span></a><a href="https://github.com/M-simplifier/stillroom/blob/v0.12.0/src/Stillroom/Landscape/Geometry.hs"><code>Landscape.Geometry</code><span>Seeded terrain and plants ↗</span></a><p>The shared core contains neither the railcar nor a fixed three-pass schedule.</p></article>
+        <article><span class="tiny">Encoding and execution</span><h3>Transfer and draw</h3><a href="https://github.com/M-simplifier/stillroom/blob/v0.12.0/runtime/Stillroom/Runtime/Graphics/Journey.hs"><code>Runtime.Graphics.Journey</code><span>Execute the typed frame plan ↗</span></a><a href="https://github.com/M-simplifier/stillroom/blob/v0.12.0/src/Stillroom/Graphics/Encoding/Mesh.hs"><code>Graphics.Encoding.Mesh</code><span>Geometry as vertex data ↗</span></a><a href="https://github.com/M-simplifier/stillroom/blob/v0.12.0/runtime/Stillroom/Runtime/Graphics/Resource.hs"><code>Graphics.Resource</code><span>Retained resources and uploads ↗</span></a><p>Array layout and GPU conventions stay outside the geometry's definition.</p></article>
       </div>
       <p class="aside">This core is used by Stillroom. It is not a separately released general engine; another real consumer should determine which parts deserve further generalization.</p>
     </div>
@@ -119,7 +121,7 @@
 
   <section class="section wrap" id="evidence" aria-labelledby="evidence-title">
     <div class="section-heading"><span class="index">05 / Verification</span><h2 id="evidence-title">Check what happens beyond the types</h2></div>
-    <p class="measure">Distinct coordinate types do not make matrix entries or GPU transfers automatically correct. Property tests and independent reference calculations are complemented by checks of emitted geometry and actual GPU output.</p>
+    <p class="measure">Distinct coordinate types do not make matrix entries or GPU transfers automatically correct. The following results describe the original 20 October 2026 foundation study. Current migration and package checks are listed in <a href="https://github.com/M-simplifier/stillroom/blob/v0.12.0/STATUS.md">Status</a>.</p>
     <div class="evidence-table" role="region" aria-label="Verification results" tabindex="0">
       <table><thead><tr><th>Subject</th><th>Result</th><th>Scope</th></tr></thead><tbody>
         <tr><th>Railcar geometry</th><td><strong>0</strong> positive-area coplanar overlaps</td><td>All 1,798 emitted triangles inspected. A separate occupancy model checked the boxes' exterior.</td></tr>
@@ -135,7 +137,7 @@
     <h2>What Haskell contributes</h2>
     <p>Concrete geometry, precision and shadow fixes improved the image. Haskell expresses those calculations as pure values and functions. Types and the public API prevent mismatched spaces and partial changes to validated plans. Actual output checks cover the GPU boundary.</p>
     <p class="muted">Other languages can express this design. In Stillroom, functional tools make the relationships visible in code and let us check them again after a change. Extracting a general graphics library remains future work.</p>
-    <div class="closing-links"><a class="button" href="https://github.com/M-simplifier/stillroom/tree/v0.10.0/src/Stillroom/Graphics">Read the source <span>↗</span></a><a href="https://github.com/M-simplifier/stillroom/blob/v0.10.0/docs/graphics-foundation.md#sources">Technical reference and sources ↗</a></div>
+    <div class="closing-links"><a class="button" href="https://github.com/M-simplifier/stillroom/tree/v0.12.0/src/Stillroom/Graphics">Read the source <span>↗</span></a><a href="https://github.com/M-simplifier/stillroom/blob/v0.12.0/docs/graphics-foundation.md#sources">Technical reference and sources ↗</a></div>
   </section>
 </main>
 <footer class="wrap"><a class="brand" href="./">◌ stillroom</a><p><a href="developers.html">Developers</a></p><a href="./">About the app →</a></footer>

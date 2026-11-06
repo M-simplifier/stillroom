@@ -90,7 +90,7 @@ Fine railcar grain is filtered using its pixel footprint.
 
 ## Verification and limits
 
-The 2026-11-06 local Haskell migration retains frozen 0.11.0 field and geometry
+The Haskell migration retains frozen 0.11.0 field and geometry
 fixtures. `tools/check-haskell-migration.ps1` compares 17,137 field samples and
 all buffers from three fixed scenes and 24 seeded near/far chunks. Twenty-six
 geometries are byte-identical. Alpine terrain alone has a documented one-ULP
