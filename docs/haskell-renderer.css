@@ -1,0 +1,60 @@
+/* A quiet reading surface for the v0.12 engineering article. */
+.post-heading { max-width: 880px; padding-block: 38px 42px; }
+.post-heading .kicker { margin-bottom: 20px; font-size: 12px; }
+.post-heading h1 { font-size: clamp(31px, 4.3vw, 51px); line-height: 1.6; letter-spacing: .015em; text-wrap: balance; }
+.post-heading h1 span { display: block; }
+.post-heading .dek { max-width: 650px; margin: 25px 0 0; color: var(--muted); font-size: 15px; }
+.post-cover { margin: 0 auto; padding-bottom: 42px; }
+.post-cover img { display: block; width: 100%; height: auto; border-radius: 3px; }
+.post-cover figcaption { margin-top: 13px; font-size: 12px; }
+.post-paper { background: var(--paper); color: #263b30; color-scheme: light; --muted: #526759; --line: #5c74552e; }
+.post { width: min(100%, 850px); margin: auto; padding: 64px 45px 80px; font-size: 16px; line-height: 2; }
+.post p { margin-bottom: 1.5em; }
+.post h2 { font-family: inherit; font-size: clamp(22px, 2.6vw, 27px); font-weight: 600; letter-spacing: 0; line-height: 1.65; margin: 2.5em 0 1em; scroll-margin-top: 25px; }
+.post h2:first-child { margin-top: 0; }
+.post a { text-decoration-color: #789273; text-decoration-thickness: 1px; }
+.post a:hover { text-decoration-color: currentColor; }
+.post code { font-size: .91em; overflow-wrap: anywhere; }
+.post p code { background: #dfe5d7; padding: .08em .3em; border-radius: 3px; }
+.post pre { background: #1c352a; color: #e2e9d8; padding: 25px 30px; margin: 28px 0; border-radius: 4px; font-size: 15px; line-height: 1.8; }
+.post table { margin: 27px 0; font-size: 14px; line-height: 1.8; }
+.post th, .post td { width: auto; padding: 15px 14px; border-bottom: 1px solid var(--line); }
+.post thead th { color: #425c4a; font-size: 13px; border-top: 1px solid #98a78e; font-weight: 600; }
+.post td:last-child { color: inherit; }
+.post td:not(:first-child) { font-variant-numeric: tabular-nums; }
+.post .source-link { font-size: 13px; color: var(--muted); }
+.kernel-figure { margin: 35px 0; padding: 27px 25px; background: #e5e8db; border: 1px solid #cbd3bf; border-radius: 4px; }
+.kernel-root { text-align: center; }
+.kernel-root code { font-size: 20px; }
+.kernel-root p { font-size: 12px; color: var(--muted); margin: 3px 0 0; }
+.kernel-branches { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; padding-top: 30px; position: relative; }
+.kernel-branches:before { content: ''; position: absolute; width: calc(50% + 12px); height: 16px; border-top: 1px solid #8c9f81; border-inline: 1px solid #8c9f81; top: 14px; left: calc(25% - 6px); }
+.kernel-root:after { content: ''; display: block; width: 1px; height: 14px; background: #8c9f81; margin: auto; margin-bottom: -14px; }
+.kernel-branches > div { padding: 18px 12px; background: #f5f5ec; border: 1px solid #cad2bf; border-radius: 3px; text-align: center; font-size: 14px; }
+.kernel-branches code { display: block; margin-bottom: 5px; font-size: 17px; }
+.kernel-branches span { display: block; font-size: 12px; color: var(--muted); }
+.kernel-figure figcaption { margin-top: 20px; font-size: 12px; }
+.post-notes { border-top: 1px solid #c2ccb7; margin-top: 46px; padding-top: 24px; font-size: 13px; color: var(--muted); }
+.post-notes h2 { font-size: 18px; margin-top: 0; }
+.post-notes ul { padding-left: 1.3em; }
+.post-notes li { margin: .8em 0; }
+.post-notes p:last-child { margin: 0; }
+.post-nav { padding-block: 36px; display: flex; justify-content: space-between; gap: 25px; font-size: 13px; }
+.masthead nav a:last-child { display: inline; }
+@media (max-width: 680px) {
+  .post-heading { padding-block: 22px 28px; }
+  .post-heading h1 { font-size: clamp(25px, 7.4vw, 31px); }
+  .post-heading .dek { font-size: 14px; }
+  .post-cover { padding-bottom: 28px; }
+  .post-cover figcaption { font-size: 11px; }
+  .post { padding: 38px 22px 50px; font-size: 15px; line-height: 1.95; }
+  .post pre { padding: 21px 18px; font-size: 13px; }
+  .post th, .post td { padding: 12px 8px; font-size: 12px; }
+  .post thead th { font-size: 11px; }
+  .kernel-figure { padding: 22px 14px; }
+  .kernel-branches { gap: 12px; }
+  .kernel-branches:before { width: calc(50% + 6px); left: calc(25% - 3px); }
+  .kernel-branches > div { padding: 15px 8px; font-size: 12px; }
+  .kernel-branches code { font-size: 15px; }
+  .post-nav { flex-direction: column; gap: 15px; }
+}

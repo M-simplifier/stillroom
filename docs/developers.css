@@ -4,6 +4,7 @@
 .developer-intro h1 { font-size: clamp(36px, 4vw, 54px); }
 .developer-intro > p:last-child { margin: 24px 0 0; color: var(--muted); }
 .feature-story { border-block: 1px solid var(--line); }
+.feature-story + .feature-story { border-top: 0; }
 .feature-story > a { display: grid; grid-template-columns: 1.2fr 1fr; gap: 46px; align-items: center; padding-block: 28px; text-decoration: none; }
 .feature-story img { display: block; width: 100%; height: auto; border-radius: 4px; }
 .feature-copy .kicker { font-size: 11px; letter-spacing: .02em; margin-bottom: 16px; }

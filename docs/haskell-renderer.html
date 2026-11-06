@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="description" content="Stillroom 0.12の描画基盤をHaskellへ移行。草一本660バイトから40バイトへの表現変更、CPUとGLSLで共有する計算、GPU資源の管理と実測を紹介します。">
+  <meta name="theme-color" content="#12231e">
+  <meta property="og:type" content="article">
+  <meta property="og:title" content="Stillroomの描画基盤をHaskellへ移した話">
+  <meta property="og:description" content="草の形を一つの関数に置き、CPUで確かめ、GPUで描く。Stillroom 0.12の実装と測定。">
+  <meta property="og:url" content="https://m-simplifier.github.io/stillroom/haskell-renderer.html">
+  <meta property="og:image" content="https://m-simplifier.github.io/stillroom/haskell-renderer.png">
+  <meta property="og:image:alt" content="Stillroom 0.12で描いた小川と草原">
+  <meta property="article:published_time" content="2026-11-06">
+  <title>Stillroomの描画基盤をHaskellへ移した話 — Stillroom</title>
+  <link rel="canonical" href="https://m-simplifier.github.io/stillroom/haskell-renderer.html">
+  <link rel="stylesheet" href="graphics-foundation.css">
+  <link rel="stylesheet" href="haskell-renderer.css">
+</head>
+<body>
+<a class="skip" href="#content">本文へ</a>
+<header class="masthead wrap">
+  <a class="brand" href="ja.html">◌ stillroom</a>
+  <nav aria-label="メインナビゲーション"><a href="developers-ja.html">開発ノート</a><a href="https://github.com/M-simplifier/stillroom">GitHub ↗</a><a href="ja.html">アプリについて</a></nav>
+</header>
+<main>
+  <header class="post-heading wrap">
+    <p class="kicker">開発ノート · Stillroom 0.12 · <time datetime="2026-11-06">2026年11月6日</time></p>
+    <h1><span>Stillroomの描画基盤を</span><span>Haskellへ移した話</span></h1>
+    <p class="dek">草一本を660バイトから40バイトへ。形の定義を共有しながら、描画に適したデータの持ち方を考えました。</p>
+  </header>
+  <figure class="post-cover wrap">
+    <img src="haskell-renderer.png" width="1600" height="900" fetchpriority="high" alt="小川と草原の風景。手前には花と草が生え、木々の向こうに丘が続く。">
+    <figcaption>Stillroom 0.12の描画器で生成した風景。地形も植物も、シードから計算しています。</figcaption>
+  </figure>
+  <div class="post-paper">
+    <article class="post" id="content" aria-label="記事本文">
+<p>Stillroomは、作業中に音楽を流し、休憩には草原や湖、トロッコの旅を眺められるWindowsアプリです。0.12では、風景を生成して描画する処理の大部分を、アプリ内のCコードからHaskellへ移しました。</p>
+<p>その過程で取り組んだ改善の一つが、草のデータの持ち方です。以前は一本あたり660バイトの頂点データを保持していましたが、0.12では草の形を決めるパラメータだけを持ち、40バイトに収めています。三角形の数を減らしたわけではなく、GPUで頂点を計算するようにデータの表現を変えました。</p>
+<p>この変更では、草の形を求める小さなHaskellの関数を、CPU上での参照計算とGLSLのコード生成の両方に使っています。この記事では、その仕組みを中心に、Haskellへ移した描画基盤の構成やメモリ管理、実際に確認できた性能と描画結果について紹介します。</p>
+<h2 id="section-1">草一本を40バイトで持つ</h2>
+<p>従来のStillroomでは、草一本を5枚の三角形、合計15個の頂点としてCPUで生成していました。各頂点には位置、法線、テクスチャ座標、色などの情報があり、1頂点44バイト、一本あたり15×44＝660バイトのデータになります。</p>
+<p>しかし、草の形を決めるために、15個すべての頂点を個別に保存する必要はありません。根元の位置、高さ、幅、向き、曲がり具合が分かれば、それぞれの頂点を計算できます。三角形のつながり方もすべての草に共通しているため、一本ごとに保持する情報を次のようにまとめました。</p>
+<table><thead><tr><th scope="col">一本ごとのデータ</th><th scope="col">サイズ</th></tr></thead><tbody><tr><td>根元、高さ、幅、向き、曲がりを表す8個のFloat</td><td>32バイト</td></tr><tr><td>色</td><td>4バイト</td></tr><tr><td>検査時に元の頂点順を復元するための位置</td><td>4バイト</td></tr><tr><td><strong>合計</strong></td><td><strong>40バイト</strong></td></tr></tbody></table>
+<p>15頂点分の共通の形の情報は、描画器ごとに一つの180バイトのバッファとして保持します。GPUはこの共通情報と一本ごとのパラメータを組み合わせ、各頂点の位置や法線などを求めます。いわゆるインスタンス描画です。</p>
+<p>例えば10万本の草を用意する場合、草のデータ本体は66 MBから約4 MBになります。これは草のデータ形式から計算した値で、地形や木、描画先などのメモリは含みません。また、40バイトは保持・転送するレコードの幅であり、Haskellのヒープオブジェクトのサイズを表すものではありません。</p>
+<p>この方式では、通常の描画時に草を大きな頂点配列へ展開して保持する必要がなくなります。一方、草と同じ材質で描いていた花については、従来の三角形データのまま残しました。検査時には草と花が混ざっていた元の頂点順も復元できるため、以前の実装と形状を比較できます。</p>
+<h2 id="section-2">草の形をHaskellで定義する</h2>
+<p>草の頂点をGPUで計算するようになると、CPUで形状を確認する処理と、実際の描画に使うGLSLの計算をどう一致させるかが問題になります。</p>
+<p>HaskellとGLSLにそれぞれ同じ数式を書くこともできますが、草の形を変更するたびに両方を修正しなければなりません。そこで0.12では、草の形を求める小さな関数をHaskellで定義し、CPUでの実行とGLSLの生成に共有することにしました。</p>
+<p>中心となるのは、次の型を持つ <code>bladeCorner</code> です。</p>
+<pre><code>bladeCorner
+  :: Fractional a
+  =&gt; BladeInputs a
+  -&gt; CornerInputs a
+  -&gt; BladeAttributes a</code></pre>
+<figure class="kernel-figure" aria-labelledby="kernel-caption">
+  <div class="kernel-root"><code>bladeCorner</code><p>草の情報と共通の頂点情報から、形を求める</p></div>
+  <div class="kernel-branches">
+    <div><code>a = Float</code>数値として計算<span>CPUで頂点を確認</span></div>
+    <div><code>a = Expr</code>式の構造を組み立てる<span>GLSLへ書き出してGPUで実行</span></div>
+  </div>
+  <figcaption id="kernel-caption">草の形を求める関数は一つ。数値の型を変えることで、参照計算にもシェーダーの生成にも使います。</figcaption>
+</figure>
+<p><code>BladeInputs a</code> は草一本の情報、<code>CornerInputs a</code> は共通の形状のどの頂点を求めるかという情報です。この二つを受け取り、位置や法線などを含む <code>BladeAttributes a</code> を返します。</p>
+<p>ここでは、計算に使う数値の型を <code>Float</code> に固定していません。<code>Fractional a</code> という制約を使うことで、同じ関数を異なる数値表現に対して実行できるようにしています。</p>
+<p><code>a</code> に <code>Float</code> を使えば、足し算や掛け算は通常の浮動小数点演算になり、CPU上で頂点を計算できます。一方、内部で定義した <code>Expr</code> という型を使うと、演算をその場で評価する代わりに、「二つの値を足す」「二つの値を掛ける」といった式の構造を組み立てます。この構造からGLSLのソースコードを書き出し、実際の描画に組み込みます。</p>
+<p>こうして、草の形を求める計算を一か所に定義しながら、CPU上の参照計算とGPU向けのコード生成に利用できるようになりました。</p>
+<p>ただし、共有しているのは草の形を作る小さな計算部分です。草の向きに関する三角関数や共通の段の形はCPUで求め、風による揺れや座標変換は、その後に既存のシェーダーで行います。空や水、照明まで含めたシェーダー全体をHaskellから生成する仕組みではありません。</p>
+<p>今回必要だった範囲に限れば、この小さな構成で十分に役立っています。共有している形の計算を変更するときには <code>bladeCorner</code> を修正すればよく、CPUで確認する計算とGPUへ渡す計算の対応関係も、同じコードから追うことができます。</p>
+<p>実際の実装は、次のファイルで確認できます。</p>
+<p><a href="https://github.com/M-simplifier/stillroom/blob/v0.12.0/src/Stillroom/Landscape/Grass/Kernel.hs">Stillroom 0.12のGrass.Kernel</a></p>
+<h2 id="section-3">描画処理をHaskellへ移す</h2>
+<p>草の実装は、0.12で行った描画基盤の移行の一部分です。</p>
+<p>以前のStillroomでも、座標の型や車体の形、描画計画などはHaskellで定義していました。一方、地形や植物の生成、GPU上のバッファの管理、描画命令の実行といった部分は、Stillroom自身が持つCコードに実装されていました。0.12では、こうしたアプリ固有の処理をHaskellへ移しています。</p>
+<p>例えば、地形を調べる関数にはシードと座標を渡し、その場所の情報を取得します。歩行処理と描画処理が同じ関数を通じて世界を参照するため、地形の定義を共有できます。</p>
+<p>描画計画の受け渡しも変わりました。以前はHaskellで用意した描画計画を別言語向けのパケットへ変換し、実行側で読み直す必要がありましたが、現在はHaskellの実行部が型付きの値を直接受け取ります。</p>
+<p>もちろん、描画に関わるすべてのコードがHaskellになったわけではありません。ウィンドウや描画APIには引き続きh-raylibを使い、その先ではC製のraylibやOpenGLが動いています。GPU上で動くシェーダーにはGLSLを使用し、Windowsとの連携にも小さなCコードが残っています。</p>
+<p>Haskellへ移したのは、Stillroom自身が定義し、管理している風景生成と描画の実装です。これによって、風景を表すデータから描画命令の実行まで、Haskellのコードを通して辿れるようになりました。</p>
+<h2 id="section-4">メモリとGPU資源の管理</h2>
+<p>描画基盤では、純粋な計算だけでなく、配列の更新やGPU資源の確保・解放も必要になります。Stillroomでは、それぞれの処理の性質に合わせて実装を分けています。</p>
+<p>地形や植物の形状を組み立てる途中では、<code>ST</code> の中で書き換え可能な配列を使い、データを順番に詰めています。外へ返すのは完成した値なので、呼び出す側は配列の更新順序や途中の状態を扱う必要がありません。</p>
+<p>GPU上のバッファやシェーダーなどは、描画環境と結びついた資源として管理しています。これらはウィンドウを開いたスレッドで確保し、描画する景色が必要としている間は保持します。その景色を破棄するときには、対応する資源を明示的な順番で解放します。</p>
+<p>GPU資源の後始末をHaskellのガベージコレクターに任せる構成にはしていません。また、GPU資源を毎フレーム作り直すのではなく、必要な期間は同じ資源を利用します。</p>
+<p>描画時の状態管理にも手を入れました。一つの描画パスで共通に使えるシェーダーや材質の状態を保持し、メッシュを描くたびに同じ設定と解除を繰り返す回数を減らしています。</p>
+<p>形状を計算する関数、メモリへ効率よくデータを詰める処理、GPUの状態や資源を操作する処理は、それぞれ役割が異なります。Haskellの中でその境界を関数や型によって表しながら、実際の描画に必要な更新処理も使う構成にしています。</p>
+<p><a href="https://github.com/M-simplifier/stillroom/blob/v0.12.0/runtime/Stillroom/Runtime/Graphics/Resource.hs">GPU資源の管理を行うGraphics.Resource</a></p>
+<h2 id="section-5">描画結果を検証する</h2>
+<p>同じHaskellの関数からCPUでの計算とGLSLを作れるようになっても、それだけで描画結果が正しいとは限りません。CPUとGPUでは浮動小数点演算の結果がわずかに異なる場合がありますし、シェーダーへ渡す座標やデータを取り違える可能性もあります。</p>
+<p>そこで、移行前の結果を固定した独立の参照を用意し、CPUで計算した頂点列、GPUが実際に計算した頂点、最終的に描画された画像をそれぞれ比較しました。</p>
+<p>RTX 3050を使った有限の頂点比較では、位置の差は最大で約0.000001 mでした。法線の角度差はゼロで、UVと色も一致しています。また、風の計算へ渡す座標を意図的に間違えた版では、検査が失敗することも確認しました。</p>
+<p>CPUとGPUの結果が一致していても、両方に同じ誤りがあれば検出できません。移行前の独立した結果を参照するのは、そのような問題も確かめるためです。</p>
+<p>実際の描画画像については、旅の風景を使った12枚を比較し、8枚が画素単位で完全に一致しました。残る草原の4枚についても、1600×900画素のうち差があったのは2〜7画素でした。草をインスタンス描画に変更した一方、花は従来の三角形として描いているため、両者が重なる場合の描画順も実画像で確認しています。</p>
+<p>リリース時には89組の性質・回帰テストを実行し、実際の配布ZIPを展開して56項目のアプリ動作を確認しました。新しい描画基盤は、旅の風景と三つの固定風景で使用しています。</p>
+<p>これらは限られた場面と環境での検査結果であり、あらゆるGPUで完全に同じ描画結果が得られることを保証するものではありません。それでも、CPU上の計算だけでなく、GPUが計算した頂点や最終画像まで照合できています。</p>
+<h2 id="section-6">処理時間を測る</h2>
+<p>描画基盤をHaskellへ移した直後の実装は、十分に速い状態ではありませんでした。</p>
+<p>最適化付きでビルドした最初のHaskell版では、長い旅を進める診断に72.03秒かかりました。直後に同じ条件で実行した公開C版は40.43秒でした。この診断は、多数の地形を生成しながら検査も行う加速した処理で、通常のフレームレートを測定したものではありません。</p>
+<p>処理を分けて調べたところ、通常表示には不要な検査用の計算も実行されていました。生成した形状について、従来と同じデータができているか確認するためのハッシュを計算していたのです。</p>
+<p>長い旅を使った回帰検査には必要ですが、普段の表示では、完成した形状データをもう一度すべて読み直してハッシュを取る必要はありません。そこで、ハッシュを計算するかどうかを明示的に選べるようにし、通常表示では省略することにしました。ハッシュが存在しない場合と、計算結果がゼロだった場合も区別しています。</p>
+<p>この変更に加えて、描画状態の再利用や草のインスタンス描画を導入しました。</p>
+<p>草の描画方式については、同じプロセス内で読み込み済みの景色を保持し、従来の頂点展開方式とインスタンス描画を交互に切り替えて比較しています。測定したのは草原と湖の二場面で、設定はLow、出力解像度は1600×900、実描画解像度は1120×630です。生成とデータ転送は測定区間に含めていません。</p>
+<p>GLタイマーで測った描画命令区間の中央値は、次のようになりました。</p>
+<table><thead><tr><th scope="col">場面</th><th scope="col">頂点へ展開した草</th><th scope="col">インスタンス描画の草</th></tr></thead><tbody><tr><td>草原</td><td>5.102 ms</td><td>4.850 ms</td></tr><tr><td>湖</td><td>3.838 ms</td><td>3.701 ms</td></tr></tbody></table>
+<p>この二場面では、インスタンス描画のほうが測定区間は少し短くなりました。ただし、GLタイマーによる描画命令区間にはCPUからの命令供給を待つ時間も入りうるため、純粋なGPU稼働時間を表す数字ではありません。通常のFPSを比較した結果でもありません。</p>
+<p>また、別の逐次比較では逆の結果が出ています。</p>
+<p>同じ最終実行体で1800フレームを進める診断用ループ全体を測定したところ、インスタンス描画では80.51秒、頂点展開方式では73.10秒となりました。この診断には準備描画や画像保存なども含まれており、先ほどのGLタイマーによる比較とは測定範囲が異なります。</p>
+<p>この全体所要時間の逆転については、まだ原因を説明できていません。生成や転送、描画命令の投入だけでは説明できない時間が残っており、結果はそのまま記録しています。</p>
+<p>今回の変更で、草の保持・転送データ量を減らせたことは確認できました。また、条件をそろえた二場面では、描画命令区間の中央値も少し短くなっています。一方、診断ループ全体では遅くなった結果もあるため、どの環境でもFPSが向上する、あるいは以前のC版より高速になったとは言えません。</p>
+<h2 id="section-7">おわりに</h2>
+<p>Stillroom 0.12では、風景の生成から描画までをHaskellで扱う構成に移行しました。</p>
+<p>今回のメモリや処理時間に関する改善は、草のデータ形式を見直す、描画状態を使い回す、通常表示に不要な検査を省くといった具体的な変更によるものです。Haskellへ書き換えただけで速くなったわけではありません。</p>
+<p>そのうえで、Haskellを使った設計として特に役立ったのは、草の形を定義する小さな関数を、CPUでの参照計算とGLSLの生成に共有できたことでした。GPUに適したデータ形式を使いながら、形状を決める計算は一か所に置いておけます。</p>
+<p>また、純粋な計算を中心に置きつつ、必要な場所では <code>ST</code> による配列の更新や、明示的なGPU資源の確保・解放も使っています。こうした処理をHaskellの型や関数で整理しながら、日常的に使うWindowsアプリの描画基盤として組み込むことができました。</p>
+<p>実装の詳細や検証条件については、公開リポジトリのコードと技術資料から確認できます。</p>
+<p><a href="https://github.com/M-simplifier/stillroom/releases/tag/v0.12.0">Stillroom 0.12をダウンロード</a> · <a href="https://github.com/M-simplifier/stillroom/blob/v0.12.0/docs/graphics-foundation.md">実装と検証条件の詳細</a> · <a href="https://m-simplifier.github.io/stillroom/graphics-foundation.html">前の記事：Haskellでつくる3D描画の基盤</a></p>
+      <aside class="post-notes" aria-labelledby="notes-title">
+        <h2 id="notes-title">測定とコード</h2>
+        <p>数値は2026年11月6日のWindows x64／GHC 9.6.7（O2）／RTX 3050での検証です。複数の測定を同じ条件の結果として混ぜないよう、比較対象と限界を<a href="haskell-renderer-measurements.json">測定データ（JSON）</a>に残しています。</p>
+        <ul>
+          <li><a href="https://github.com/M-simplifier/stillroom/blob/v0.12.0/src/Stillroom/Landscape/Grass.hs#L99">草の40バイトの配置</a>と<a href="https://github.com/M-simplifier/stillroom/blob/v0.12.0/src/Stillroom/Landscape/Grass/Kernel.hs#L16">共有する計算</a></li>
+          <li><a href="https://github.com/M-simplifier/stillroom/blob/v0.12.0/runtime/Stillroom/Runtime/Graphics/Renderer.hs#L49">シェーダーへの組み込み</a>と<a href="https://github.com/M-simplifier/stillroom/blob/v0.12.0/runtime/Stillroom/Runtime/Graphics/Resource.hs#L87">GPU資源の所有関係</a></li>
+          <li><a href="https://github.com/M-simplifier/stillroom/actions/runs/42205031289">0.12の配布物を構築したCI</a>と<a href="https://github.com/M-simplifier/stillroom/blob/v0.12.0/docs/journeys.md">旅の実装・検証条件</a></li>
+        </ul>
+      </aside>
+    </article>
+  </div>
+  <nav class="post-nav wrap" aria-label="記事のナビゲーション"><a href="developers-ja.html">← 開発ノート一覧</a><a href="graphics-foundation.html">前の記事：Haskellでつくる3D描画の基盤 →</a></nav>
+</main>
+<footer class="wrap"><a class="brand" href="ja.html">◌ stillroom</a><p>Haskell · raylib · OpenGL</p><a href="ja.html">アプリについて →</a></footer>
+</body>
+</html>

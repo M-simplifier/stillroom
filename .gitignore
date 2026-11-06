@@ -54,6 +54,7 @@
 !/docs/*.mp4
 !/docs/*.webp
 !/docs/*.js
+!/docs/haskell-renderer-measurements.json
 !/licenses/
 !/licenses/*.txt
 !/licenses/*.md
