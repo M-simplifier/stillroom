@@ -1,0 +1,272 @@
+{
+  "schema_version": 1,
+  "release": "v0.12.0",
+  "measurement_date": "2026-11-06",
+  "environment": {
+    "platform": "Windows x64",
+    "ghc": "9.6.7",
+    "application_optimization": "O2",
+    "h_raylib": "5.6.0.0",
+    "rts_capabilities": 2,
+    "scope": "One laptop and one GPU/driver configuration; no cross-device guarantee"
+  },
+  "representation": {
+    "expanded_blade_attribute_bytes": 660,
+    "instance_record_bytes": 40,
+    "shared_corner_bytes_per_renderer": 180,
+    "vertices_per_blade": 15,
+    "triangles_per_blade": 5,
+    "excludes": "Object/driver overhead, other scene geometry and total process/GPU memory"
+  },
+  "historical_initial_migration": {
+    "metric": "whole_diagnostic_process_wall_seconds",
+    "haskell": 72.0288044,
+    "public_c_v011": 40.4296145,
+    "conditions": "Initial pre-optimization Haskell build; 960x540 Standard; full check-journey incl. preparation,1800 travel frames and later checks; fingerprints included; consecutive processes",
+    "not": "Final v0.12 timing, ordinary FPS or a language-performance bound"
+  },
+  "fingerprint_stage": {
+    "metric": "accumulated_cpu_generation_stage_seconds",
+    "diagnostic_hash_on": 27.285335,
+    "ordinary_hash_off": 19.318303,
+    "conditions": "Pre-grass-instancing Haskell snapshot; same 960x540 Standard accelerated 1800-frame route;741 near and307 far generations; hash-on stage includes canonical traversal",
+    "not": "Same-work algorithm speedup, GPU time or final application wall time"
+  },
+  "retained_mesh_abba": {
+    "conditions": "Pre-grass-instancing snapshot; same process/context/resources/FramePlan;49 near+81 far resident;960x540 Standard;8 blocks of60 frames per scene;generation/upload/audio/pacing/capture excluded;delayed GL query retrieval",
+    "metric_order": [
+      "generic_DrawMesh",
+      "retained_mesh_pass"
+    ],
+    "results": [
+      {
+        "repeat": "b",
+        "scene": "meadow",
+        "submit_median_ms": [
+          2.7898,
+          2.64445
+        ],
+        "whole_instrumented_frame_mean_ms": [
+          8.650682,
+          8.214684
+        ],
+        "ghc_allocated_bytes_per_frame": [
+          490813,
+          357799
+        ],
+        "all8_block_images_exact": true
+      },
+      {
+        "repeat": "b",
+        "scene": "lake",
+        "submit_median_ms": [
+          2.81225,
+          2.53065
+        ],
+        "whole_instrumented_frame_mean_ms": [
+          7.861236,
+          7.07602
+        ],
+        "ghc_allocated_bytes_per_frame": [
+          493104,
+          359664
+        ],
+        "all8_block_images_exact": true
+      },
+      {
+        "repeat": "c",
+        "scene": "meadow",
+        "submit_median_ms": [
+          4.07055,
+          3.67105
+        ],
+        "whole_instrumented_frame_mean_ms": [
+          10.143953,
+          9.615593
+        ],
+        "ghc_allocated_bytes_per_frame": [
+          490813,
+          357799
+        ],
+        "all8_block_images_exact": true
+      },
+      {
+        "repeat": "c",
+        "scene": "lake",
+        "submit_median_ms": [
+          4.26035,
+          3.62975
+        ],
+        "whole_instrumented_frame_mean_ms": [
+          9.001486,
+          8.51951
+        ],
+        "ghc_allocated_bytes_per_frame": [
+          493104,
+          359664
+        ],
+        "all8_block_images_exact": true
+      }
+    ],
+    "limit": "Whole-frame samples include query/CPU-clock instrumentation; allocation includes common harness objects; not ordinary FPS"
+  },
+  "grass_resident_abba": {
+    "conditions": "Final grass snapshot;one process/context with two retained worlds;49 near+81 far each;1600x900 output,1120x630 Low raster,1024 shadow;fingerprints off;I/E/E/I then E/I/I/E;60 samples/block;20 untimed warm frames/block;generation/upload excluded",
+    "metric_order": [
+      "expanded_for_check",
+      "instanced"
+    ],
+    "results": [
+      {
+        "scene": "meadow-low",
+        "gpu_interval_median_ms": [
+          5.101568,
+          4.849664
+        ],
+        "render_submit_median_ms": [
+          2.7987,
+          2.77695
+        ],
+        "whole_instrumented_frame_mean_ms": [
+          8.815627,
+          8.55594
+        ],
+        "query_begin_median_ms": [
+          5.98935,
+          5.7247
+        ],
+        "whole_block_frame_mean_range_ms": [
+          [
+            8.547843,
+            9.181553
+          ],
+          [
+            8.42234,
+            8.651958
+          ]
+        ],
+        "plan_and_uniforms_all8_exact": true,
+        "changed_pixels_between_paths": 2,
+        "max_rgb_delta_8bit": 1,
+        "image_width": 1600,
+        "image_height": 900,
+        "alpha_changed_pixels": 0
+      },
+      {
+        "scene": "lake-low",
+        "gpu_interval_median_ms": [
+          3.837952,
+          3.700736
+        ],
+        "render_submit_median_ms": [
+          2.7914,
+          2.75485
+        ],
+        "whole_instrumented_frame_mean_ms": [
+          7.514547,
+          7.37105
+        ],
+        "query_begin_median_ms": [
+          4.63535,
+          4.48935
+        ],
+        "whole_block_frame_mean_range_ms": [
+          [
+            7.204225,
+            7.987008
+          ],
+          [
+            7.148245,
+            7.857307
+          ]
+        ],
+        "plan_and_uniforms_all8_exact": true,
+        "changed_pixels_between_paths": 0,
+        "max_rgb_delta_8bit": 0,
+        "image_width": 1600,
+        "image_height": 900,
+        "alpha_changed_pixels": 0
+      }
+    ],
+    "limit": "GL elapsed is a command interval including possible CPU supply gaps, not pure GPU busy time;whole samples include substantial glBeginQuery driver/instrumentation waits;not uninstrumented FPS"
+  },
+  "normal_stream_single_pair": {
+    "metric": "internal_accelerated_loop_wall_seconds",
+    "instanced": 80.511842,
+    "expanded_for_check": 73.0982238,
+    "stream_stage_seconds": [
+      13.597432,
+      21.1808
+    ],
+    "submit_stage_seconds": [
+      39.82573,
+      44.369592
+    ],
+    "unseparated_remainder_seconds": [
+      27.08868,
+      7.547831
+    ],
+    "stage_order": [
+      "instanced",
+      "expanded_for_check"
+    ],
+    "conditions": "Same final helper;fingerprints off;both start from compact CPU geometry;expanded path reconstructs old vertices during upload;82 warm frames+1800 travel frames/600 semantic seconds+3 PNG saves;960x540 Standard;no audio/pacing",
+    "limit": "Single sequential pair;wall is slower for instancing despite lower stream/submit counters;remainder not causally localized;no whole-application speedup established"
+  },
+  "counterexamples": {
+    "early_retained_per_mesh_program_bind": {
+      "scene": "meadow",
+      "generic_submit_median_ms": 2.8942,
+      "rejected_candidate_submit_median_ms": 3.0376,
+      "outcome": "Allocation improved but submit worsened;final pass-level binding differs"
+    },
+    "separate_finish_gpu_capture_slow_cases": [
+      {
+        "scene": "lake",
+        "tier": "Economy",
+        "instanced_over_frozen_ratio": 1.678711
+      },
+      {
+        "scene": "meadow",
+        "tier": "Economy",
+        "instanced_over_frozen_ratio": 1.580512
+      },
+      {
+        "scene": "meadow",
+        "tier": "Balanced",
+        "instanced_over_frozen_ratio": 1.468994
+      }
+    ],
+    "capture_limit": "Different earlier frozen executable plus per-frame glFinish;these three are lake Low,meadow Low,meadow Standard;not the resident instanced/expanded ABBA comparison"
+  },
+  "verification": {
+    "ci_law_regression_groups": 89,
+    "extracted_package_native_application_assertions": 56,
+    "gpu_vertex_probe": {
+      "blades": 108,
+      "semantic_frame_plans": 24,
+      "passes": [
+        "main",
+        "reflection"
+      ],
+      "captured_vertices_per_variant_per_shader_family": 77760,
+      "max_world_position_distance_m": 9.5367431640625e-07,
+      "measured_max_normal_angle_deg": 0,
+      "uv_and_color_float_bits_exact": true,
+      "wrong_wind_coordinate_negative_control_rejected": true,
+      "limit": "Finite inputs, two shader families and one GPU;comparison tolerance is not a proved error bound;grass excluded from shadow draw"
+    },
+    "final_journey_quality_images": {
+      "count": 12,
+      "pixel_exact": 8,
+      "other_images": "Four meadow views differ by2 to7 pixels at1600x900;max channel delta17/255;alpha unchanged;not the initial12/12 exact migration images"
+    }
+  },
+  "source_code": [
+    "https://github.com/M-simplifier/stillroom/blob/v0.12.0/src/Stillroom/Landscape/Grass.hs",
+    "https://github.com/M-simplifier/stillroom/blob/v0.12.0/src/Stillroom/Landscape/Grass/Kernel.hs",
+    "https://github.com/M-simplifier/stillroom/blob/v0.12.0/runtime/Stillroom/Runtime/Graphics/Resource.hs",
+    "https://github.com/M-simplifier/stillroom/blob/v0.12.0/runtime/Stillroom/Runtime/Graphics/Renderer.hs"
+  ],
+  "overall_limit": "No universal whole-application,FPS,energy,all-day or language-superiority claim;ordinary GHC CPU work,GLSL GPU work and explicit native/OpenGL dependencies remain separate"
+}
