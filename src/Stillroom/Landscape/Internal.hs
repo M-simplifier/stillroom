@@ -12,6 +12,7 @@ import Data.Vector.Storable qualified as V
 import Data.Vector.Storable.Mutable qualified as M
 import Data.Word (Word8, Word16, Word32, Word64)
 import Foreign.Storable
+import GHC.ByteOrder (ByteOrder (..), targetByteOrder)
 import GHC.Float (castFloatToWord32)
 import Stillroom.Journey.World (Seed)
 import Stillroom.Landscape.Math
@@ -168,7 +169,13 @@ freezeBuilder initialHash (Builder _ storage size) = do
   texCoords <- M.new (n*2)
   extra <- M.new (n*2)
   colors <- M.new (n*4)
-  let pack !i !signature
+  let bytes = M.unsafeCast current
+      hashBytes !j !end !signature
+        | j>=end = pure signature
+        | otherwise = do
+            byte <- M.read bytes j
+            hashBytes (j+1) end (fnvByte signature byte)
+      pack !i !signature
         | i>=n = pure signature
         | otherwise = do
             vertex@(Vertex (V3 x y z) (V3 nx ny nz) (V2 u v) (V2 bone phase) (Colour r g b a)) <- M.read current i
@@ -177,7 +184,10 @@ freezeBuilder initialHash (Builder _ storage size) = do
             M.write texCoords (i*2) u; M.write texCoords (i*2+1) v
             M.write extra (i*2) bone; M.write extra (i*2+1) phase
             M.write colors (i*4) r; M.write colors (i*4+1) g; M.write colors (i*4+2) b; M.write colors (i*4+3) a
-            pack (i+1) (fnvVertex signature vertex)
+            nextSignature <- case targetByteOrder of
+              LittleEndian -> hashBytes (i*44) (i*44+44) signature
+              BigEndian -> pure (fnvVertex signature vertex)
+            pack (i+1) nextSignature
   signature <- pack 0 initialHash
   p <- V.unsafeFreeze positions; nrm <- V.unsafeFreeze normals
   uv <- V.unsafeFreeze texCoords; ex <- V.unsafeFreeze extra; color <- V.unsafeFreeze colors
@@ -203,6 +213,14 @@ fnvVertex h (Vertex (V3 x y z) (V3 a b c) (V2 u v) (V2 bone phase) (Colour r g b
    in fnvByte (fnvByte (fnvByte (fnvByte h3 r) g) bl) alpha
 {-# INLINE fnvVertex #-}
 
+-- The compatibility signature is defined in little-endian scalar order.
+-- Vertex has no padding; on little-endian hosts its stored bytes are already
+-- that representation, so hashing need not reconstruct every Float's bits.
+fnvFloats :: Word64 -> V.Vector Float -> Word64
+fnvFloats h values = case targetByteOrder of
+  LittleEndian -> V.foldl' fnvByte h (V.unsafeCast values)
+  BigEndian -> V.foldl' fnvFloat h values
+
 finishGeometry :: Build s -> MeshData -> V.Vector Float -> Int -> Int -> ST s (Either GenerationError Geometry)
 finishGeometry s water heights width height = do
   failed <- readSTRef (buildFailure s)
@@ -214,8 +232,8 @@ finishGeometry s water heights width height = do
       payload <- M.replicate (256*bh*4) 0
       M.copy (M.slice 0 (bones*8) payload) (M.slice 0 (bones*8) (buildBones s))
       pixels <- V.unsafeFreeze payload
-      let !signature0 = V.foldl' fnvFloat 1469598103934665603 (V.take (bones*8) pixels)
-          !signature1 = V.foldl' fnvFloat signature0 heights
+      let !signature0 = fnvFloats 1469598103934665603 (V.take (bones*8) pixels)
+          !signature1 = fnvFloats signature0 heights
       (a,signature2) <- freezeBuilder signature1 (terrainBuilder s)
       (b,signature3) <- freezeBuilder signature2 (woodBuilder s)
       (c,signature4) <- freezeBuilder signature3 (foliageBuilder s)
