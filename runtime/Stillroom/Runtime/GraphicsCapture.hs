@@ -12,7 +12,7 @@ import Data.ByteString qualified as BS
 import Data.ByteString.Char8 qualified as BC
 import Data.ByteString.Lazy qualified as BL
 import Data.List (sort)
-import Data.Maybe (fromMaybe, listToMaybe)
+import Data.Maybe (fromMaybe, isJust, listToMaybe)
 import Foreign (castPtr, free, peek)
 import Raylib.Core qualified as R
 import Raylib.Core.Textures (c'loadImageFromScreen)
@@ -68,7 +68,7 @@ runQualityCapture folder = do
   R.setConfigFlags [WindowHidden, WindowUndecorated, WindowAlwaysRun]
   bracket (R.initWindow 1600 900 "Stillroom quality capture") (R.closeWindow . Just) $ \_ -> do
     R.setTargetFPS 0
-    Runtime.withJourney $ \runtime -> do
+    Runtime.withJourneyForCheck $ \runtime -> do
       entries <- forM [("lake",lake), ("meadow",pose 60 0), ("shore",pose (lakeProgress+40) (-1.1))] $ \(name,start) -> do
         Runtime.restoreModel runtime start
         warm runtime 1600 900
@@ -81,7 +81,7 @@ runQualityCapture folder = do
             fingerprints = (,) <$> (fst <$> Runtime.fingerprintsForCheck runtime cx cz)
                                <*> (snd <$> Runtime.fingerprintsForCheck runtime fx fz)
         fingerprint <- fingerprints
-        unless (fst fingerprint /= 0 && snd fingerprint /= 0) (throwIO (userError "Comparison geometry was not resident"))
+        unless (isJust (fst fingerprint) && isJust (snd fingerprint)) (throwIO (userError "Comparison geometry was not resident"))
         levels <- forM [G.Economy,G.Balanced,G.Detailed,G.Supersampled] $ \quality -> do
           Runtime.quality runtime quality
           replicateM_ 3 (frame runtime 1600 900)
