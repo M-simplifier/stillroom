@@ -17,7 +17,7 @@ module Stillroom.Runtime.Graphics.Renderer
   )
 where
 
-import Control.Exception (bracketOnError, finally)
+import Control.Exception (bracketOnError)
 import Control.Monad (forM_, when)
 import Data.Bits ((.&.))
 import Data.ByteString qualified as BS
@@ -26,7 +26,6 @@ import Raylib.Core.Shapes (drawRectangle)
 import Raylib.Core.Textures (drawTexturePro)
 import Raylib.Types
 import Raylib.Util.Math
-import Raylib.Util.RLGL qualified as RL
 import Stillroom.Graphics.Observation qualified as O
 import Stillroom.Journey.Frame qualified as F
 import Stillroom.Runtime.Graphics.Resource
@@ -101,14 +100,12 @@ drawGeometry :: Renderer -> GpuGeometry -> Float -> Int -> Bool -> IO ()
 drawGeometry renderer geometry time mask shadowPass = do
   let p = landProgram renderer
   texture p "uBones" (gpuBones geometry) 8
-  RL.rlDisableBackfaceCulling
-  ( forM_ (zip [0 ..] (gpuMaterials geometry)) $ \(kind, mesh) ->
+  doubleSided (material renderer) $
+    forM_ (zip [0 ..] (gpuMaterials geometry)) $ \(kind, mesh) ->
       when (not (kind == 3 && (shadowPass || mask .&. 4 == 0))) $ forM_ mesh $ \m -> do
         int p "uKind" kind
         float p "uTime" (if mask .&. (if kind == 3 then 1 else 2) /= 0 then time else 0)
         drawMesh (material renderer) m
-    )
-    `finally` RL.rlEnableBackfaceCulling
 
 fixedSky :: Renderer -> Int -> Vector3 -> Camera3D -> Int -> Int -> IO ()
 fixedSky renderer scene sun camera width height = do

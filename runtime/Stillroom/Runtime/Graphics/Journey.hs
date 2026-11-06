@@ -12,6 +12,7 @@ module Stillroom.Runtime.Graphics.Journey
     prepare,
     frameTargets,
     render,
+    referenceDrawForCheck,
     frameCopy,
     frameUniforms,
     signature,
@@ -131,6 +132,9 @@ problem world = maybe "" id <$> readIORef (issue (renderer world))
 
 quality :: World -> Int -> IO Bool
 quality world = setQuality (renderer world)
+
+referenceDrawForCheck :: World -> Bool -> IO ()
+referenceDrawForCheck world = referenceMeshesForCheck (material (renderer world))
 
 chunkAt :: Int -> Int -> Map.IntMap Chunk -> Maybe Chunk
 chunkAt x z = find (\(Chunk chunkX chunkZ _) -> chunkX == x && chunkZ == z) . Map.elems
@@ -285,7 +289,7 @@ pass :: O.Observation target -> IO a -> IO a
 pass observation = bracket_ (beginPass observation) R.endMode3D
 
 allLand :: World -> F.FramePlan -> Texture -> Bool -> Bool -> O.Observation target -> IO ()
-allLand world frame shadow shadowPass clip observation = do
+allLand world frame shadow shadowPass clip observation = withMeshPass (material (renderer world)) (landProgram (renderer world)) $ do
   let r = renderer world
       p = landProgram r
       F.Point rx _ rz = F.referenceEye (F.geometry frame)
@@ -319,7 +323,7 @@ drawCar world frame shadow shadowPass clip observation = do
       F.Point cx cy cz = O.passEye observation
       F.Point x y z = F.objectPoint frame (F.Point 0 0 0)
       distance = sqrt ((cx - x) * (cx - x) + (cy - y) * (cy - y) + (cz - z) * (cz - z))
-  when (distance <= 540) $ do
+  when (distance <= 540) $ withMeshPass (material r) p $ do
     int p "uFarPass" 0
     int p "uKind" 4
     int p "uShadowPass" (if shadowPass then 1 else 0)
@@ -330,8 +334,7 @@ drawCar world frame shadow shadowPass clip observation = do
     matrixTransform p "uObject" (F.carTransform frame)
     texture p "uShadow" shadow 9
     useMaterial (material r) p
-    RL.rlDisableBackfaceCulling
-    drawMesh (material r) (car world) `finally` RL.rlEnableBackfaceCulling
+    doubleSided (material r) (drawMesh (material r) (car world))
 
 render :: World -> F.FramePlan -> Rectangle -> IO Bool
 render world frame rectangle@(Rectangle _ _ width height) = do
@@ -395,16 +398,16 @@ renderPasses world frame shadow reflection hdr = do
     pass main $ do
       matrixTransform land "uClipFromRender" (O.clipFromRender main)
       worldPass False False main
-      useMaterial (material r) water
-      matrixTransform water "uClipFromRender" (O.clipFromRender main)
-      vec3 water "uEye" (Encoding.point (O.passEye main))
-      vec3 water "uSun" sun
-      float water "uTime" (realToFrac (F.semanticTime context))
-      int water "uLandscape" 2
-      matrixTransform water "uReflectionVP" (O.clipFromRender mirror)
-      texture water "uReflection" (renderTexture'texture reflection) 10
-      RL.rlDisableBackfaceCulling
-      ( forM_ [True, False] $ \far -> do
+      withMeshPass (material r) water $ do
+        useMaterial (material r) water
+        matrixTransform water "uClipFromRender" (O.clipFromRender main)
+        vec3 water "uEye" (Encoding.point (O.passEye main))
+        vec3 water "uSun" sun
+        float water "uTime" (realToFrac (F.semanticTime context))
+        int water "uLandscape" 2
+        matrixTransform water "uReflectionVP" (O.clipFromRender mirror)
+        texture water "uReflection" (renderTexture'texture reflection) 10
+        doubleSided (material r) $ forM_ [True, False] $ \far -> do
           int water "uFarPass" (if far then 1 else 0)
           chunks <- Map.elems <$> readIORef (if far then farChunks world else nearChunks world)
           let extent = if far then 128 else 32
@@ -424,8 +427,6 @@ renderPasses world frame shadow reflection hdr = do
               texture water "uHeight" height 11
               drawMesh (material r) mesh
             _ -> pure ()
-        )
-        `finally` RL.rlEnableBackfaceCulling
 
 -- Serialization is only a diagnostic view; production execution consumes the
 -- typed plan and observations above and has no packet offsets.

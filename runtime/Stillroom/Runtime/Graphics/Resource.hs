@@ -24,6 +24,10 @@ module Stillroom.Runtime.Graphics.Resource
     MaterialHandle,
     loadMaterial,
     useMaterial,
+    withMeshPass,
+    meshPassActive,
+    referenceMeshesForCheck,
+    doubleSided,
     GpuMesh,
     uploadMesh,
     uploadRailcar,
@@ -87,10 +91,12 @@ own (Scope ref) acquire release = mask_ $ do
   modifyIORef' ref (release value :)
   pure value
 
-data Program = Program !(Ptr Shader) !Integer !(IORef (Map.Map String Int))
+data MeshProgram = NativeMaterial | ExplicitClip
+
+data Program = Program !(Ptr Shader) !Integer !(IORef (Map.Map String Int)) !MeshProgram
 
 programId :: Program -> Integer
-programId (Program _ n _) = n
+programId (Program _ n _ _) = n
 
 loadProgram :: Scope -> BS.ByteString -> Maybe BS.ByteString -> BS.ByteString -> String -> IO Program
 loadProgram scope common vertex fragment required = own scope acquire release
@@ -109,11 +115,20 @@ loadProgram scope common vertex fragment required = own scope acquire release
           when (n /= 0 && n /= def) (R.c'unloadShader p)
           free p
           throwIO (ShaderUnavailable required)
-        else Program p n <$> newIORef Map.empty
-    release (Program p _ _) = R.c'unloadShader p `finally` free p
+        else do
+          locations <- mapM (\name -> (name,) . fromIntegral <$> withCString name (R.c'getShaderLocation p)) meshUniforms
+          cache <- newIORef (Map.fromList locations)
+          let explicitClip = case map snd locations of
+                clip : standard -> clip >= 0 && all (< 0) standard
+                [] -> False
+          pure (Program p n cache (if explicitClip then ExplicitClip else NativeMaterial))
+    release (Program p _ _ _) = R.c'unloadShader p `finally` free p
+    -- The retained path has no native matrix or default material interpreter.
+    -- Other shader contracts keep the complete raylib DrawMesh behavior.
+    meshUniforms = ["uClipFromRender", "mvp", "matView", "matProjection", "matModel", "matNormal", "colDiffuse", "colSpecular", "texture0", "texture1", "texture2"]
 
 uniformLocation :: Program -> String -> IO Int
-uniformLocation (Program p _ ref) name = do
+uniformLocation (Program p _ ref _) name = do
   cache <- readIORef ref
   case Map.lookup name cache of
     Just location -> pure location
@@ -123,7 +138,7 @@ uniformLocation (Program p _ ref) name = do
       pure location
 
 uniform :: (Storable a) => CInt -> Program -> String -> a -> IO ()
-uniform kind program@(Program p _ _) name value = do
+uniform kind program@(Program p _ _ _) name value = do
   location <- uniformLocation program name
   when (location >= 0) $ with value $ \v -> R.c'setShaderValue p (fromIntegral location) (castPtr v) kind
 
@@ -143,7 +158,7 @@ vec4 :: Program -> String -> Vector4 -> IO ()
 vec4 = uniform 3
 
 matrix :: Program -> String -> Matrix -> IO ()
-matrix program@(Program p _ _) name value = do
+matrix program@(Program p _ _ _) name value = do
   location <- uniformLocation program name
   when (location >= 0) $ with value (R.c'setShaderValueMatrix p (fromIntegral location))
 
@@ -163,9 +178,11 @@ texture program name image slot = do
   RL.rlActiveTextureSlot 0
 
 shaderMode :: Program -> IO a -> IO a
-shaderMode (Program p _ _) = bracket_ (R.c'beginShaderMode p) R.endShaderMode
+shaderMode (Program p _ _ _) = bracket_ (R.c'beginShaderMode p) R.endShaderMode
 
-newtype MaterialHandle = MaterialHandle (Ptr Material)
+data MeshSubmission = RetainedSubmission | ReferenceSubmission
+
+data MaterialHandle = MaterialHandle !(Ptr Material) !(IORef (Maybe Program)) !(IORef MeshSubmission)
 
 loadMaterial :: Scope -> IO MaterialHandle
 loadMaterial scope = own scope acquire release
@@ -175,21 +192,69 @@ loadMaterial scope = own scope acquire release
       when (p == nullPtr) (throwIO MaterialUnavailable)
       maps <- peek (p'material'maps p)
       when (maps == nullPtr) (free p >> throwIO MaterialUnavailable)
-      pure (MaterialHandle p)
+      MaterialHandle p <$> newIORef Nothing <*> newIORef RetainedSubmission
     -- Default textures and the program copied into this material are borrowed.
-    release (MaterialHandle p) = (peek (p'material'maps p) >>= R.c'memFree . castPtr) `finally` free p
+    release (MaterialHandle p _ _) = (peek (p'material'maps p) >>= R.c'memFree . castPtr) `finally` free p
 
 useMaterial :: MaterialHandle -> Program -> IO ()
-useMaterial (MaterialHandle p) (Program shader _ _) = copyBytes (p'material'shader p) shader nativeShaderSize
+useMaterial (MaterialHandle p active _) program@(Program shader _ _ _) = do
+  current <- readIORef active
+  when (maybe False ((/= programId program) . programId) current) (throwIO (GeometryUnavailable "Material changed during a retained mesh pass"))
+  copyBytes (p'material'shader p) shader nativeShaderSize
+
+-- The enclosing observation owns shader inputs and draw order. Keep VAO and
+-- element-buffer state until this scope ends; never cache driver state across
+-- raylib's UI, sky, target or context boundaries. The action submits only this
+-- program's uniforms and meshes; other programs and UI stay outside the pass.
+withMeshPass :: MaterialHandle -> Program -> IO a -> IO a
+withMeshPass material@(MaterialHandle _ active submission) program@(Program _ _ _ contract) action = do
+  current <- readIORef active
+  when (maybe False (const True) current) (throwIO (GeometryUnavailable "Nested retained mesh pass"))
+  selected <- readIORef submission
+  case (contract, selected) of
+    (ExplicitClip, RetainedSubmission) -> bracket_ acquire release action
+    _ -> action
+  where
+    acquire = do
+      useMaterial material program
+      RL.rlDrawRenderBatchActive
+      RL.rlEnableShader (programId program)
+      RL.rlDisableBackfaceCulling
+      writeIORef active (Just program)
+    release = do
+      writeIORef active Nothing
+      RL.rlDisableVertexArray
+      RL.rlDisableVertexBuffer
+      RL.rlDisableVertexBufferElement
+      RL.rlDisableShader
+      RL.rlActiveTextureSlot 0
+      RL.rlDisableTexture
+      RL.rlEnableBackfaceCulling
+
+meshPassActive :: MaterialHandle -> IO Bool
+meshPassActive (MaterialHandle _ active _) = maybe False (const True) <$> readIORef active
+
+referenceMeshesForCheck :: MaterialHandle -> Bool -> IO ()
+referenceMeshesForCheck material@(MaterialHandle _ _ submission) enabled = do
+  active <- meshPassActive material
+  when active (throwIO (GeometryUnavailable "Submission changed during a retained mesh pass"))
+  writeIORef submission (if enabled then ReferenceSubmission else RetainedSubmission)
+
+doubleSided :: MaterialHandle -> IO a -> IO a
+doubleSided material action = do
+  retained <- meshPassActive material
+  if retained then action else bracket_ RL.rlDisableBackfaceCulling RL.rlEnableBackfaceCulling action
 
 nativeShaderSize, nativeMeshSize :: Int
 nativeShaderSize = sizeOf (Shader 0 [])
 nativeMeshSize = sizeOf (Mesh 0 0 [] Nothing Nothing [] Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing 0 0 Nothing)
 
-data GpuMesh = GpuMesh !(Ptr Mesh) !Int
+data MeshDraw = Indexed !CInt | Vertices !CInt
+
+data GpuMesh = GpuMesh !(Ptr Mesh) !Int !CUInt !MeshDraw
 
 triangleCount :: GpuMesh -> Int
-triangleCount (GpuMesh _ n) = n
+triangleCount (GpuMesh _ n _ _) = n
 
 uploadMesh :: Scope -> G.MeshData -> IO (Maybe GpuMesh)
 uploadMesh scope mesh =
@@ -242,8 +307,10 @@ uploadStreams scope count triangles positions normals uv extra colors indices
               M.c'uploadMesh p 0
       (upload `finally` detach) `onException` (M.c'unloadMesh p `finally` free p)
       vao <- peek (p'mesh'vaoId p)
-      if vao == 0 then M.c'unloadMesh p >> free p >> throwIO (GeometryUnavailable "Mesh upload failed") else pure (GpuMesh p triangles)
-    release (GpuMesh p _) = M.c'unloadMesh p `finally` free p
+      if vao == 0
+        then M.c'unloadMesh p >> free p >> throwIO (GeometryUnavailable "Mesh upload failed")
+        else pure (GpuMesh p triangles vao (if V.null indices then Vertices (fromIntegral count) else Indexed (fromIntegral (triangles * 3))))
+    release (GpuMesh p _ _ _) = M.c'unloadMesh p `finally` free p
     optional :: (Storable a) => V.Vector a -> (Ptr a -> IO b) -> IO b
     optional xs action = if V.null xs then action nullPtr else V.unsafeWith xs action
 
@@ -261,7 +328,16 @@ uploadRailcar scope packet = do
   maybe (throwIO (GeometryUnavailable "Empty railcar")) pure result
 
 drawMesh :: MaterialHandle -> GpuMesh -> IO ()
-drawMesh (MaterialHandle material) (GpuMesh mesh _) = with matrixIdentity (M.c'drawMesh mesh material)
+drawMesh (MaterialHandle material active _) (GpuMesh mesh _ vao drawing) = do
+  retained <- readIORef active
+  case retained of
+    Nothing -> with matrixIdentity (M.c'drawMesh mesh material)
+    Just _ -> do
+      bound <- RL.c'rlEnableVertexArray vao
+      when (bound == 0) (throwIO (GeometryUnavailable "Retained mesh VAO unavailable"))
+      case drawing of
+        Indexed count -> RL.c'rlDrawVertexArrayElements 0 count nullPtr
+        Vertices count -> RL.c'rlDrawVertexArray 0 count
 
 data FingerprintMode = SkipFingerprints | CaptureFingerprints deriving (Eq, Show)
 
