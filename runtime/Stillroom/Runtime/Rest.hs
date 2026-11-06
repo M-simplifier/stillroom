@@ -1,4 +1,3 @@
-{-# LANGUAGE ForeignFunctionInterface #-}
 {-# LANGUAGE PatternSynonyms #-}
 
 -- | Texture-free procedural scenes. Rendering changes
@@ -24,15 +23,14 @@ import Control.Monad (forM, when)
 import Data.ByteString.Char8 qualified as BSC
 import Data.IORef
 import Data.Maybe (isJust)
-import Foreign (Ptr, alloca, peek, with)
-import Foreign.C (CInt (..))
 import Raylib.Core qualified as R
 import Raylib.Core.Shapes (drawRectangleRec)
-import Raylib.Core.Textures (drawTexturePro, loadRenderTexture, c'unloadRenderTexture, setTextureFilter)
+import Raylib.Core.Textures (drawTexturePro, loadRenderTexture, setTextureFilter)
 import Raylib.Internal (WindowResources, managed)
 import Raylib.Types
 import Stillroom.Graphics qualified as G
 import Stillroom.Runtime.Graphics qualified as Graphics
+import Stillroom.Runtime.Graphics.Target qualified as Target
 import Stillroom.Domain
 import Stillroom.Runtime.Journey qualified as Journey
 import Stillroom.Runtime.Nature qualified as Nature
@@ -44,9 +42,7 @@ data ProceduralShader = ProceduralShader !Shader !Int !Int !Int !Int
 
 -- This lazy surface is explicitly bracketed, outside raylib's managed list.
 releaseSurface :: RenderTexture -> IO ()
-releaseSurface surface = with surface c'unloadRenderTexture
-
-foreign import ccall safe "sr_graphics_surface" nativeSurface :: CInt -> CInt -> Ptr RenderTexture -> IO CInt
+releaseSurface = Target.releaseSurface
 
 surfaceFor :: IORef (Maybe (RenderTexture, (Int, Int))) -> IO () -> Int -> Int -> IO (Maybe RenderTexture)
 surfaceFor ref invalidate width height = mask_ $ do
@@ -66,9 +62,7 @@ surfaceFor ref invalidate width height = mask_ $ do
           pure (fst <$> old)
   where
     attempt w h = do
-      result <- alloca $ \out -> do
-        ok <- nativeSurface (fromIntegral w) (fromIntegral h) out
-        if ok == 1 then Just <$> peek out else pure Nothing
+      result <- Target.createSurface w h
       case result of
         Just _ -> pure result
         Nothing | w > 320 && h > 180 -> attempt (max 1 (w * 3 `div` 4)) (max 1 (h * 3 `div` 4))

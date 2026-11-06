@@ -1,5 +1,20 @@
 # Changelog
 
+## Unreleased
+
+- Generate nature scenes and journey terrain, plants, water and railway geometry
+  in Haskell. Walking and rendering share the same pure, seeded world functions;
+  mesh construction produces immutable, validated attribute buffers.
+- Execute the graphics pipeline through retained h-raylib resources in Haskell.
+  The journey renderer consumes the typed frame plan directly, including the
+  common geometry, shadow and reflection observations.
+- Remove Stillroom's C graphics implementation and copied raylib headers. Keep
+  the small Windows integration boundary and the pinned h-raylib dependency.
+- Check the migration against the previous release's fields, geometry and actual
+  pixels. Add explicit GPU resource-lifetime tests, separate from the pure tests.
+- Support an isolated local review package with its own settings and paused audio
+  at startup. Ordinary installed launches keep their existing behavior.
+
 ## 0.11.0 — 2026-10-24
 
 - Start with soft piano and a still, code-generated water landscape. Include

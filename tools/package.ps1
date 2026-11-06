@@ -1,4 +1,4 @@
-param([string]$Cabal = 'cabal', [string]$OutputDirectory = (Join-Path $PSScriptRoot '../release'))
+param([string]$Cabal = 'cabal', [string]$OutputDirectory = (Join-Path $PSScriptRoot '../release'), [switch]$LocalReview)
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
 $OutputDirectory = [IO.Path]::GetFullPath($OutputDirectory)
@@ -53,6 +53,10 @@ try {
     New-Item -ItemType Directory -Path (Join-Path $bundle 'docs') | Out-Null
     foreach ($name in @('guide.md','builtin-world.md','graphics-quality.md','graphics-foundation.md','rest-mode.md','journeys.md','shader-research.md','procedural-landscapes.md','music-licensing.md','assets.md','background-prompts.md','architecture.md','performance.md','design.md','development.md','gmp.md','player.png','rest-gallery.png','rest-water.png','rest-landscape.png','journey.png')) {
         Copy-Item -LiteralPath (Join-Path $root "docs/$name") -Destination (Join-Path $bundle 'docs')
+    }
+    if ($LocalReview) {
+        [IO.File]::WriteAllText((Join-Path $bundle '.stillroom-local-review'), "Local Haskell graphics review; settings stay beside this executable.`n")
+        [IO.File]::WriteAllText((Join-Path $bundle 'LOCAL-REVIEW.txt'), "Haskell描画版の試用フォルダーです。公開リリースではありません。`r`nstillroom.exe を開いて試せます。音楽は停止した状態で始まります。`r`n設定・旅の保存場所・取り込んだ画像は、このフォルダーの local-state に保存します。`r`n普段使っているStillroomの設定は書き換えません。終了するときはウィンドウを閉じます。`r`n操作方法は docs/guide.md にあります。`r`n")
     }
     $archiveName = (Split-Path -Leaf $bundle) + '.zip'
     $archive = Join-Path $OutputDirectory $archiveName

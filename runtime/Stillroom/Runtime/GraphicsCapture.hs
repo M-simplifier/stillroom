@@ -1,4 +1,3 @@
-{-# LANGUAGE ForeignFunctionInterface #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PatternSynonyms #-}
 
@@ -15,7 +14,6 @@ import Data.ByteString.Lazy qualified as BL
 import Data.List (sort)
 import Data.Maybe (fromMaybe, listToMaybe)
 import Foreign (castPtr, free, peek)
-import Foreign.C (CDouble (..), CUInt (..))
 import Raylib.Core qualified as R
 import Raylib.Core.Textures (c'loadImageFromScreen)
 import Raylib.Internal.Foreign (c'free)
@@ -27,17 +25,19 @@ import Stillroom.Journey.Walk qualified as W
 import Stillroom.Journey.World qualified as World
 import Stillroom.Runtime.Capture (screenshot)
 import Stillroom.Runtime.Journey qualified as Runtime
+import Stillroom.Landscape.Field qualified as Field
+import Stillroom.Runtime.Graphics.GL qualified as GL
 import System.Directory (createDirectoryIfMissing)
 import System.FilePath ((</>))
 import System.IO (hSetBinaryMode, stdout)
 
-foreign import ccall unsafe "sr_car_natural_ground" naturalGround :: CUInt -> CDouble -> CDouble -> CDouble
-foreign import ccall safe "sr_nature_sync" finishGPU :: IO ()
+finishGPU :: IO ()
+finishGPU = GL.finish
 
 lakeProgress :: Double
 lakeProgress = fromMaybe 450 $ listToMaybe
-  [s - 12 | s <- [100,102 .. 3000], naturalGround (fromIntegral (World.seedValue World.firstSeed))
-      (realToFrac (J.trackX World.firstSeed s)) (realToFrac (-s)) < -1]
+  [s - 12 | s <- [100,102 .. 3000], Field.naturalGround World.firstSeed
+      (J.trackX World.firstSeed s) (-s) < -1]
 
 pose :: Double -> Double -> J.Journey
 pose progress offset =

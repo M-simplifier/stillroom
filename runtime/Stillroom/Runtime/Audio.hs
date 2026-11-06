@@ -10,6 +10,7 @@ module Stillroom.Runtime.Audio
     withEngine,
     withEngineSource,
     withEngineLayers,
+    withEngineLayersStarting,
     pump,
     setTransport,
     setVolume,
@@ -136,13 +137,16 @@ withEngine = withEngineSource (\preset offset count -> evaluate (renderBlock pre
 -- the only capability. Device starvation from OS scheduling, GC or a slow
 -- injected source/decoder remains possible; this is not a real-time callback.
 withEngineSource :: BlockSource -> NonEmpty Track -> Int -> Volume -> (Engine -> IO a) -> IO a
-withEngineSource source = withSources source Nothing
+withEngineSource source = withSources Playing source Nothing
 
 withEngineLayers :: BlockSource -> AmbienceSource -> NonEmpty Track -> Int -> Volume -> (Engine -> IO a) -> IO a
-withEngineLayers source ambient = withSources source (Just ambient)
+withEngineLayers = withEngineLayersStarting Playing
 
-withSources :: BlockSource -> Maybe AmbienceSource -> NonEmpty Track -> Int -> Volume -> (Engine -> IO a) -> IO a
-withSources source ambient tracks seed initialVolume action = bracket acquire release action
+withEngineLayersStarting :: Transport -> BlockSource -> AmbienceSource -> NonEmpty Track -> Int -> Volume -> (Engine -> IO a) -> IO a
+withEngineLayersStarting initialTransport source ambient = withSources initialTransport source (Just ambient)
+
+withSources :: Transport -> BlockSource -> Maybe AmbienceSource -> NonEmpty Track -> Int -> Volume -> (Engine -> IO a) -> IO a
+withSources initialTransport source ambient tracks seed initialVolume action = bracket acquire release action
   where
     acquire = mask $ \restore -> do
       ready <- newEmptyMVar
@@ -179,7 +183,7 @@ withSources source ambient tracks seed initialVolume action = bracket acquire re
           mutex <- newMVar ()
           initial <- snapshotState ref
           engine <- Engine ref mutex source ambient <$> newIORef initial <*> newIORef False <*> newIORef Nothing <*> newEmptyMVar <*> newEmptyMVar
-          setTransport engine Playing
+          setTransport engine initialTransport
           pure engine
         ) `onException` closeOwned
     release engine = mask_ $ do

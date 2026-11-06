@@ -5,15 +5,15 @@ import GHC.IO.Encoding (setForeignEncoding, utf8)
 import Stillroom.Runtime.GraphicsCheck (runGraphicsCheck)
 import Stillroom.Runtime.Benchmark (runBenchmark)
 import Stillroom.Runtime.Capture (runCapture)
-import Stillroom.Runtime.Desktop (runDesktop)
+import Stillroom.Runtime.Desktop (runDesktop, runLocalReview)
 import Stillroom.Runtime.JourneyCheck (runJourneyCheck)
 import Stillroom.Runtime.GraphicsCapture (runQualityCapture, runQualityFilm)
 import Stillroom.Graphics (Tier (..))
 import Stillroom.Runtime.Native
-import System.Directory (XdgDirectory (XdgConfig), createDirectoryIfMissing, getXdgDirectory)
-import System.Environment (getArgs)
+import System.Directory (XdgDirectory (XdgConfig), createDirectoryIfMissing, doesFileExist, getXdgDirectory)
+import System.Environment (getArgs, getExecutablePath)
 import System.Exit (exitFailure)
-import System.FilePath ((</>))
+import System.FilePath ((</>), takeDirectory)
 import System.IO (hPutStrLn, stderr)
 
 main :: IO ()
@@ -44,6 +44,20 @@ dispatch ["--quality-film", "supersampled"] = runQualityFilm Supersampled
 dispatch ["--check", directory] = runDesktop (directory </> "settings.json") (Just directory) Nothing
 dispatch ["--check", directory, "--music", folder] = runDesktop (directory </> "settings.json") (Just directory) (Just folder)
 dispatch [] = do
+  executable <- getExecutablePath
+  let directory = takeDirectory executable
+      localState = directory </> "local-state"
+  review <- doesFileExist (directory </> ".stillroom-local-review")
+  if review
+    then do
+      createDirectoryIfMissing True localState
+      runLocalReview (localState </> "settings.json")
+    else launchInstalled
+
+dispatch _ = showProblem "Start Stillroom without arguments. Diagnostics: --capture-ui OUTPUT; --check OUTPUT [--music FOLDER]; --check-journey OUTPUT; --benchmark OUTPUT" >> pure False
+
+launchInstalled :: IO Bool
+launchInstalled = do
   entry <- beginInstance
   case entry of
     Left problem -> showProblem problem >> pure False
@@ -52,4 +66,3 @@ dispatch [] = do
       config <- getXdgDirectory XdgConfig "Stillroom"
       createDirectoryIfMissing True config
       runDesktop (config </> "settings.json") Nothing Nothing
-dispatch _ = showProblem "Start Stillroom without arguments. Diagnostics: --capture-ui OUTPUT; --check OUTPUT [--music FOLDER]; --check-journey OUTPUT; --benchmark OUTPUT" >> pure False

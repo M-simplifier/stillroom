@@ -27,9 +27,15 @@
 !/test/*.hs
 !/test/types/
 !/test/types/*.hs
+!/test/fixtures/
+!/test/fixtures/landscape-*.csv
+!/test/fixtures/landscape-migration-provenance.json
 !/tools/
 !/tools/*.ps1
 !/tools/verify-rest-frames.py
+!/tools/migration-reference-field.c
+!/tools/migration-reference-geometry.py
+!/tools/migration-compare-geometry.py
 !/tools/audio/
 !/tools/audio/*.py
 !/tools/audio/*.json

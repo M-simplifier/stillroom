@@ -1,8 +1,19 @@
 # Status
 
-Stillroom 0.11.0 targets Windows x64, tested on Windows 11 with GHC 9.6.7 and
+The public baseline is Stillroom 0.11.0 for Windows x64, tested on Windows 11 with GHC 9.6.7 and
 h-raylib 5.6.0.0. It is a small utility with best-effort maintenance, not a
 medical device or a measured productivity intervention.
+
+The working branch contains an unpublished Haskell graphics migration. Seeded
+field queries, CPU landscape construction, retained GPU resources and pass
+execution now live in Haskell; GLSL and pinned h-raylib remain dependencies.
+The application C boundary is `cbits/native.c` for Windows. This local work is
+separate from the published 0.11.0 package and has not been released.
+The final Stillroom library and executable use confirmed GHC `-O2`, with
+dependency settings unchanged. The matched accelerated journey took 72.03 s
+against 40.43 s for the immediately following public C control: a remaining
+1.78× cost. This is a verified local trial, not a replacement for the public
+build. Conditions and retained earlier measurements are in [journeys](docs/journeys.md).
 
 The listening room provides four continuously composed music moods, MP3/WAV/OGG
 folder playback, shuffle, crossfade, pause/next, saved settings, local background images, ten
@@ -32,8 +43,8 @@ hysteresis. Quality changes render targets and shading, never navigation or
 world geometry. See [graphics quality](docs/graphics-quality.md) for budgets
 and measurement boundaries.
 
-The current source passes 71 property/regression groups. They cover the pure
-session/interface, seeds and interleaved native field queries, bookmark
+The current source passes 83 property/regression groups. They cover the pure
+session/interface, explicit seeds and interleaved pure field queries, bookmark
 validation, fixed-tick input, cross-seed automatic walking and rail-to-foot
 transfers, exact box boundaries, emitted mesh winding, projection and origin
 laws, rejected frame encodings, and independence of reflection resolution.
@@ -43,8 +54,11 @@ See [built-in music and scenery](docs/builtin-world.md) for the design,
 reproduction commands and bounded audio evidence.
 The journey's functional graphics foundation and scoped acceptance evidence
 are described in [graphics foundation](docs/graphics-foundation.md).
-The build also accepts a valid graphics API client and rejects four invalid
-clients, protecting coordinate-space roles and the opaque plan boundaries.
+The build and migration tools together accept two valid API clients and reject
+six invalid clients, protecting coordinate-space roles, opaque plans, geometry
+dimensions and matching mesh streams. The GPU lifetime/water suite is explicit
+opt-in: `cabal test migration-native -fnative-graphics-tests`. Ordinary
+`cabal test` and the CI law selection do not require an OpenGL context.
 The native acceptance harness has 56 assertions covering audio
 clocks, MP3/procedural playback, preferences, scene selection, rendering,
 journey preparation, movement, save/reload and rest/work transitions.
@@ -89,4 +103,6 @@ have keyboard navigation and shortcuts but no complete screen-reader control
 tree. No loudness normalization, FLAC, recursive music folders, streaming
 service, installer or automatic updater is included. The checks do not certify
 attention or health effects, every audio device, power/battery cost, GPU
-allocation failures or all-day stability.
+driver allocation failures or all-day stability. Target-size rejection and
+shader failure are injected in bounded recovery checks; they do not establish
+recovery from every driver or hardware failure.

@@ -1,6 +1,6 @@
--- | Versioned native protocol for Stillroom's journey renderer.
--- The generic core has no knowledge of this packet or its fixed pass schedule.
--- Validate representability once, after Double-relative transforms are complete.
+-- | Stable diagnostic serialization of a journey plan. Production rendering
+-- consumes the typed plan directly; this view compares recorded and GPU values.
+-- Lower only after Double-relative transforms are complete.
 module Stillroom.Runtime.Journey.Packet
   ( FramePacket, FrameEncodingError (..), lowerFrame, packetValues, packetSize,
   )

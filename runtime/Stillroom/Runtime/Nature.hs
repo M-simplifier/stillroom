@@ -1,89 +1,49 @@
-{-# LANGUAGE ForeignFunctionInterface #-}
-
--- | A bracketed native renderer. Shader contents cross the UTF-8 boundary once;
--- frames pass only a scene, clock and rectangle. No finalizer runs after GL closes.
 module Stillroom.Runtime.Nature (Nature, withNature, available, draw, info, synchronize, reference, quality, landscapeIndex) where
 
-import Control.Exception (IOException, bracket, try)
+import Control.Exception (IOException, bracket, try, catch)
 import Data.ByteString qualified as BS
-import Foreign (Ptr, nullPtr, withArray, withMany)
-import Foreign.C (CDouble (..), CFloat (..), CInt (..), CString, peekCString)
+import Raylib.Types (Rectangle (..))
 import Stillroom.Graphics (Tier)
 import Stillroom.Domain
+import Stillroom.Runtime.Graphics.GL qualified as GL
+import Stillroom.Runtime.Graphics.Landscape qualified as L
+import Stillroom.Runtime.Graphics.Resource (GraphicsError)
 import Stillroom.Runtime.Pictures qualified as Pictures
 import System.FilePath ((</>))
 
-data NativeNature
-
-data Nature = Missing | Loaded !(Ptr NativeNature)
-
-foreign import ccall safe "sr_nature_load" nativeLoad :: Ptr CString -> IO (Ptr NativeNature)
-
-foreign import ccall safe "sr_nature_free" nativeFree :: Ptr NativeNature -> IO ()
-
-foreign import ccall unsafe "sr_nature_ready" nativeReady :: Ptr NativeNature -> IO CInt
-
-foreign import ccall safe "sr_nature_draw" nativeDraw :: Ptr NativeNature -> CInt -> CDouble -> CFloat -> CFloat -> CFloat -> CFloat -> IO CInt
-
-foreign import ccall unsafe "sr_nature_info" nativeInfo :: Ptr NativeNature -> IO CString
-
-foreign import ccall safe "sr_nature_sync" synchronize :: IO ()
-
-foreign import ccall safe "sr_nature_reference" nativeReference :: Ptr NativeNature -> CInt -> IO ()
-
-foreign import ccall safe "sr_nature_quality" nativeQuality :: Ptr NativeNature -> CInt -> IO CInt
-
-quality :: Nature -> Tier -> IO ()
-quality Missing _ = pure ()
-quality (Loaded pointer) tier = nativeQuality pointer (fromIntegral (fromEnum tier)) >> pure ()
-
--- | Benchmark-only quality comparison. Normal application code leaves this off.
-reference :: Nature -> Bool -> IO ()
-reference Missing _ = pure ()
-reference (Loaded pointer) enabled = nativeReference pointer (if enabled then 1 else 0)
-
+data Nature = Missing | Loaded !L.Landscape
 withNature :: (Nature -> IO a) -> IO a
 withNature = bracket acquire release
   where
     acquire = do
-      sources <-
-        try $
-          mapM
-            (\name -> Pictures.assetPath ("assets" </> "rest" </> "nature" </> name) >>= BS.readFile)
-            ["common.glsl", "land.vs", "land.fs", "water.vs", "water.fs", "sky.fs", "post.fs"]
+      sources <- try $ mapM (\name -> Pictures.assetPath ("assets" </> "rest" </> "nature" </> name) >>= BS.readFile)
+        ["common.glsl","land.vs","land.fs","water.vs","water.fs","sky.fs","post.fs"]
       case sources of
         Left (_ :: IOException) -> pure Missing
-        Right files -> do
-          pointer <- withMany BS.useAsCString files (\strings -> withArray strings nativeLoad)
-          pure (if pointer == nullPtr then Missing else Loaded pointer)
+        Right files -> (Loaded <$> L.load files) `catch` (\(_ :: GraphicsError) -> pure Missing)
     release Missing = pure ()
-    release (Loaded pointer) = nativeFree pointer
-
+    release (Loaded landscape) = L.release landscape
 available :: Nature -> IO Bool
 available Missing = pure False
-available (Loaded pointer) = (== 1) <$> nativeReady pointer
-
+available (Loaded landscape) = L.available landscape
+quality :: Nature -> Tier -> IO ()
+quality Missing _ = pure ()
+quality (Loaded landscape) tier = L.quality landscape (fromEnum tier)
+reference :: Nature -> Bool -> IO ()
+reference Missing _ = pure ()
+reference (Loaded landscape) enabled = L.reference landscape enabled
+synchronize :: IO ()
+synchronize = GL.finish
 landscapeIndex :: RestScene -> Maybe Int
 landscapeIndex BirchLake = Just 0
 landscapeIndex AlpineLake = Just 1
 landscapeIndex MeadowStream = Just 2
 landscapeIndex _ = Nothing
-
 draw :: Nature -> RestScene -> Double -> Float -> Float -> Float -> Float -> IO Bool
 draw Missing _ _ _ _ _ _ = pure False
-draw (Loaded pointer) scene time x y width height = case landscapeIndex scene of
+draw (Loaded landscape) scene time x y width height = case landscapeIndex scene of
   Nothing -> pure False
-  Just index ->
-    (== 1)
-      <$> nativeDraw
-        pointer
-        (fromIntegral index)
-        (realToFrac time)
-        (realToFrac x)
-        (realToFrac y)
-        (realToFrac width)
-        (realToFrac height)
-
+  Just index -> L.draw landscape index time (Rectangle x y width height)
 info :: Nature -> IO String
 info Missing = pure "{}"
-info (Loaded pointer) = nativeInfo pointer >>= peekCString
+info (Loaded landscape) = L.info landscape

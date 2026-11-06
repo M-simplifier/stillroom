@@ -1,6 +1,6 @@
 # Functional graphics foundation
 
-Stillroom 0.10 keeps the original railcar and scenery, while making the
+The graphics foundation introduced in Stillroom 0.10 keeps the original railcar and scenery, while making the
 relationship between geometry, its observations, and GPU execution explicit.
 The work targets a stable moving view: changing the rendering pass must not
 accidentally change the terrain it projects.
@@ -19,9 +19,13 @@ accidentally change the terrain it projects.
 | [`Graphics.Observation`](../src/Stillroom/Graphics/Observation.hs) | An image target description together with its writing/sampling projection. No fixed pass enumeration. |
 | [`Journey.Railcar`](../src/Stillroom/Journey/Railcar.hs) | The original dimensions, part ordering, palette and wheel design. |
 | [`Journey.Frame`](../src/Stillroom/Journey/Frame.hs) | Stillroom's shared geometry context and passenger, light and reflection observations. |
-| [`Runtime.Journey.Packet`](../runtime/Stillroom/Runtime/Journey/Packet.hs) | Validated finite GPU encoding of that frame. |
+| [`Landscape.Field`](../src/Stillroom/Landscape/Field.hs) | Explicit-seed analytical terrain, shores, habitats, railway and collision. |
+| [`Landscape.Geometry`](../src/Stillroom/Landscape/Geometry.hs) | Pure bounded construction of fixed scenes and seeded near/far meshes, branch data and height samples. |
+| [`Runtime.Graphics.Journey`](../runtime/Stillroom/Runtime/Graphics/Journey.hs) | Retained chunk resources and direct execution of the validated frame and its observations. |
+| [`Runtime.Graphics.Resource`](../runtime/Stillroom/Runtime/Graphics/Resource.hs) | Context-thread ownership, uploads, shader values and typed GPU handles. |
+| [`Runtime.Graphics.Target`](../runtime/Stillroom/Runtime/Graphics/Target.hs) | Target selection, allocation fallback and replacement. |
+| [`Runtime.Journey.Packet`](../runtime/Stillroom/Runtime/Journey/Packet.hs) | Validated finite diagnostic encoding, outside production pass selection. |
 | [`Graphics.Encoding.Mesh`](../src/Stillroom/Graphics/Encoding/Mesh.hs) | Validated native vertex encoding, retained and uploaded once per world. |
-| [`journey/render.c`](../cbits/journey/render.c) | Target allocation, resource ownership and execution of the supplied frame. |
 
 The reusable core imports no railcar, fixed three-pass schedule, or native frame
 packet. `Journey.Frame` makes the product choices; `Runtime.Journey` owns the
@@ -55,17 +59,19 @@ target description. Queries are ordinary functions rather than exported record
 selectors, so clients cannot replace the combined map independently through
 record update. `FramePlan` and its geometry context have the same boundary.
 
-At the native boundary, a borrowed `ProjectedField` combines the selected GPU
-image and its map for the frame. The shadow pass writes with the same lowered
+At execution, each typed `Observation` combines the selected GPU image's target
+description with its map for the frame. The shadow pass writes with the same lowered
 matrix used to sample shadow depth. The reflection pass and water sampling
 likewise use one pair. Resource allocation and destruction remain in the native
-renderer; the pure values do not own GPU handles.
+Haskell runtime; the pure values do not own GPU handles.
 
 Transforms are computed in Double. Object translations become relative to a
 nearby origin before conversion to Float. The light grid is anchored in the
-light's basis, rather than rounded along world X/Z. The 207-float versioned
-packet is decoded explicitly into raylib's named matrix fields, not cast to a
-C structure. Native target fallback is resolved before planning.
+light's basis, rather than rounded along world X/Z. `Space.matrixElements`
+exposes four total columns; `Runtime.Graphics.Encoding` lowers those to raylib's
+named matrix fields. The renderer consumes `FramePlan` directly. The 207-float
+versioned packet remains available for diagnostics; target fallback is resolved
+before planning.
 
 ## Visible stability
 
@@ -83,6 +89,27 @@ come directly from the view matrix rather than a lossy eye/target round trip.
 Fine railcar grain is filtered using its pixel footprint.
 
 ## Verification and limits
+
+The 2026-11-06 local Haskell migration retains frozen 0.11.0 field and geometry
+fixtures. `tools/check-haskell-migration.ps1` compares 17,137 field samples and
+all buffers from three fixed scenes and 24 seeded near/far chunks. Twenty-six
+geometries are byte-identical. Alpine terrain alone has a documented one-ULP
+`atan2` difference: height error stays below 0.00001 m and normal components
+below 0.00004; topology, colors, branch data and vegetation remain exact.
+The fixture provenance records the exact differing input and output bits.
+
+The same tool accepts ordinary public queries and rejects attempts to replace
+geometry dimensions or mesh position arrays through record update.
+`cabal test migration-native -fnative-graphics-tests` compares water with actual pinned raylib, draws
+the indexed upload, repeats acquisition/release and checks recovery after a
+shader failure. Product captures and actual framebuffer/uniform readback remain
+necessary; internal path equality alone does not establish image preservation.
+The native suite is disabled by default, so ordinary `cabal test` does not
+require a GPU context.
+
+The following counts and measurements describe the bounded **2026-10-20**
+foundation acceptance study. They are retained historical evidence, not new
+migration performance claims.
 
 - 55 property/regression groups include exact rectangle subtraction, analytic
   union volume, surface ownership, mesh winding, projections, relative-origin

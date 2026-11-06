@@ -5,6 +5,7 @@ import Data.Map.Strict qualified as Map
 import Data.Vector.Storable qualified as V
 import Stillroom.Journey.Frame qualified as F
 import Stillroom.Graphics.Observation qualified as O
+import Stillroom.Graphics.Space qualified as Space
 import Stillroom.Runtime.Journey.Packet qualified as Packet
 import Stillroom.Graphics.Encoding.Mesh qualified as Mesh
 import Stillroom.Graphics.BoxUnion qualified as S
@@ -22,9 +23,34 @@ graphicsChecks = and <$> sequence
   , law "shadow grid holds static vertices within a cell" propShadow
   , law "invalid frame inputs and targets are rejected" (once propInvalid)
   , law "reflection resolution preserves shared geometry and other observations" propReflectionIndependence
+  , law "matrix columns preserve a translated, tilted, non-symmetric object transform" (once propMatrixElements)
   ]
   where
     law title p = putStrLn title >> isSuccess <$> quickCheckWithResult stdArgs {maxSuccess=300} p
+
+propMatrixElements :: Bool
+propMatrixElements = all matches points && transpositionRejected
+  where
+    heading = 0.43; grade = -0.27
+    matrix = Space.objectTransform (Space.Point 7 (-3) 11) heading grade
+    (a,b,c,d) = Space.matrixElements matrix
+    points = [Space.Point 0 0 0,Space.Point 1 0 0,Space.Point 0 1 0,Space.Point 2 (-5) 3]
+    columnApply (Space.Point x y z) = add4 (scale4 x a) (add4 (scale4 y b) (add4 (scale4 z c) d))
+    expected (Space.Point x y z) =
+      (cos heading*x+sin heading*sin grade*y+sin heading*cos grade*z+7,
+       cos grade*y-sin grade*z-3,
+       -sin heading*x+cos heading*sin grade*y+cos heading*cos grade*z+11,1)
+    matches point = near4 (columnApply point) (expected point) && near4 (Space.transform matrix point) (expected point)
+    -- Treating columns as rows is a plausible wrong lowering. This point must
+    -- distinguish it even if two internal consumers share that wrong order.
+    transpositionRejected =
+      let point@(Space.Point x y z) = Space.Point 2 (-5) 3
+          wrong = (dot4 a (x,y,z,1),dot4 b (x,y,z,1),dot4 c (x,y,z,1),dot4 d (x,y,z,1))
+       in not (near4 wrong (expected point))
+    near4 (a0,b0,c0,d0) (a1,b1,c1,d1) = all (<1e-12) [abs(a0-a1),abs(b0-b1),abs(c0-c1),abs(d0-d1)]
+    add4 (a0,b0,c0,d0) (a1,b1,c1,d1) = (a0+a1,b0+b1,c0+c1,d0+d1)
+    scale4 x (a0,b0,c0,d0) = (x*a0,x*b0,x*c0,x*d0)
+    dot4 (a0,b0,c0,d0) (a1,b1,c1,d1) = a0*a1+b0*b1+c0*c1+d0*d1
 
 rect :: [Int] -> Maybe S.Rect
 rect (a:b:c:d:_) =

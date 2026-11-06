@@ -1,5 +1,3 @@
-{-# LANGUAGE ForeignFunctionInterface #-}
-
 module Stillroom.Journey.Walk
   ( Mode (..),
     Walker (..),
@@ -22,43 +20,25 @@ module Stillroom.Journey.Walk
 where
 
 import Data.List (foldl')
-import Foreign.C (CDouble (..), CInt (..), CUInt (..))
 import Stillroom.Journey.Navigation
-import Stillroom.Journey.World (Seed, seedValue, withinWorld)
-
-data Habitat = Meadow | Birchwood | Pines | Heath | Wetland | Dunes deriving (Eq, Ord, Show, Enum, Bounded)
-
-foreign import ccall unsafe "sr_journey_biome" cBiome :: CUInt -> CDouble -> CDouble -> CInt
+import Stillroom.Journey.World (Seed, withinWorld)
+import Stillroom.Landscape.Field (Habitat (..))
+import Stillroom.Landscape.Field qualified as Landscape
 
 habitatAt :: Seed -> Double -> Double -> Habitat
-habitatAt seed x z = case cBiome (fromIntegral (seedValue seed)) (realToFrac x) (realToFrac z) of
-  1 -> Birchwood
-  2 -> Pines
-  3 -> Heath
-  4 -> Wetland
-  5 -> Dunes
-  _ -> Meadow
-
--- Pure, stateless field queries, also used by the native geometry generator.
-foreign import ccall unsafe "sr_journey_ground" cGround :: CUInt -> CDouble -> CDouble -> CDouble
-
-foreign import ccall unsafe "sr_journey_stand" cStand :: CUInt -> CDouble -> CDouble -> CInt
-
-foreign import ccall unsafe "sr_journey_interest" cInterest :: CUInt -> CDouble -> CDouble -> CDouble
-
-foreign import ccall unsafe "sr_journey_shore" cShore :: CUInt -> CDouble -> CDouble -> CDouble
+habitatAt seed x z = Landscape.dominantHabitat (Landscape.habitat seed x z)
 
 terrainHeight :: Seed -> Double -> Double -> Double
-terrainHeight seed x z = realToFrac (cGround (fromIntegral (seedValue seed)) (realToFrac x) (realToFrac z))
+terrainHeight = Landscape.ground
 
 canStand :: Seed -> Double -> Double -> Bool
-canStand seed x z = withinWorld x z && cStand (fromIntegral (seedValue seed)) (realToFrac x) (realToFrac z) == 1
+canStand seed x z = withinWorld x z && Landscape.standable seed x z
 
 shoreDistance :: Seed -> Double -> Double -> Double
-shoreDistance seed x z = realToFrac (cShore (fromIntegral (seedValue seed)) (realToFrac x) (realToFrac z))
+shoreDistance = Landscape.shoreDistance
 
 field :: Seed -> Field
-field seed = Field (\(Point x z) -> canStand seed x z) (\(Point x z) -> terrainHeight seed x z) (\(Point x z) -> realToFrac (cInterest (fromIntegral (seedValue seed)) (realToFrac x) (realToFrac z)))
+field seed = Field (\(Point x z) -> canStand seed x z) (\(Point x z) -> terrainHeight seed x z) (\(Point x z) -> Landscape.interest seed x z)
 
 data Mode = Manual | Strolling deriving (Eq, Show)
 

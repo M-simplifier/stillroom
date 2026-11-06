@@ -9,6 +9,7 @@ import Data.List.NonEmpty (NonEmpty (..))
 import Data.Vector.Storable qualified as V
 import JourneyChecks (journeyChecks)
 import GraphicsChecks (graphicsChecks)
+import LandscapeChecks (landscapeChecks)
 import AudioChecks (audioChecks)
 import EnvironmentChecks (environmentChecks)
 import Stillroom.Domain
@@ -67,12 +68,13 @@ main = do
       ]
   journeysPassed <- journeyChecks
   graphicsPassed <- graphicsChecks
+  landscapePassed <- landscapeChecks
   audioPassed <- forM (audioChecks ++ environmentChecks) $ \(title, check) -> do
     putStrLn title
     passed <- check
     putStrLn (if passed then "+++ OK, passed 1 test." else "*** Failed.")
     pure passed
-  unless (all isSuccess results && journeysPassed && graphicsPassed && and audioPassed) exitFailure
+  unless (all isSuccess results && journeysPassed && graphicsPassed && landscapePassed && and audioPassed) exitFailure
   where
     law title p = putStrLn title >> quickCheckWithResult stdArgs {maxSuccess = 250} p
 

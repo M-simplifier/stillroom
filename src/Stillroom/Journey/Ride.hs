@@ -1,23 +1,17 @@
-{-# LANGUAGE ForeignFunctionInterface #-}
-
--- Fixed-tick passenger/vehicle semantics. Native queries are stateless and
--- share the exact track field with geometry; GPU ownership stays in the runtime.
+-- Fixed-tick passenger/vehicle semantics. Pure queries share the authored
+-- track field with geometry; GPU ownership stays in the runtime.
 module Stillroom.Journey.Ride where
 
 import Data.List (foldl')
 import Data.Maybe (listToMaybe)
-import Foreign.C (CDouble (..), CUInt (..))
 import Stillroom.Journey.Navigation (clamp, emptyRoute)
 import Stillroom.Journey.Walk qualified as W
-import Stillroom.Journey.World (Seed, coordinateLimit, seedValue)
-
-foreign import ccall unsafe "sr_car_track_x" trackXC :: CUInt -> CDouble -> CDouble
-
-foreign import ccall unsafe "sr_car_track_y" trackYC :: CUInt -> CDouble -> CDouble
+import Stillroom.Journey.World (Seed, coordinateLimit)
+import Stillroom.Landscape.Field qualified as Landscape
 
 trackX, trackY, trackHeading, trackMetric :: Seed -> Double -> Double
-trackX seed = realToFrac . trackXC (fromIntegral (seedValue seed)) . realToFrac
-trackY seed = realToFrac . trackYC (fromIntegral (seedValue seed)) . realToFrac
+trackX seed = Landscape.railX seed . negate
+trackY seed = Landscape.railY seed . negate
 trackHeading seed s = atan2 ((trackX seed (s + 0.1) - trackX seed (s - 0.1)) / 0.2) 1
 trackMetric seed s = sqrt (1 + dx * dx + dy * dy)
   where

@@ -1,5 +1,4 @@
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE ForeignFunctionInterface #-}
 -- Product-path graphics checks: independent state, real window/GL resources.
 module Stillroom.Runtime.GraphicsCheck (runGraphicsCheck) where
 
@@ -8,7 +7,7 @@ import Control.Monad (forM, replicateM_, unless)
 import Data.Aeson (encode, object, (.=))
 import Data.ByteString.Lazy qualified as BL
 import Data.List (nub, sort)
-import Foreign.C (CInt (..))
+import Stillroom.Runtime.Graphics.Target (allocationLimitsForCheck)
 import Raylib.Core qualified as R
 import Raylib.Types
 import Stillroom.Domain
@@ -21,7 +20,8 @@ import Stillroom.Session
 import System.Directory (createDirectoryIfMissing)
 import System.FilePath ((</>))
 
-foreign import ccall unsafe "sr_graphics_allocation_limits_for_check" allocationLimits :: CInt -> CInt -> IO ()
+allocationLimits :: Int -> Int -> IO ()
+allocationLimits = allocationLimitsForCheck
 
 runGraphicsCheck :: FilePath -> IO Bool
 runGraphicsCheck folder = do
