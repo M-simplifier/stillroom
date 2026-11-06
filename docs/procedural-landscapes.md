@@ -74,20 +74,31 @@ tree-growth model. It was not implemented: the current recursive branch generato
 already serves the accepted composition at a smaller implementation cost.
 [Space colonization algorithm](https://www.algorithmicbotany.org/papers/colonization.egwnp2007.html).
 
-## Ownership and the Haskell/C boundary
+## CPU generation and GPU ownership
 
-`Runtime.Nature` brackets an opaque C context inside the raylib window. Haskell
-loads shader contents through Unicode-safe file APIs; C borrows them only while
-compiling. Frames pass a scene, time and rectangle, not lists of vertices.
-Long operations use `safe` FFI on the bound rendering thread. Batching avoids
-conversion overhead without relying on an unsafe long call that delays GC.
+`Landscape.Fixed` generates these three accepted compositions in Haskell.
+`Landscape.Plants` builds the shared trees, foliage, rocks and grass, while
+`Landscape.Geometry` exposes immutable contiguous mesh streams, compact grass
+instances, branch-bone pixels, a height grid and the indexed water surface. Bounded local `ST`
+builders cannot escape generation. This CPU computation needs no GL context.
 
-The C context owns meshes, generated numeric textures, shaders and targets.
-Three bounded geometry sets are prepared while startup thumbnails are drawn,
-before music begins. Selecting another landscape reuses its GPU geometry.
-Shaders, shadow/reflection targets and the final surface are shared. CPU upload
-arrays are freed after upload. All GPU resources are released before closing
-the OpenGL context; no GPU finalizer runs on a GC thread.
+Grass retains five authored triangles per blade, represented by fifteen shared
+corners and a 40-byte record instead of 660 bytes of expanded vertex attributes.
+The 180-byte corner buffer is shared by the renderer. A Haskell definition emits
+both the CPU reference and GLSL shape arithmetic; the existing wind and
+observation transforms follow that generated shape. Flowers remain ordinary
+mesh triangles, and grass remains excluded from shadow submission as before.
+CPU expansion is an explicit diagnostic operation, not retained render data.
+
+`Runtime.Graphics.Landscape` prepares three bounded geometry sets while startup
+thumbnails are drawn, before music begins. Selecting another landscape reuses
+its uploaded geometry. `Graphics.Resource` owns meshes, numeric textures and
+shader handles; `Graphics.Target` owns shadow, reflection and final surfaces.
+The window thread allocates, uses and releases them. CPU vectors can be collected
+after upload; native indexed meshes retain their index allocation until unload.
+All GPU resources close before the OpenGL context, without a GC-thread finalizer.
+GLSL and pinned h-raylib remain dependencies. No application C renderer or field
+query is linked into the production path.
 
 This deliberately trades startup time and resident memory for predictable scene
 switching. Regenerating the landscape inside an ordinary frame could delay the
@@ -99,9 +110,13 @@ the caller's framebuffer, viewport, render dimensions and matrices before
 compositing. Testing a standalone viewer alone would not establish this contract.
 A missing source, failed shader/uniform or invalid target produces the normal
 opaque fallback and an exit route; it must not turn into a successful blank frame.
-An intentionally invalid fragment shader was exercised in an isolated extracted
-package: the fallback and return path worked, and the harness completed with the
-expected rendering-readiness failures. GPU allocation failure was not injected.
+The original 0.7 acceptance exercised an invalid fragment shader in an isolated
+extracted package; it did not inject GPU allocation failure. Current
+`--check-graphics` additionally injects target-size limits, checks that a valid
+old image survives rejected replacements, and tests downshift/resize recovery.
+`cabal test migration-native -fnative-graphics-tests` explicitly opens a GPU
+context and compares the generated water directly with pinned
+raylib's vertices, normals, UVs and indices and draws the retained indexed mesh.
 
 ## Frame budget and measurement
 
@@ -110,11 +125,12 @@ target 30 FPS; audio continues to be pumped. Invisible windows skip scene drawin
 Still mode reuses the rendered frame. Scene, size and the 30 Hz time sample
 invalidate the cache. Brightness is applied afterward, preserving opaque output.
 
-The production profile caps the internal raster at 1600×900, preserves aspect,
-uses a half-size reflection and a 1536-square shadow map. The benchmark-only
-reference profile uses the same geometry, camera, shaders and clocks with a full
-reflection, uncapped raster and 2048 shadow map. This comparison measures the
-cost of a **quality tradeoff**, not identical pixels or a change in FFI overhead.
+The original 0.7 benchmark compared a 1600×900-capped profile with half-size
+reflection and a 1536-square shadow against uncapped raster, full reflection
+and a 2048 shadow. Those historical results measure a quality tradeoff, not
+identical pixels or a change in FFI overhead. Current tier budgets are described
+in [graphics quality](graphics-quality.md); the current benchmark records the
+actual target dimensions alongside each sample.
 
 Use the existing development entrypoint:
 

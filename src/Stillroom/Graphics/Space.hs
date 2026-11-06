@@ -9,7 +9,7 @@
 module Stillroom.Graphics.Space
   ( World, Render, Object, View, Clip,
     Point (..), Direction (..), Transform,
-    identity, compose, transform, matrixColumns,
+    identity, compose, transform, matrixColumns, matrixElements,
     pointList, directionList, pointOf, relative,
     plus, scale, dot, cross, unit, look, perspective, ortho, objectTransform,
   )
@@ -71,6 +71,10 @@ rowList (Row a b c d) = [a,b,c,d]
 
 matrixColumns :: Transform a b -> [Double]
 matrixColumns = concat . transpose . map rowList . rows
+
+matrixElements :: Transform a b -> ((Double,Double,Double,Double),(Double,Double,Double,Double),(Double,Double,Double,Double),(Double,Double,Double,Double))
+matrixElements (Transform (Row a b c d) (Row e f g h) (Row i j k l) (Row m n o p)) =
+  ((a,e,i,m),(b,f,j,n),(c,g,k,o),(d,h,l,p))
 
 rowDot :: Row -> Row -> Double
 rowDot (Row a b c d) (Row w x y z) = a*w + b*x + c*y + d*z

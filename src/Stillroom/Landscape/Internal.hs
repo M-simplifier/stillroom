@@ -1,0 +1,373 @@
+{-# LANGUAGE BangPatterns #-}
+
+-- Internal constructors are kept out of the renderer-facing module. Mutable
+-- buffers are scoped by runST and never retained by a Geometry.
+module Stillroom.Landscape.Internal where
+
+import Control.Monad (forM_)
+import Control.Monad.ST (ST, runST)
+import Data.Bits (shiftL, shiftR, xor, (.&.))
+import Data.Functor.Identity (runIdentity)
+import Data.STRef
+import Data.Vector.Storable qualified as V
+import Data.Vector.Storable.Mutable qualified as M
+import Data.Word (Word8, Word16, Word32, Word64)
+import Foreign.Storable
+import GHC.ByteOrder (ByteOrder (..), targetByteOrder)
+import GHC.Float (castFloatToWord32)
+import Stillroom.Journey.World (Seed)
+import Stillroom.Landscape.Grass qualified as Grass
+import Stillroom.Landscape.Math
+
+data Material = Terrain | Wood | Foliage | Grass deriving (Eq, Ord, Show, Enum, Bounded)
+data Scene = BirchLake | AlpineLake | MeadowStream deriving (Eq, Ord, Show, Enum, Bounded)
+data ChunkDetail = NearChunk | FarChunk deriving (Eq, Ord, Show)
+data GenerationError = VertexCapacityExceeded !Material | BoneCapacityExceeded | ChunkOutsideWorld !Int !Int
+  deriving (Eq, Show)
+
+data Vertex = Vertex !V3 !V3 !V2 !V2 !Colour deriving (Eq, Show)
+
+instance Storable Vertex where
+  sizeOf _ = 44
+  alignment _ = 4
+  peek p = do
+    x <- peekByteOff p 0; y <- peekByteOff p 4; z <- peekByteOff p 8
+    nx <- peekByteOff p 12; ny <- peekByteOff p 16; nz <- peekByteOff p 20
+    u <- peekByteOff p 24; v <- peekByteOff p 28; b <- peekByteOff p 32; phase <- peekByteOff p 36
+    r <- peekByteOff p 40; g <- peekByteOff p 41; bl <- peekByteOff p 42; a <- peekByteOff p 43
+    pure (Vertex (V3 x y z) (V3 nx ny nz) (V2 u v) (V2 b phase) (Colour r g bl a))
+  poke p (Vertex (V3 x y z) (V3 nx ny nz) (V2 u v) (V2 b phase) (Colour r g bl a)) = do
+    pokeByteOff p 0 x; pokeByteOff p 4 y; pokeByteOff p 8 z
+    pokeByteOff p 12 nx; pokeByteOff p 16 ny; pokeByteOff p 20 nz
+    pokeByteOff p 24 u; pokeByteOff p 28 v; pokeByteOff p 32 b; pokeByteOff p 36 phase
+    pokeByteOff p 40 r; pokeByteOff p 41 g; pokeByteOff p 42 bl; pokeByteOff p 43 a
+
+data MeshData = MeshData
+  { meshPositions :: !(V.Vector Float), meshNormals :: !(V.Vector Float),
+    meshTexCoords :: !(V.Vector Float), meshExtra :: !(V.Vector Float),
+    meshColors :: !(V.Vector Word8), meshIndices :: !(V.Vector Word16)
+  } deriving (Eq, Show)
+
+meshVertexCount :: MeshData -> Int
+meshVertexCount = (`div` 3) . V.length . meshPositions
+
+meshTriangleCount :: MeshData -> Int
+meshTriangleCount m = if V.null (meshIndices m) then meshVertexCount m `div` 3 else V.length (meshIndices m) `div` 3
+
+emptyMesh :: MeshData
+emptyMesh = MeshData V.empty V.empty V.empty V.empty V.empty V.empty
+
+data Geometry = Geometry
+  { geometryTerrain :: !MeshData, geometryWood :: !MeshData,
+    geometryFoliage :: !MeshData, geometryGrass :: !MeshData,
+    grassBlades :: !(V.Vector Grass.GrassBlade), grassUV :: !Grass.GrassUV,
+    waterMesh :: !MeshData, bonePixels :: !(V.Vector Float),
+    boneTextureHeight :: !Int, heightPixels :: !(V.Vector Float),
+    heightWidth :: !Int, heightHeight :: !Int,
+    boneCount :: !Int, treeCount :: !Int, grassCount :: !Int
+  } deriving (Eq, Show)
+
+materialMesh :: Geometry -> Material -> MeshData
+materialMesh g Terrain = geometryTerrain g
+materialMesh g Wood = geometryWood g
+materialMesh g Foliage = geometryFoliage g
+materialMesh g Grass = geometryGrass g
+
+materialVertexCount :: Geometry -> Material -> Int
+materialVertexCount geometry material = meshVertexCount (materialMesh geometry material)
+  + if material==Grass then V.length (grassBlades geometry)*15 else 0
+
+data Landscape = Fixed !Scene | Journey !Seed deriving (Eq, Show)
+
+data Builder s = Builder !Material !(STRef s (M.MVector s Vertex)) !(STRef s Int)
+data Build s = Build
+  { terrainBuilder :: !(Builder s), woodBuilder :: !(Builder s),
+    foliageBuilder :: !(Builder s), grassBuilder :: !(Builder s),
+    buildBlades :: !(STRef s (M.MVector s Grass.GrassBlade)),
+    buildBones :: !(M.MVector s Float), buildBoneCount :: !(STRef s Int),
+    buildTreeCount :: !(STRef s Int), buildGrassCount :: !(STRef s Int),
+    buildRandom :: !(STRef s Word32), buildFailure :: !(STRef s (Maybe GenerationError)),
+    buildLandscape :: !Landscape, buildHeight :: !(Float -> Float -> Float),
+    buildRailY :: !(Double -> Double)
+  }
+
+newBuild :: Landscape -> Word32 -> (Float -> Float -> Float) -> (Double -> Double) -> ST s (Build s)
+newBuild landscape seed height trackY = do
+  let builder material = do
+        vs <- M.new (if material==Grass then 64 else 16384) >>= newSTRef
+        n <- newSTRef 0
+        pure (Builder material vs n)
+  a <- builder Terrain; b <- builder Wood; c <- builder Foliage; d <- builder Grass
+  blades <- M.new 1024 >>= newSTRef
+  bones <- M.replicate (16000*8) 0
+  bc <- newSTRef 0; tc <- newSTRef 0; gc <- newSTRef 0; rng <- newSTRef seed; failure <- newSTRef Nothing
+  pure (Build a b c d blades bones bc tc gc rng failure landscape height trackY)
+
+builderFor :: Build s -> Material -> Builder s
+builderFor s Terrain = terrainBuilder s
+builderFor s Wood = woodBuilder s
+builderFor s Foliage = foliageBuilder s
+builderFor s Grass = grassBuilder s
+
+addVertex :: Build s -> Material -> Vertex -> ST s ()
+addVertex s material v = do
+  let Builder _ storage size = builderFor s material
+  n <- readSTRef size
+  blades <- if material==Grass then readSTRef (buildGrassCount s) else pure 0
+  if n+blades*15>=8388608 then writeSTRef (buildFailure s) (Just (VertexCapacityExceeded material)) else do
+    current <- readSTRef storage
+    grown <- if n<M.length current then pure current else do
+      next <- M.grow current (M.length current)
+      writeSTRef storage next
+      pure next
+    M.write grown n v
+    writeSTRef size (n+1)
+
+tri :: Build s -> Material -> Vertex -> Vertex -> Vertex -> ST s ()
+tri s material a b c = do
+  let Builder _ storage size = builderFor s material
+  n <- readSTRef size
+  blades <- if material==Grass then readSTRef (buildGrassCount s) else pure 0
+  if n+blades*15+3>8388608 then writeSTRef (buildFailure s) (Just (VertexCapacityExceeded material)) else do
+    current <- readSTRef storage
+    grown <- if n+3<=M.length current then pure current else do
+      next <- M.grow current (M.length current)
+      writeSTRef storage next
+      pure next
+    M.write grown n a
+    M.write grown (n+1) b
+    M.write grown (n+2) c
+    writeSTRef size (n+3)
+{-# INLINE tri #-}
+
+addGrassBlade :: Build s -> (Word32 -> Grass.GrassBlade) -> ST s ()
+addGrassBlade s makeBlade = do
+  let Builder _ _ size = grassBuilder s
+  ordinary <- readSTRef size
+  count <- readSTRef (buildGrassCount s)
+  let offset = ordinary+count*15
+  if offset+15>8388608 then writeSTRef (buildFailure s) (Just (VertexCapacityExceeded Grass)) else do
+    current <- readSTRef (buildBlades s)
+    grown <- if count<M.length current then pure current else do
+      next <- M.grow current (min (M.length current) (8388608 `div` 15-M.length current))
+      writeSTRef (buildBlades s) next
+      pure next
+    M.write grown count (makeBlade (fromIntegral offset))
+    writeSTRef (buildGrassCount s) (count+1)
+{-# INLINE addGrassBlade #-}
+
+vert :: V3 -> V3 -> V2 -> Int -> Float -> Colour -> Vertex
+vert p n uv bone phase c = Vertex p n uv (V2 (fromIntegral bone) phase) c
+
+newBone :: Build s -> V3 -> Int -> Float -> Float -> ST s Int
+newBone s (V3 x y z) parent stiffness phase = do
+  n <- readSTRef (buildBoneCount s)
+  if n>=16000 then writeSTRef (buildFailure s) (Just BoneCapacityExceeded) >> pure (-1) else do
+    let values = [x,y,z,fromIntegral (parent+1),stiffness,phase,0,0]
+    forM_ (zip [n*8..] values) $ \(i,v) -> M.write (buildBones s) i v
+    writeSTRef (buildBoneCount s) (n+1)
+    pure n
+
+randf :: Build s -> ST s Float
+randf s = do
+  old <- readSTRef (buildRandom s)
+  let a = old `xor` (old `shiftL` 13); b = a `xor` (a `shiftR` 17); c = b `xor` (b `shiftL` 5)
+  writeSTRef (buildRandom s) c
+  pure (fromIntegral (c `shiftR` 8)*(1/16777216))
+
+range :: Build s -> Float -> Float -> ST s Float
+range s a b = (\r -> a+(b-a)*r) <$> randf s
+
+surface :: Build s -> Float -> Float -> V3
+surface s x z = V3 x (buildHeight s x z) z
+
+terrainNormal :: Build s -> Float -> Float -> V3
+terrainNormal s x z =
+  let d = 0.12; h = buildHeight s
+   in normalize3 (V3 (h (x-d) z-h (x+d) z) (2*d) (h x (z-d)-h x (z+d)))
+
+freezeBuilder :: Builder s -> ST s MeshData
+freezeBuilder (Builder _ storage size) = do
+  n <- readSTRef size
+  current <- readSTRef storage
+  positions <- M.new (n*3)
+  normals <- M.new (n*3)
+  texCoords <- M.new (n*2)
+  extra <- M.new (n*2)
+  colors <- M.new (n*4)
+  let pack !i
+        | i>=n = pure ()
+        | otherwise = do
+            Vertex (V3 x y z) (V3 nx ny nz) (V2 u v) (V2 bone phase) (Colour r g b a) <- M.read current i
+            M.write positions (i*3) x; M.write positions (i*3+1) y; M.write positions (i*3+2) z
+            M.write normals (i*3) nx; M.write normals (i*3+1) ny; M.write normals (i*3+2) nz
+            M.write texCoords (i*2) u; M.write texCoords (i*2+1) v
+            M.write extra (i*2) bone; M.write extra (i*2+1) phase
+            M.write colors (i*4) r; M.write colors (i*4+1) g; M.write colors (i*4+2) b; M.write colors (i*4+3) a
+            pack (i+1)
+  pack 0
+  p <- V.unsafeFreeze positions; nrm <- V.unsafeFreeze normals
+  uv <- V.unsafeFreeze texCoords; ex <- V.unsafeFreeze extra; color <- V.unsafeFreeze colors
+  pure (MeshData p nrm uv ex color V.empty)
+
+fnvByte :: Word64 -> Word8 -> Word64
+fnvByte h b = (h `xor` fromIntegral b)*1099511628211
+{-# INLINE fnvByte #-}
+
+fnvFloat :: Word64 -> Float -> Word64
+fnvFloat h f =
+  let w = castFloatToWord32 f
+      byte n = fromIntegral (w `shiftR` n .&. 255)
+   in fnvByte (fnvByte (fnvByte (fnvByte h (byte 0)) (byte 8)) (byte 16)) (byte 24)
+{-# INLINE fnvFloat #-}
+
+fnvVertex :: Word64 -> Vertex -> Word64
+fnvVertex h (Vertex (V3 x y z) (V3 a b c) (V2 u v) (V2 bone phase) (Colour r g bl alpha)) =
+  let h0 = fnvFloat (fnvFloat (fnvFloat h x) y) z
+      h1 = fnvFloat (fnvFloat (fnvFloat h0 a) b) c
+      h2 = fnvFloat (fnvFloat h1 u) v
+      h3 = fnvFloat (fnvFloat h2 bone) phase
+   in fnvByte (fnvByte (fnvByte (fnvByte h3 r) g) bl) alpha
+{-# INLINE fnvVertex #-}
+
+-- Compatibility fingerprints use little-endian scalar order on every host.
+fnvFloats :: Word64 -> V.Vector Float -> Word64
+fnvFloats h values = case targetByteOrder of
+  LittleEndian -> V.foldl' fnvByte h (V.unsafeCast values)
+  BigEndian -> V.foldl' fnvFloat h values
+
+fnvBytesRange :: Word64 -> V.Vector Word8 -> Int -> Int -> Word64
+fnvBytesRange initial bytes begin end = go begin initial
+  where
+    go !i !signature
+      | i>=end = signature
+      | otherwise = go (i+1) (fnvByte signature (bytes V.! i))
+{-# INLINE fnvBytesRange #-}
+
+-- Hash the original interleaved vertex order directly from the final streams.
+-- No original builder storage or delayed fingerprint is retained by Geometry.
+fnvMesh :: Word64 -> MeshData -> Word64
+fnvMesh initial mesh = case targetByteOrder of
+  LittleEndian -> raw 0 initial
+  BigEndian -> canonical 0 initial
+  where
+    n = meshVertexCount mesh
+    positions = V.unsafeCast (meshPositions mesh)
+    normals = V.unsafeCast (meshNormals mesh)
+    uv = V.unsafeCast (meshTexCoords mesh)
+    extra = V.unsafeCast (meshExtra mesh)
+    colors = meshColors mesh
+    raw !i !signature
+      | i>=n = signature
+      | otherwise =
+          let !s0 = fnvBytesRange signature positions (i*12) (i*12+12)
+              !s1 = fnvBytesRange s0 normals (i*12) (i*12+12)
+              !s2 = fnvBytesRange s1 uv (i*8) (i*8+8)
+              !s3 = fnvBytesRange s2 extra (i*8) (i*8+8)
+              !s4 = fnvBytesRange s3 colors (i*4) (i*4+4)
+           in raw (i+1) s4
+    canonical !i !signature
+      | i>=n = signature
+      | otherwise =
+          let at values stride j = values V.! (i*stride+j)
+              vector3 values = V3 (at values 3 0) (at values 3 1) (at values 3 2)
+              vector2 values = V2 (at values 2 0) (at values 2 1)
+              colour = Colour (at colors 4 0) (at colors 4 1) (at colors 4 2) (at colors 4 3)
+              vertex = Vertex (vector3 (meshPositions mesh)) (vector3 (meshNormals mesh))
+                (vector2 (meshTexCoords mesh)) (vector2 (meshExtra mesh)) colour
+           in canonical (i+1) (fnvVertex signature vertex)
+
+geometrySignature :: Geometry -> Word64
+geometrySignature geometry =
+  let !s0 = fnvFloats 1469598103934665603 (V.take (boneCount geometry*8) (bonePixels geometry))
+      !s1 = fnvFloats s0 (heightPixels geometry)
+      !s2 = fnvMesh s1 (geometryTerrain geometry)
+      !s3 = fnvMesh s2 (geometryWood geometry)
+      !s4 = fnvMesh s3 (geometryFoliage geometry)
+   in if V.null (grassBlades geometry) then fnvMesh s4 (geometryGrass geometry)
+      else runIdentity (foldGrassStream (\signature vertex -> pure $! fnvVertex signature vertex) s4 geometry)
+
+meshVertexAt :: MeshData -> Int -> Vertex
+meshVertexAt mesh i =
+  let at values stride j = values V.! (i*stride+j)
+      vector3 values = V3 (at values 3 0) (at values 3 1) (at values 3 2)
+      vector2 values = V2 (at values 2 0) (at values 2 1)
+      colors = meshColors mesh
+      colour = Colour (at colors 4 0) (at colors 4 1) (at colors 4 2) (at colors 4 3)
+   in Vertex (vector3 (meshPositions mesh)) (vector3 (meshNormals mesh))
+        (vector2 (meshTexCoords mesh)) (vector2 (meshExtra mesh)) colour
+
+fromGrassVertex :: Grass.GrassVertex -> Vertex
+fromGrassVertex (Grass.GrassVertex (x,y,z) (nx,ny,nz) (u,v) (a,b) (r,g,bl,alpha)) =
+  Vertex (V3 x y z) (V3 nx ny nz) (V2 u v) (V2 a b) (Colour r g bl alpha)
+
+-- Generated offsets are increasing and count the former combined Grass stream.
+-- Replay is explicit diagnostic work; normal construction/upload keeps only the
+-- compact instances and the ordinary blossom mesh.
+foldGrassStream :: Monad m => (a -> Vertex -> m a) -> a -> Geometry -> m a
+foldGrassStream combine initial geometry = go 0 0 0 initial
+  where
+    ordinary = geometryGrass geometry
+    blades = grassBlades geometry
+    mode = grassUV geometry
+    go !sourceIndex !ordinaryIndex !bladeIndex !acc
+      | bladeIndex>=V.length blades = remaining ordinaryIndex acc
+      | otherwise =
+          let blade = blades V.! bladeIndex
+              offset = fromIntegral (Grass.bladeVertexOffset blade) :: Int
+           in if sourceIndex<offset
+                then combine acc (meshVertexAt ordinary ordinaryIndex) >>= go (sourceIndex+1) (ordinaryIndex+1) bladeIndex
+                else do
+                  next <- V.foldM' (\value corner -> combine value (fromGrassVertex (Grass.grassVertex mode blade corner))) acc Grass.grassCorners
+                  go (sourceIndex+15) ordinaryIndex (bladeIndex+1) next
+    remaining !i !acc
+      | i>=meshVertexCount ordinary = pure acc
+      | otherwise = combine acc (meshVertexAt ordinary i) >>= remaining (i+1)
+{-# INLINE foldGrassStream #-}
+
+diagnosticMaterialMesh :: Geometry -> Material -> MeshData
+diagnosticMaterialMesh geometry material
+  | material/=Grass || V.null (grassBlades geometry) = materialMesh geometry material
+  | otherwise = runST $ do
+      let count = materialVertexCount geometry Grass
+      storage <- M.new count
+      _ <- foldGrassStream (\i vertex -> M.write storage i vertex >> pure (i+1)) 0 geometry
+      storageRef <- newSTRef storage
+      sizeRef <- newSTRef count
+      freezeBuilder (Builder Grass storageRef sizeRef)
+
+finishGeometry :: Build s -> MeshData -> V.Vector Float -> Int -> Int -> ST s (Either GenerationError Geometry)
+finishGeometry s water heights width height = do
+  failed <- readSTRef (buildFailure s)
+  case failed of
+    Just e -> pure (Left e)
+    Nothing -> do
+      bones <- readSTRef (buildBoneCount s); trees <- readSTRef (buildTreeCount s); blades <- readSTRef (buildGrassCount s)
+      let bh = max 1 ((bones*2+255) `div` 256)
+      payload <- M.replicate (256*bh*4) 0
+      M.copy (M.slice 0 (bones*8) payload) (M.slice 0 (bones*8) (buildBones s))
+      pixels <- V.unsafeFreeze payload
+      a <- freezeBuilder (terrainBuilder s)
+      b <- freezeBuilder (woodBuilder s)
+      c <- freezeBuilder (foliageBuilder s)
+      d <- freezeBuilder (grassBuilder s)
+      bladeStorage <- readSTRef (buildBlades s)
+      instances <- V.freeze (M.slice 0 blades bladeStorage)
+      let mode = case buildLandscape s of Journey _ -> Grass.JourneyGrass; Fixed _ -> Grass.FixedGrass
+      pure (Right (Geometry a b c d instances mode water pixels bh heights width height bones trees blades))
+
+-- raylib GenMeshPlane's retained vertex/index topology, with world translation.
+plane :: Float -> Float -> Int -> Int -> Float -> Float -> MeshData
+plane width lengthZ resX resZ ox oz =
+  let nx = resX+1; nz = resZ+1; n = nx*nz
+      pos = V.generate (n*3) $ \i -> let k = i `div` 3; x = k `mod` nx; z = k `div` nx in case i `mod` 3 of
+        0 -> (fromIntegral x/fromIntegral resX-0.5)*width+ox
+        1 -> 0
+        _ -> (fromIntegral z/fromIntegral resZ-0.5)*lengthZ+oz
+      normals = V.generate (n*3) (\i -> if i `mod` 3==1 then 1 else 0)
+      uv = V.generate (n*2) $ \i -> let k = i `div` 2 in if even i then fromIntegral (k `mod` nx)/fromIntegral resX else fromIntegral (k `div` nx)/fromIntegral resZ
+      indices = V.generate (resX*resZ*6) $ \i ->
+        let cell = i `div` 6; x = cell `mod` resX; z = cell `div` resX
+            a = z*nx+x; b = a+1; c = (z+1)*nx+x; d = c+1
+         in fromIntegral (case i `mod` 6 of 0 -> c; 1 -> b; 2 -> a; 3 -> c; 4 -> d; _ -> b)
+   in MeshData pos normals uv V.empty V.empty indices

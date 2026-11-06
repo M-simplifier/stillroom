@@ -21,7 +21,7 @@ No action reads or writes your normal Stillroom settings.
 | Action | Purpose and evidence |
 | --- | --- |
 | `Build` | Build, metadata/linkage checks, the complete law/regression suite, and positive/negative graphics API compilation checks. |
-| `Capture` | 28 deterministic UI/landscape/journey/wallpaper PNGs through the production renderer, with no audio device or native acceptance sequence. |
+| `Capture` | 32 deterministic UI/landscape/journey/wallpaper PNGs through the production renderer, with no audio device or native acceptance sequence. |
 | `Check` | The real native loop: 56 assertions for state, input/effects, audio, persistence, shader resources, font replacement/restart and shutdown. Startup/switch timing and peak process working set are recorded. |
 | `Benchmark` | 18 interface/procedural samples plus 36 synchronized landscape samples and four cache contracts, with RTS allocation statistics; no audio. |
 | `CheckPackage` | Check an extracted executable with only its own assets/DLL and a restricted Windows PATH. No build or development toolchain. |
@@ -95,6 +95,32 @@ without starting a graphics/audio process. CI runs these boundary checks as well
 as the full build/law suite and packaging. Desktop captures and native runtime
 acceptance remain local checks on a machine with real devices.
 
+## Prepare a release from tracked source
+
+Create the release from a committed tree, so local settings, ignored assets and
+unfinished edits cannot enter the package:
+
+```powershell
+git archive --format=zip --output C:/path/to/source.zip HEAD
+Expand-Archive -LiteralPath C:/path/to/source.zip -DestinationPath C:/path/to/source
+Set-Location C:/path/to/source
+./tools/dev.ps1 Build -Online
+./tools/package.ps1
+```
+
+The build may reuse the pinned dependency cache. It verifies the GMP package
+and corresponding source by SHA-256; they are external build dependencies,
+not project assets copied from an untracked working directory. Packaging copies
+the complete bundled assets and notices, supplies the replaceable GMP DLL and
+source, and writes `SHA256SUMS.txt` beside the ZIP. Check the final executable's
+DLL imports and NVIDIA/AMD preference exports as part of the build.
+
+Extract that ZIP into a fresh directory and run `CheckPackage` there, using the
+commands above. Keep the source commit, executable and ZIP hashes with the
+results. Check the package's rendering and graphics diagnostics before publishing
+the same ZIP. The repository's required CI and review still apply; packaging
+does not publish a release or install the app.
+
 
 ## Long journey check
 
@@ -108,6 +134,14 @@ cache counts and maximum single-chunk generation time. It does not certify
 real-time frame rates or all-day stability. Use `Check` as well for the integrated
 desktop/audio/save/resume boundary. Diagnostics never use personal settings.
 
+`--check-journey` explicitly enables complete geometry fingerprints to check
+eviction and regeneration. Its `geometryFingerprints` report field is `true`;
+ordinary rendering leaves it `false`. In both modes, `cpuGenerationMs` ends
+after every CPU render buffer has been packed. Diagnostic mode also finishes
+hashing before that boundary, so its generation time includes extra work that
+the normal app does not perform. The geometry acquisition CSV separates
+`generationWallMs` and `fingerprintWallMs` while retaining their combined total.
+
 ## Graphics quality checks
 
 `stillroom.exe --check-graphics OUTPUT` captures all eleven quiet scenes at four
@@ -117,3 +151,10 @@ fallback. `stillroom.exe --quality-capture OUTPUT` compares identical journey
 poses and geometry fingerprints across qualities. Both use isolated state and
 require a real OpenGL device. See [graphics quality](graphics-quality.md) for
 interpretation; capture throughput is not a real-time frame-rate measurement.
+
+Renderer reports identify the grass path as `grassRenderingPath: "instanced"`
+in normal use. `STILLROOM_EXPANDED_GRASS_FOR_CHECK=1` explicitly selects the
+CPU-expanded comparison path and reports `"expanded-for-check"`. Clear that
+environment variable, as well as the development asset override, when checking
+the release package. The reference path intentionally performs different CPU
+packing and upload work; comparison timings must state which path was used.

@@ -1,7 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PatternSynonyms #-}
 
-module Stillroom.Runtime.Desktop (runDesktop) where
+module Stillroom.Runtime.Desktop (runDesktop, runLocalReview) where
 
 import Control.Applicative ((<|>))
 import Control.Concurrent (forkOS)
@@ -66,7 +66,13 @@ data Desktop = Desktop
   }
 
 runDesktop :: FilePath -> Maybe FilePath -> Maybe FilePath -> IO Bool
-runDesktop statePath checkDirectory overrideFolder = do
+runDesktop = runDesktopStarting Playing "Stillroom"
+
+runLocalReview :: FilePath -> IO Bool
+runLocalReview statePath = runDesktopStarting Paused "Stillroom · Haskell版" statePath Nothing Nothing
+
+runDesktopStarting :: Transport -> String -> FilePath -> Maybe FilePath -> Maybe FilePath -> IO Bool
+runDesktopStarting initialTransport title statePath checkDirectory overrideFolder = do
   startupBegan <- getMonotonicTimeNSec
   languageValue <- Native.systemLanguage
   (loaded, initialNotice) <- readPreferences statePath languageValue
@@ -78,7 +84,7 @@ runDesktop statePath checkDirectory overrideFolder = do
       notice = either (const (Just "Music folder unavailable; built-in music is playing.")) (const initialNotice) tracksResult
   R.setTraceLogLevel LogWarning
   R.setConfigFlags ([VsyncHint, WindowAlwaysRun, WindowResizable] ++ [WindowHidden | isJust checkDirectory])
-  bracket (R.initWindow 760 500 "Stillroom") (R.closeWindow . Just) $ \window -> do
+  bracket (R.initWindow 760 500 title) (R.closeWindow . Just) $ \window -> do
     R.setExitKey KeyNull
     R.setWindowMinSize 700 500
     Pictures.setAppIcon
@@ -97,10 +103,10 @@ runDesktop statePath checkDirectory overrideFolder = do
             -- too: an earlier picture/music change may have released the first
             -- font. The current font is always closed before the GL context.
             withSessionFont window (map trackTitle (NE.toList chosen) ++ map Pictures.pictureName pictures) $
-              \liveFont -> Audio.withEngineLayers musicSource ambienceSource chosen seed (loudness (restoreSession prefs)) $ \audio -> do
+              \liveFont -> Audio.withEngineLayersStarting initialTransport musicSource ambienceSource chosen seed (loudness (restoreSession prefs)) $ \audio -> do
                 desktop <-
                   Desktop
-                    <$> newIORef ((restoreSession prefs) {builtInMusic = all isBuiltIn (NE.toList chosen)})
+                    <$> newIORef ((restoreSession prefs) {transport = initialTransport, builtInMusic = all isBuiltIn (NE.toList chosen)})
                     <*> newIORef prefs
                     <*> newIORef startupNotice
                     <*> newIORef False

@@ -27,6 +27,7 @@
     <div class="title-row"><h1>Haskellでつくる<br>3D描画の基盤</h1><p class="intro">画面・影・水面の反射は、同じ世界を違う視点から描いています。その関係を純粋な値で定義し、描画のずれを直した事例を紹介します。</p></div>
     <div class="cover"><img src="graphics-foundation.webp" width="1280" height="720" alt="Stillroom 0.10の旅。湖畔を進む木製のトロッコ。"></div>
     <p class="cover-note">Stillroomは、作業中に音楽を流し、休憩中に風景を眺めるWindowsアプリです。描画にはHaskell、raylib、GLSLを使っています。</p>
+    <p class="aside">0.12で実装を更新しました。地形・植物の生成、GPU資源の管理、各描画パスの実行をHaskellが担います。h-raylibからOpenGLを呼び、GPU上の計算はGLSLで実行します。アプリ固有のCコードはWindows連携に限ります。以下の映像と数値は、0.10公開時の検証です。</p>
   </section>
 
   <section class="section wrap" id="film" aria-labelledby="film-title">
@@ -65,22 +66,23 @@
       </div>
       <p class="aside">三つの観測はStillroom固有の構成です。共通部分はパス数を固定せず、別の用途では、その用途に合う形状の選択と観測を定義できます。</p>
       <div class="code-story">
-        <div><span class="tiny">純粋関数の境界</span><h3>描画計画を値として返す</h3><p>現在の世界と、GPUが確保できた描画先の大きさを渡すと、<code>planFrame</code> が投影などをまとめた計画を返します。不正な入力にはエラーを返します。</p><p>この計算はGPUを操作しません。同じ入力から同じ計画が得られるので、ウィンドウを開かずに調べられます。実行前に、計画をGPUへ渡す形式に変換します。</p></div>
+        <div><span class="tiny">純粋関数の境界</span><h3>描画計画を値として返す</h3><p>現在の世界と、GPUが確保できた描画先の大きさを渡すと、<code>planFrame</code> が投影などをまとめた計画を返します。不正な入力にはエラーを返します。</p><p>この計算はGPUを操作しません。同じ入力から同じ計画が得られるので、ウィンドウを開かずに調べられます。Haskellの描画処理は型付きの計画を直接使い、<code>lowerFrame</code> は検証用の有限なパケットを返します。</p></div>
         <div class="code-panel"><div class="code-label">実装の入口 / HASKELL</div><pre><code><span class="fn">planFrame</span>
   :: Targets
   -&gt; FrameInput
   -&gt; Either PlanError <span class="ty">FramePlan</span>
 
+-- Diagnostic encoding
 <span class="fn">lowerFrame</span>
   :: FramePlan
-  -&gt; Either FrameEncodingError <span class="ty">FramePacket</span></code></pre><a href="https://github.com/M-simplifier/stillroom/blob/v0.10.0/src/Stillroom/Journey/Frame.hs">Journey.Frameを読む ↗</a></div>
+  -&gt; Either FrameEncodingError <span class="ty">FramePacket</span></code></pre><a href="https://github.com/M-simplifier/stillroom/blob/v0.12.0/src/Stillroom/Journey/Frame.hs">Journey.Frameを読む ↗</a></div>
       </div>
       <div class="principles">
         <article><span>01</span><h3>座標の意味を型に残す</h3><p><code>Transform Object Render</code> は、車体の座標から描画用の座標への変換です。変換の接続先が合わない合成を、型検査で拒否します。</p><pre><code>compose :: Transform b c
         -&gt; Transform a b
         -&gt; Transform a c</code></pre></article>
-        <article><span>02</span><h3>描画先と投影を一組に</h3><p>影を描いたときの投影を、その影を読む側でも使います。<code>Observation target</code> が対応を保持し、C側でも描画画像と投影を一組にして渡します。</p><p>計画の内部を直接書き換える操作を公開せず、検証済みの対応を部分更新で壊せないようにしています。</p></article>
-        <article><span>03</span><h3>GPUへの変換を一か所に</h3><p>座標の計算はDouble、箱の接合はRational。最後に、有限なFloatだけを持つパケットへ変換します。</p><p>Cは資源の確保と描画を担います。Haskellの計画を受け取り、投影を別途計算し直しません。</p></article>
+        <article><span>02</span><h3>描画先と投影を一組に</h3><p>影を描いたときの投影を、その影を読む側でも使います。<code>Observation target</code> が対応を保持し、HaskellのGPU処理も描画画像と投影を一組にして渡します。</p><p>計画の内部を直接書き換える操作を公開せず、検証済みの対応を部分更新で壊せないようにしています。</p></article>
+        <article><span>03</span><h3>GPUへの変換を一か所に</h3><p>座標の計算はDouble、箱の接合はRational。GPUへ渡す座標や行列はFloatへ変換します。</p><p>Haskellの実行部が資源の寿命を管理し、h-raylibを通じて描画を実行します。GLSLは渡された行列を使って、頂点や画素を計算します。</p></article>
       </div>
     </div>
   </section>
@@ -108,11 +110,11 @@
   <section class="paper" aria-labelledby="code-title">
     <div class="section wrap">
       <div class="section-heading"><span class="index">04 / 実装</span><h2 id="code-title">数学、アプリの方針、GPU操作を分ける</h2></div>
-      <p class="measure">共通の型はトロッコを知る必要がなく、車体の定義はGPUの配列を知る必要がありません。0.10の実装は、次の順で読めます。</p>
+      <p class="measure">共通の型はトロッコを知る必要がなく、車体の定義はGPUの配列を知る必要がありません。0.12の実装は、次の順で読めます。</p>
       <div class="module-map">
-        <article><span class="tiny">REUSABLE MEANING</span><h3>共通の核</h3><a href="https://github.com/M-simplifier/stillroom/blob/v0.10.0/src/Stillroom/Graphics/Space.hs"><code>Graphics.Space</code><span>座標空間と写像 ↗</span></a><a href="https://github.com/M-simplifier/stillroom/blob/v0.10.0/src/Stillroom/Graphics/BoxUnion.hs"><code>Graphics.BoxUnion</code><span>箱の外面の計算 ↗</span></a><a href="https://github.com/M-simplifier/stillroom/blob/v0.10.0/src/Stillroom/Graphics/Mesh.hs"><code>Graphics.Mesh</code><span>形と材質の表現 ↗</span></a><a href="https://github.com/M-simplifier/stillroom/blob/v0.10.0/src/Stillroom/Graphics/Observation.hs"><code>Graphics.Observation</code><span>描画先と投影 ↗</span></a></article>
-        <article><span class="tiny">STILLROOM POLICY</span><h3>このアプリの世界</h3><a href="https://github.com/M-simplifier/stillroom/blob/v0.10.0/src/Stillroom/Journey/Railcar.hs"><code>Journey.Railcar</code><span>元の車体の形と色 ↗</span></a><a href="https://github.com/M-simplifier/stillroom/blob/v0.10.0/src/Stillroom/Journey/Frame.hs"><code>Journey.Frame</code><span>一瞬の世界と三つの観測 ↗</span></a><p>共通の核は、トロッコや三つのパスを知りません。再利用を意図した境界です。</p></article>
-        <article><span class="tiny">REPRESENTATION &amp; EXECUTION</span><h3>表現を変えて、描く</h3><a href="https://github.com/M-simplifier/stillroom/blob/v0.10.0/runtime/Stillroom/Runtime/Journey/Packet.hs"><code>Runtime.Journey.Packet</code><span>計画をGPU用の値へ ↗</span></a><a href="https://github.com/M-simplifier/stillroom/blob/v0.10.0/src/Stillroom/Graphics/Encoding/Mesh.hs"><code>Graphics.Encoding.Mesh</code><span>形を頂点列へ ↗</span></a><a href="https://github.com/M-simplifier/stillroom/blob/v0.10.0/cbits/journey/render.c"><code>journey/render.c</code><span>資源を管理し描画を実行 ↗</span></a><p>配列の並びやGPUの都合を、形そのものの定義から切り離します。</p></article>
+        <article><span class="tiny">REUSABLE MEANING</span><h3>共通の核</h3><a href="https://github.com/M-simplifier/stillroom/blob/v0.12.0/src/Stillroom/Graphics/Space.hs"><code>Graphics.Space</code><span>座標空間と写像 ↗</span></a><a href="https://github.com/M-simplifier/stillroom/blob/v0.12.0/src/Stillroom/Graphics/BoxUnion.hs"><code>Graphics.BoxUnion</code><span>箱の外面の計算 ↗</span></a><a href="https://github.com/M-simplifier/stillroom/blob/v0.12.0/src/Stillroom/Graphics/Mesh.hs"><code>Graphics.Mesh</code><span>形と材質の表現 ↗</span></a><a href="https://github.com/M-simplifier/stillroom/blob/v0.12.0/src/Stillroom/Graphics/Observation.hs"><code>Graphics.Observation</code><span>描画先と投影 ↗</span></a></article>
+        <article><span class="tiny">STILLROOM POLICY</span><h3>このアプリの世界</h3><a href="https://github.com/M-simplifier/stillroom/blob/v0.12.0/src/Stillroom/Journey/Railcar.hs"><code>Journey.Railcar</code><span>元の車体の形と色 ↗</span></a><a href="https://github.com/M-simplifier/stillroom/blob/v0.12.0/src/Stillroom/Journey/Frame.hs"><code>Journey.Frame</code><span>一瞬の世界と三つの観測 ↗</span></a><a href="https://github.com/M-simplifier/stillroom/blob/v0.12.0/src/Stillroom/Landscape/Geometry.hs"><code>Landscape.Geometry</code><span>シードから地形と植物を生成 ↗</span></a><p>共通の核は、トロッコや三つのパスを知りません。再利用を意図した境界です。</p></article>
+        <article><span class="tiny">REPRESENTATION &amp; EXECUTION</span><h3>表現を変えて、描く</h3><a href="https://github.com/M-simplifier/stillroom/blob/v0.12.0/runtime/Stillroom/Runtime/Graphics/Journey.hs"><code>Runtime.Graphics.Journey</code><span>型付きの描画計画を実行 ↗</span></a><a href="https://github.com/M-simplifier/stillroom/blob/v0.12.0/src/Stillroom/Graphics/Encoding/Mesh.hs"><code>Graphics.Encoding.Mesh</code><span>形を頂点列へ ↗</span></a><a href="https://github.com/M-simplifier/stillroom/blob/v0.12.0/runtime/Stillroom/Runtime/Graphics/Resource.hs"><code>Graphics.Resource</code><span>資源の保持とGPUへの転送 ↗</span></a><p>配列の並びやGPUの都合を、形そのものの定義から切り離します。</p></article>
       </div>
       <p class="aside">実装はStillroomで使われている共通核です。まだ独立した汎用エンジンではありません。次の実際の利用先を通じて、共通化すべき部分を確かめていきます。</p>
     </div>
@@ -120,7 +122,7 @@
 
   <section class="section wrap" id="evidence" aria-labelledby="evidence-title">
     <div class="section-heading"><span class="index">05 / 検証</span><h2 id="evidence-title">型の外側も、実際の出力で確かめる</h2></div>
-    <p class="measure">型で座標空間を区別しても、行列の成分やGPUへの転送まで自動で正しくなるわけではありません。性質テストと独立した参照計算に加え、実際に生成した頂点とGPUの出力を照合しました。</p>
+    <p class="measure">型で座標空間を区別しても、行列の成分やGPUへの転送まで自動で正しくなるわけではありません。下表は2026年10月20日の基盤導入時の検証です。移行後の検査と配布版の確認は、<a href="https://github.com/M-simplifier/stillroom/blob/v0.12.0/STATUS.md">Status</a>に記載しています。</p>
     <div class="evidence-table" role="region" aria-label="検証結果" tabindex="0">
       <table><thead><tr><th>確かめたこと</th><th>結果</th><th>言える範囲</th></tr></thead><tbody>
         <tr><th>車体の形状</th><td>同一平面上の面の重複 <strong>0</strong></td><td>出力した1,798三角形を検査。独立の占有領域モデルでも、箱の外面を確認。</td></tr>
@@ -136,7 +138,7 @@
     <h2>Haskellが担う役割</h2>
     <p>見た目を改善したのは、形状・精度・影の具体的な修正です。Haskellでは、それらの計算を純粋な値と関数で表し、座標の取り違えや計画の部分更新を型と公開APIで防ぎます。GPUとの境界は、実際の出力を検証します。</p>
     <p class="muted">この設計は他の言語でも実現できます。Stillroomでは、関数型の道具を使って関係をコードに残し、変更後にも確かめられる形にしました。独立した汎用エンジンへの切り出しは、今後の課題です。</p>
-    <div class="closing-links"><a class="button" href="https://github.com/M-simplifier/stillroom/tree/v0.10.0/src/Stillroom/Graphics">ソースコードを読む <span>↗</span></a><a href="https://github.com/M-simplifier/stillroom/blob/v0.10.0/docs/graphics-foundation.md#sources">技術資料と参考文献 ↗</a></div>
+    <div class="closing-links"><a class="button" href="https://github.com/M-simplifier/stillroom/tree/v0.12.0/src/Stillroom/Graphics">ソースコードを読む <span>↗</span></a><a href="https://github.com/M-simplifier/stillroom/blob/v0.12.0/docs/graphics-foundation.md#sources">技術資料と参考文献 ↗</a></div>
   </section>
 </main>
 <footer class="wrap"><a class="brand" href="ja.html">◌ stillroom</a><p><a href="developers-ja.html">開発者向け</a></p><a href="ja.html">アプリについて →</a></footer>

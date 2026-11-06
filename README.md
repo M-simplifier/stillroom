@@ -62,13 +62,20 @@ and sample-based composition are ordinary pure functions. A small imperative
 boundary owns the window, two audio decks, native handles and preferences.
 See the [architecture](docs/architecture.md) for the ownership rules.
 
+Landscape fields, terrain and plant construction, retained GPU resources and
+render-pass scheduling also live in Haskell. The renderer sends mesh streams,
+matrices and shader parameters through pinned h-raylib; OpenGL and GLSL execute
+the GPU work. See the [graphics foundation](docs/graphics-foundation.md) for the
+boundary and its checks. Grass uses one Haskell shape definition for its CPU
+reference and generated GLSL, with compact per-blade parameters and shared corners.
+
 ## Build
 
 On Windows x64, install GHC **9.6.7**, Cabal **3.12.1.0** and GHCup's MSYS2 tools:
 
 ```powershell
 ./tools/dev.ps1 Build -Online  # First build: fetch pinned dependencies
-./tools/dev.ps1 Capture       # Incremental build + 28 UI/landscape/journey screenshots
+./tools/dev.ps1 Capture       # Incremental build + 32 UI/landscape/journey screenshots
 ```
 
 The entrypoint finds the pinned tools, sets up GMP and development assets, then

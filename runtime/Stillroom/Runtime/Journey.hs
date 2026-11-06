@@ -1,4 +1,3 @@
-{-# LANGUAGE ForeignFunctionInterface #-}
 {-# LANGUAGE PatternSynonyms #-}
 
 -- | One lazily acquired GPU world, one pure journey, and the input adapter.
@@ -6,6 +5,7 @@
 module Stillroom.Runtime.Journey
   ( JourneyRuntime,
     withJourney,
+    withJourneyForCheck,
     model,
     soundscape,
     replace,
@@ -29,14 +29,12 @@ module Stillroom.Runtime.Journey
   )
 where
 
-import Control.Exception (IOException, bracket, try)
+import Control.Exception (IOException, bracket, try, catch, mask_, throwIO)
 import Control.Monad (unless, when)
 import Data.ByteString qualified as BS
 import Data.IORef
 import Data.Maybe (isNothing)
 import Data.Vector.Storable qualified as V
-import Foreign (Ptr, nullPtr, withArray, withMany, allocaArray, peekArray, castPtr)
-import Foreign.C (CDouble (..), CFloat (..), CInt (..), CString, CUInt (..), CULLong (..), peekCString)
 import Raylib.Core qualified as R
 import Raylib.Core.Shapes (drawRectangleRec)
 import Raylib.Types
@@ -51,6 +49,9 @@ import Stillroom.Journey.Ride qualified as J
 import Stillroom.Journey.Walk qualified as W
 import Stillroom.Journey.World qualified as World
 import Stillroom.Runtime.Pictures qualified as Pictures
+import Stillroom.Runtime.Graphics.Journey qualified as GPU
+import Stillroom.Runtime.Graphics.Resource (GraphicsError (..), FingerprintMode (..))
+import Stillroom.Landscape.Geometry qualified as Landscape
 import System.FilePath ((</>))
 
 -- Geometry is sampled on the frame thread, never in the audio supplier.
@@ -71,10 +72,8 @@ soundscape runtime = do
         W.Dunes -> 0.10
   pure (environmentInput (J.seat j == J.Aboard) (J.speed (J.car j)) forest (W.shoreDistance seed x z))
 
-data NativeWorld
-
 data JourneyRuntime = Runtime
-  { native :: IORef (Maybe (Ptr NativeWorld)),
+  { native :: IORef (Maybe GPU.World),
     current :: IORef J.Journey,
     previous :: IORef J.Journey,
     accumulator :: IORef Double,
@@ -84,35 +83,9 @@ data JourneyRuntime = Runtime
     captured :: IORef Bool,
     hintSeconds :: IORef Double,
     help :: IORef Bool,
-    lastPacket :: IORef (V.Vector Float)
+    lastPlan :: IORef (Maybe F.FramePlan),
+    fingerprintMode :: !FingerprintMode
   }
-
-foreign import ccall safe "sr_journey_open" openWorld :: CUInt -> Ptr CString -> Ptr CFloat -> CInt -> IO (Ptr NativeWorld)
-
-foreign import ccall safe "sr_journey_close" closeWorld :: Ptr NativeWorld -> IO ()
-
-foreign import ccall unsafe "sr_journey_ready" ready :: Ptr NativeWorld -> IO CInt
-
-foreign import ccall unsafe "sr_journey_error" nativeError :: Ptr NativeWorld -> IO CString
-
-foreign import ccall safe "sr_journey_prepare" prepare :: Ptr NativeWorld -> CDouble -> CDouble -> IO CInt
-
-foreign import ccall safe "sr_journey_draw" render :: Ptr NativeWorld -> Ptr CFloat -> CInt -> CFloat -> CFloat -> CInt -> CInt -> IO CInt
-
-foreign import ccall safe "sr_journey_frame_targets" frameTargets :: Ptr NativeWorld -> CDouble -> CDouble -> CInt -> CInt -> Ptr CInt -> IO CInt
-
-foreign import ccall unsafe "sr_journey_frame_copy" frameCopy :: Ptr NativeWorld -> Ptr CFloat -> CInt -> IO CInt
-foreign import ccall unsafe "sr_journey_frame_uniforms" frameUniforms :: Ptr NativeWorld -> Ptr CFloat -> CInt -> IO CInt
-
-foreign import ccall unsafe "sr_journey_info" nativeInfo :: Ptr NativeWorld -> IO CString
-
-foreign import ccall unsafe "sr_journey_signature" nativeSignature :: Ptr NativeWorld -> CInt -> CInt -> IO CULLong
-
-foreign import ccall unsafe "sr_journey_far_signature" nativeFarSignature :: Ptr NativeWorld -> CInt -> CInt -> IO CULLong
-
-foreign import ccall unsafe "sr_journey_geometry_height" geometryHeight :: CUInt -> CDouble -> CDouble -> IO CDouble
-
-foreign import ccall safe "sr_journey_quality" nativeQuality :: Ptr NativeWorld -> CInt -> IO CInt
 
 quality :: JourneyRuntime -> Tier -> IO ()
 quality runtime tier = do
@@ -120,11 +93,17 @@ quality runtime tier = do
   case pointer of
     Nothing -> pure ()
     Just p -> do
-      ok <- nativeQuality p (fromIntegral (fromEnum tier))
-      unless (ok == 1) (nativeError p >>= peekCString >>= writeIORef (problem runtime) . Just)
+      ok <- GPU.quality p (fromEnum tier)
+      unless ok (GPU.problem p >>= writeIORef (problem runtime) . Just)
 
 withJourney :: (JourneyRuntime -> IO a) -> IO a
-withJourney = bracket acquire release
+withJourney = withJourneyMode SkipFingerprints
+
+withJourneyForCheck :: (JourneyRuntime -> IO a) -> IO a
+withJourneyForCheck = withJourneyMode CaptureFingerprints
+
+withJourneyMode :: FingerprintMode -> (JourneyRuntime -> IO a) -> IO a
+withJourneyMode fingerprints = bracket acquire release
   where
     acquire =
       Runtime
@@ -138,14 +117,15 @@ withJourney = bracket acquire release
         <*> newIORef False
         <*> newIORef 12
         <*> newIORef False
-        <*> newIORef V.empty
+        <*> newIORef Nothing
+        <*> pure fingerprints
     initial = J.initial World.firstSeed
     release runtime = suspend runtime >> releaseWorld runtime
 
 releaseWorld :: JourneyRuntime -> IO ()
-releaseWorld r = do
+releaseWorld r = mask_ $ do
   old <- atomicModifyIORef' (native r) (\p -> (Nothing, p))
-  mapM_ closeWorld old
+  mapM_ GPU.close old
 
 -- Switching to a quiet scene releases the journey's substantial mesh cache.
 -- Returning to work keeps it warm for the next short break.
@@ -166,23 +146,34 @@ advanceForCheck r count input = do
   writeIORef (previous r) next
   writeIORef (accumulator r) 0
 
-fingerprintsForCheck :: JourneyRuntime -> Int -> Int -> IO (Integer, Integer)
-fingerprintsForCheck r x z =
+fingerprintsForCheck :: JourneyRuntime -> Int -> Int -> IO (Maybe Integer, Maybe Integer)
+fingerprintsForCheck r x z = do
+  unless (fingerprintMode r == CaptureFingerprints) $
+    throwIO (GeometryUnavailable "Fingerprint requested from a rendering-only runtime")
   readIORef (native r)
     >>= maybe
-      (pure (0, 0))
+      (pure (Nothing, Nothing))
       ( \p ->
           (,)
-            <$> (fromIntegral <$> nativeSignature p (fromIntegral x) (fromIntegral z))
-            <*> (fromIntegral <$> nativeFarSignature p (fromIntegral x) (fromIntegral z))
+            <$> (fmap fromIntegral <$> GPU.signature p x z)
+            <*> (fmap fromIntegral <$> GPU.farSignature p x z)
       )
 
 terrainMatchesForCheck :: World.Seed -> IO Bool
-terrainMatchesForCheck seed = and <$> mapM one [(x, z) | x <- [-512, -81, 0, 81, 512], z <- [-512, 80, 145, 260, 512]]
+terrainMatchesForCheck seed = pure (all one [(-16,-16),(-3,2),(0,0),(2,-3),(16,16)])
   where
-    one (x, z) = do
-      height <- geometryHeight (fromIntegral (World.seedValue seed)) (realToFrac x) (realToFrac z)
-      pure (abs (realToFrac height - W.terrainHeight seed x z) < 1e-8)
+    one (cx,cz) = case Landscape.seededChunkGeometry seed cx cz Landscape.NearChunk of
+      Left _ -> False
+      Right geometry ->
+        let mesh=Landscape.materialMesh geometry Landscape.Terrain
+            positions=Landscape.meshPositions mesh
+            cells=Landscape.chunkCells Landscape.NearChunk
+            count=cells*cells*6
+            sample vertex =
+              let x=positions V.! (vertex*3); y=positions V.! (vertex*3+1); z=positions V.! (vertex*3+2)
+                  expected=realToFrac (W.terrainHeight seed (realToFrac x) (realToFrac z)) :: Float
+               in y==expected
+         in Landscape.meshVertexCount mesh>=count && all sample [0,count `div` 4,count `div` 2,count*3 `div` 4,count-1]
 
 model :: JourneyRuntime -> IO J.Journey
 model = readIORef . current
@@ -284,7 +275,7 @@ update r dt click (dx, dy) = do
     writeIORef (accumulator r) rest
     writeIORef (pending r) (if count == 0 then input else J.neutral)
 
-ensure :: JourneyRuntime -> IO (Maybe (Ptr NativeWorld))
+ensure :: JourneyRuntime -> IO (Maybe GPU.World)
 ensure r = do
   existing <- readIORef (native r)
   failed <- readIORef (problem r)
@@ -301,18 +292,15 @@ ensure r = do
         Left (_ :: IOException) -> writeIORef (problem r) (Just "Journey shaders unavailable") >> pure Nothing
         Right files -> case railcarPacket of
           Left issue -> writeIORef (problem r) (Just issue) >> pure Nothing
-          Right mesh -> do
+          Right mesh -> mask_ $ do
             j <- model r
-            pointer <- withMany BS.useAsCString files $ \strings -> withArray strings $ \sourcePointers ->
-              V.unsafeWith (Mesh.meshValues mesh) $ \vertices ->
-                openWorld (fromIntegral (World.seedValue (J.worldSeed j))) sourcePointers
-                  (castPtr vertices) (fromIntegral (Mesh.meshVertexCount mesh))
-            if pointer == nullPtr
-              then writeIORef (problem r) (Just "Journey allocation failed") >> pure Nothing
-              else do
+            loaded <- (Right <$> GPU.openWithFingerprints (fingerprintMode r) (J.worldSeed j) files mesh) `catch` (\(issue :: GraphicsError) -> pure (Left (show issue)))
+            case loaded of
+              Left issue -> writeIORef (problem r) (Just issue) >> pure Nothing
+              Right pointer -> do
                 writeIORef (native r) (Just pointer)
-                ok <- ready pointer
-                unless (ok == 1) (nativeError pointer >>= peekCString >>= writeIORef (problem r) . Just)
+                ok <- GPU.ready pointer
+                unless ok (GPU.problem pointer >>= writeIORef (problem r) . Just)
                 pure (Just pointer)
 
 -- Retain the pure compilation result across world recreation. Shapes are not
@@ -336,16 +324,16 @@ draw r rectangle@(Rectangle left top width height) = do
           v = J.view shown
           c = J.car shown
       missing <- readIORef (remaining r)
-      needed <- if missing > 0 then fromIntegral <$> prepare p (realToFrac (W.posX v)) (realToFrac (W.posZ v)) else pure missing
+      needed <- if missing > 0 then GPU.prepare p (W.posX v) (W.posZ v) else pure missing
       writeIORef (remaining r) needed
-      when (needed < 0) (nativeError p >>= peekCString >>= writeIORef (problem r) . Just)
+      when (needed < 0) (GPU.problem p >>= writeIORef (problem r) . Just)
       when (needed == 0) $ do
-        result <- allocaArray 5 $ \sizes -> do
-          let rw = max 1 (floor width)
-              rh = max 1 (floor height)
-          allocated <- frameTargets p (realToFrac (W.posX v)) (realToFrac (W.posZ v)) rw rh sizes
-          if allocated /= 1 then pure (Right 0) else do
-            dims <- map fromIntegral <$> peekArray 5 sizes
+        let rw = max 1 (floor width)
+            rh = max 1 (floor height)
+        dimensions <- GPU.frameTargets p (W.posX v) (W.posZ v) rw rh
+        result <- case dimensions of
+          Nothing -> pure (Right False)
+          Just sizes -> do
             let seed = J.worldSeed shown
                 progress = J.progress c
                 dx = (J.trackX seed (progress + 0.1) - J.trackX seed (progress - 0.1)) / 0.2
@@ -355,52 +343,52 @@ draw r rectangle@(Rectangle left top width height) = do
                   (W.yaw v) (W.pitch v) (fromIntegral (W.ticks v) * W.tickSeconds)
                   (F.Point (J.trackX seed progress) (J.trackY seed progress) (-progress))
                   (-J.trackHeading seed progress) grade
-                planned = case dims of
-                  [a,b,s,d,e] -> do
-                    frame <- either (Left . show) Right (F.planFrame (F.Targets a b s d e) input)
-                    either (Left . show) Right (Packet.lowerFrame frame)
-                  _ -> Left "Invalid native target receipt"
+                planned = either (Left . show) Right (F.planFrame sizes input)
             case planned of
               Left issue -> pure (Left issue)
-              Right packet -> do
-                let values = Packet.packetValues packet
-                writeIORef (lastPacket r) values
-                V.unsafeWith values $ \valuesPtr ->
-                  Right <$> render p (castPtr valuesPtr) (fromIntegral (V.length values))
-                    (realToFrac left) (realToFrac top) rw rh
+              Right frame -> do
+                writeIORef (lastPlan r) (Just frame)
+                Right <$> GPU.render p frame (Rectangle left top (fromIntegral rw) (fromIntegral rh))
+
         case result of
           Left issue -> writeIORef (problem r) (Just issue)
-          Right 1 -> pure ()
-          Right _ -> nativeError p >>= peekCString >>= writeIORef (problem r) . Just
+          Right True -> pure ()
+          Right _ -> GPU.problem p >>= writeIORef (problem r) . Just
         when (J.fade j > 0) (drawRectangleRec rectangle (Color 5 10 10 (round (255 * J.fade j))))
 
--- Compare the actual native receipt, not another implementation of the planner.
+plannedValuesForCheck :: JourneyRuntime -> IO (V.Vector Float)
+plannedValuesForCheck r = do
+  frame<-readIORef (lastPlan r)
+  pure $ case frame >>= either (const Nothing) Just . Packet.lowerFrame of
+    Nothing->V.empty
+    Just packet->Packet.packetValues packet
+
+-- Compare the values consumed by the GPU interpreter with the validated plan.
 frameMatchesForCheck :: JourneyRuntime -> IO Bool
 frameMatchesForCheck r = do
-  expected <- readIORef (lastPacket r)
+  expected <- plannedValuesForCheck r
   pointer <- readIORef (native r)
   case pointer of
     Nothing -> pure False
-    Just p -> allocaArray Packet.packetSize $ \output -> do
-      ok <- frameCopy p output (fromIntegral Packet.packetSize)
-      if ok /= 1 then pure False else do
-        actual <- V.fromList . map realToFrac <$> peekArray Packet.packetSize output
-        pure (expected == actual && V.length actual == Packet.packetSize)
+    Just p -> do
+      actual <- GPU.frameCopy p
+      pure (expected == actual && V.length actual == Packet.packetSize)
 
 -- Uniform values read back from the actual linked land shader after drawing.
 -- Projection uses the exact lowered value; the backend never recomputes it.
 frameUniformErrorForCheck :: JourneyRuntime -> IO (Maybe Float)
 frameUniformErrorForCheck r = do
   p <- readIORef (native r)
-  expected <- readIORef (lastPacket r)
+  expected <- plannedValuesForCheck r
   case p of
     Nothing -> pure Nothing
-    Just pointer -> allocaArray 54 $ \out -> do
-      ok <- frameUniforms pointer out 54
-      if ok /= 1 || V.length expected /= Packet.packetSize then pure Nothing else do
-        actual <- V.fromList . map realToFrac <$> peekArray 54 out
-        let wanted=V.concat [V.slice 16 32 expected,V.slice 191 16 expected,V.slice 10 3 expected,V.slice 7 3 expected]
-        pure (Just (V.maximum (V.zipWith (\a b -> abs(a-b)) actual wanted)))
+    Just pointer -> do
+      actual <- GPU.frameUniforms pointer
+      pure $ case actual of
+        Just values | V.length expected == Packet.packetSize ->
+          let wanted=V.concat [V.slice 16 32 expected,V.slice 191 16 expected,V.slice 10 3 expected,V.slice 7 3 expected]
+           in Just (V.maximum (V.zipWith (\a b -> abs(a-b)) values wanted))
+        _ -> Nothing
 
 status :: JourneyRuntime -> Language -> IO (Maybe String)
 status r language = do
@@ -412,7 +400,7 @@ status r language = do
       else if missing > 0 then Just (local language "Preparing your landscape…" "旅の景色を準備しています…") else Nothing
 
 info :: JourneyRuntime -> IO String
-info r = readIORef (native r) >>= maybe (pure "{}") (\p -> nativeInfo p >>= peekCString)
+info r = readIORef (native r) >>= maybe (pure "{}") GPU.info
 
 local :: Language -> String -> String -> String
 local Japanese _ ja = ja

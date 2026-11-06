@@ -1,22 +1,16 @@
-{-# LANGUAGE ForeignFunctionInterface #-}
-
 module JourneyChecks (journeyChecks) where
 
+import Control.Exception (evaluate)
 import Control.Monad (unless)
 import Data.Aeson (decode, encode)
 import Data.List (foldl', nub)
 import Data.Maybe (isJust, listToMaybe)
 import Data.Word (Word32)
-import Foreign.C (CDouble (..), CUInt (..))
 import Stillroom.Journey.Ride qualified as J
 import Stillroom.Journey.Walk qualified as W
 import Stillroom.Journey.World qualified as World
 import Stillroom.Runtime.JourneyStorage qualified as S
 import Test.QuickCheck
-
--- An IO view prevents common-subexpression elimination in the interleaving
--- test. It exercises the exact public query used by the pure FFI wrapper.
-foreign import ccall unsafe "sr_car_track_y" queryY :: CUInt -> CDouble -> IO CDouble
 
 advance :: Int -> J.Input -> J.Journey -> J.Journey
 advance count input initial = foldl' (\s _ -> J.step input s) initial [1 .. count]
@@ -26,10 +20,10 @@ journeyChecks = do
   checks <-
     sequence
       [ law "journey bookmarks round-trip across independently seeded worlds" propBookmark,
-        law "native field cache is keyed by the supplied seed" propSeedCache,
+        law "interleaved track queries preserve the supplied world seed" propSeedIsolation,
         law "different seeds change terrain and track, without changing the first world" propVariety,
         law "fixed-tick journey semantics do not depend on frame partition" propPartition,
-        law "corrupt journey bookmarks are rejected before native queries" (once propInvalid),
+        law "corrupt journey bookmarks are rejected before restoring a position" (once propInvalid),
         law "long journeys stop at a restorable coordinate boundary" propBoundary,
         law "ride catches up edges once and preserves total mouse motion" (once propInput),
         law "automatic walkers stay on navigable ground across world seeds" (once (ioProperty automaticChecks)),
@@ -45,13 +39,13 @@ propBookmark n (NonNegative raw) =
       saved = S.bookmark j
    in decode (encode saved) == Just saved && (S.bookmark <$> S.restore saved) == Just saved
 
-propSeedCache :: Word32 -> Word32 -> Small Int -> Property
-propSeedCache a b (Small index) = ioProperty $ do
+propSeedIsolation :: Word32 -> Word32 -> Small Int -> Property
+propSeedIsolation a b (Small index) = ioProperty $ do
   let s = fromIntegral index * 32
-  y <- queryY (fromIntegral a) s
-  _ <- queryY (fromIntegral b) s
-  restored <- queryY (fromIntegral a) s
-  pure (y == restored && not (isNaN (realToFrac y :: Double)))
+  y <- evaluate (J.trackY (World.seed a) s)
+  _ <- evaluate (J.trackY (World.seed b) s)
+  restored <- evaluate (J.trackY (World.seed a) s)
+  pure (y == restored && not (isNaN y || isInfinite y))
 
 propVariety :: Word32 -> Bool
 propVariety a =

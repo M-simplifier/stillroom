@@ -1,6 +1,6 @@
 # The quiet line
 
-Stillroom 0.8 adds a single connected journey to the rest gallery. A small
+The Journey collection offers a single connected landscape. A small
 observation railcar moves through generated countryside. Stop near safe ground,
 step outside, walk freely or use automatic strolling, then return to the waiting
 car. Esc returns to the working view and keeps the place for the next break.
@@ -44,6 +44,25 @@ the same seed. The practical coordinate range is finite; this release does not
 claim mathematical infinity, a globally connected walkable continent or endless
 single-precision accuracy. It is an open, streamed landscape for ordinary breaks.
 
+The current implementation keeps these rules in Haskell. `Landscape.Field`
+takes the saved seed for every terrain, track and habitat query.
+`Landscape.Geometry.seededChunkGeometry` returns a near or far chunk's immutable
+mesh streams, branch hierarchy and sampled heights. `Runtime.Graphics.Journey`
+uploads that result, retains the bounded near/far caches and executes the shared
+`Journey.Frame.FramePlan` for shadow, reflection and main views. Changing the
+quality budget changes targets and shading while keeping the seed and geometry.
+
+Geometry fingerprints are explicit diagnostics. Ordinary generation completes
+and packs the render buffers without hashing them. The long journey check opts
+into canonical fingerprints and retains only their evaluated values after
+upload; it does not keep old CPU vertex arrays for delayed hashes.
+
+Walking queries the analytical Double field. The renderer samples Float raster
+coordinates and uses actual triangle interpolation for grass roots and LOD
+morphing. A cell's centre can differ from the analytical surface between grid
+vertices; tests preserve this approximation boundary rather than changing the
+accepted walking behavior to force exact equality.
+
 ## References and what was adopted
 
 - [Slow Roads](https://slowroads.io/) demonstrates the appeal of continuous
@@ -65,6 +84,70 @@ single-precision accuracy. It is an open, streamed landscape for ordinary breaks
   are references for separating terrain shape and ecological variation.
 
 ## Verification and limits
+
+The maintained Haskell migration checks are `tools/check-haskell-migration.ps1`
+for frozen-baseline CPU comparisons and
+`cabal test migration-native -fnative-graphics-tests` for actual
+raylib water topology, drawing and resource lifetime. They complement ordinary
+laws and the executable's `--check-journey` route. Baseline fixtures identify
+the 0.11.0 source revision and keep C solely as an independent porting oracle.
+The numerical comparison, rendered journey and viewer's judgment remain
+separate evidence.
+The native suite is opt-in; ordinary `cabal test` keeps the pure laws usable
+without an OpenGL context.
+
+### Initial Haskell migration measurement, 2026-11-06
+
+This subsection records the migration before the later 0.12 optimizations.
+Its figures describe that development build, not the final 0.12 distribution.
+
+The same 960×540 Standard-quality diagnostic was run from the frozen public
+0.11.0 executable and the local Haskell build on the same Windows 11 / RTX 3050
+Laptop host. Each includes initial preparation, 1,800 rendered travel frames,
+regeneration, seed changes and walking/boarding checks. The semantic route and
+resident geometry counts match; this accelerated workload is not ordinary
+real-time playback.
+
+| Whole diagnostic | Process wall time | Largest travel-world generation/upload step |
+| --- | ---: | ---: |
+| Local Haskell renderer, effective GHC `-O2` | 72.03 s | 74.77 ms |
+| Public 0.11.0 C renderer, run immediately afterward | 40.43 s | 50.67 ms |
+
+That comparison ran these two executables consecutively to limit drift
+from clocks and other desktop work. The Stillroom package sets `optimization: 2`
+in `cabal.project`; verification checked actual library and executable compiler
+calls for `-O2`. Dependency settings remain unchanged. Cabal's overall profile
+banner can still show the dependency default `-O1`, so that banner alone does
+not establish the application's effective optimization.
+
+Earlier default-`-O1` local runs took 89.68 s before, and 73.62 s after, moving
+shared land-pass shader state outside the chunk loop; the initial public C
+control took 42.52 s. Those earlier values remain development observations.
+All twelve final `-O2` journey quality captures stayed pixel-identical to the
+baseline and uniform readback error remained zero. The final 1.78× diagnostic
+wall cost is a measured limitation, not a performance improvement claim.
+The final travel-world counters record 25.13 s of strict CPU generation,
+2.54 s of GPU upload calls and 29.99 s of render submission.
+Submission excludes `EndDrawing`/presentation
+and can include waits inside GL calls; it is not a pure CPU or GPU timer.
+These totals include initial residency preparation and the travel world, not
+the later recreated worlds used by the same diagnostic.
+
+The near/far caches still hold at most 49/81 chunks. The test observed 692/226
+evictions, reproduced both starting signatures after reload and rendered all
+six habitats. Ordinary warm-frame captures and the full diagnostic answer
+different performance questions; generation hitches remain possible.
+
+Five further CPU candidates were rejected by measurement and reverted: vertex
+unpacking, removal of vector bounds checks, shared vegetation rows, an alternative
+habitat accumulator, and prepared rail controls inside placement queries.
+At that checkpoint, the nine landscape modules retained their accepted source
+hashes. The last placement probe saved about 7.8 ms across 1,040 representative
+chunk cases; it did not explain the 25 s generation total or justify adopting
+those candidates. Subsequent changes are checked against the same frozen
+geometry and rendered-scene references rather than inheriting these timings.
+
+### Original 0.8 study
 
 The 0.8 development build passed 42 property/regression groups, including seed
 interleaving, distinct seeded terrain, bookmark round-trips/rejection, fixed-tick

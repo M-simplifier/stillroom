@@ -3,6 +3,9 @@ in vec3 vertexNormal;
 in vec2 vertexTexCoord;
 in vec2 vertexTexCoord2;
 in vec4 vertexColor;
+layout(location=6) in vec4 grassRootHeight;
+layout(location=7) in vec4 grassParameters;
+uniform int uGrassInstances;
 uniform mat4 mvp;
 uniform mat4 uLightVP;
 uniform sampler2D uBones;
@@ -21,14 +24,17 @@ void bend(inout vec3 p,inout vec3 n,vec3 origin,float angle) {
     n=n*cos(angle)+cross(axis,n)*sin(angle)+axis*dot(axis,n)*(1.0-cos(angle));
 }
 void main() {
-    vec3 p=vertexPosition,n=vertexNormal;
+    vec3 shapePosition=vertexPosition,shapeNormal=vertexNormal;
+    vec2 shapeUV=vertexTexCoord,shapeExtra=vertexTexCoord2;
+    if(uGrassInstances!=0) grassShape(vertexPosition,grassRootHeight,grassParameters,false,shapePosition,shapeNormal,shapeUV,shapeExtra);
+    vec3 p=shapePosition,n=shapeNormal;
     if(uKind==1||uKind==2) {
         if(uKind==2) {
-            float flutter=sin(uTime*3.8+vertexTexCoord2.y)*.035*vertexTexCoord.x;
+            float flutter=sin(uTime*3.8+shapeExtra.y)*.035*shapeUV.x;
             p+=n*flutter;
             n=normalize(n+vec3(flutter*2.8,0.0,-flutter));
         }
-        int id=int(vertexTexCoord2.x+.5);
+        int id=int(shapeExtra.x+.5);
         for(int i=0;i<5;i++) {
             if(id<0) break;
             vec4 b=bone(id*2),q=bone(id*2+1);
@@ -39,13 +45,13 @@ void main() {
             id=int(b.w)-1;
         }
     } else if(uKind==3) {
-        float t=vertexTexCoord.x,phase=vertexTexCoord2.y;
-        float gust=wind(vertexTexCoord2,uTime);
+        float t=shapeUV.x,phase=shapeExtra.y;
+        float gust=wind(shapeExtra,uTime);
         float a=(.28+gust*.65+.16*sin(uTime*2.1+phase))*t*t;
         p.x+=a*.32; p.z-=a*.085; p.y-=a*a*.055;
         n=normalize(n+vec3(a*.45,.1,0));
     }
-    world=p;normal=n;original=vertexPosition;uv=vertexTexCoord;tint=vertexColor;
+    world=p;normal=n;original=shapePosition;uv=shapeUV;tint=vertexColor;
     lightSpace=uLightVP*vec4(p,1.0);
     gl_Position=mvp*vec4(p,1.0);
 }

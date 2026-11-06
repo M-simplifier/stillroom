@@ -3,7 +3,7 @@
 
 module Stillroom.Runtime.JourneyCheck (runJourneyCheck) where
 
-import Control.Exception (bracket, bracket_, throwIO)
+import Control.Exception (bracket, bracket_, throwIO, try)
 import Control.Monad (forM, forM_, replicateM_, unless)
 import Data.Aeson (Value, decodeStrict', encode, object, withObject, (.:), (.=))
 import Data.Aeson.Types (parseMaybe)
@@ -19,6 +19,7 @@ import Stillroom.Journey.Walk qualified as W
 import Stillroom.Journey.World qualified as World
 import Stillroom.Runtime.Capture (screenshot)
 import Stillroom.Runtime.Journey qualified as Runtime
+import Stillroom.Runtime.Graphics.Resource (GraphicsError (..))
 import System.Directory (createDirectoryIfMissing)
 import System.FilePath ((</>))
 
@@ -31,7 +32,12 @@ runJourneyCheck folder = do
   R.setConfigFlags [WindowHidden, WindowUndecorated, WindowAlwaysRun]
   bracket (R.initWindow 960 540 "Stillroom journey check") (R.closeWindow . Just) $ \_ -> do
     R.setTargetFPS 0
-    Runtime.withJourney $ \runtime -> do
+    rejected <- Runtime.withJourney $ \runtime ->
+      try (Runtime.fingerprintsForCheck runtime 0 0) :: IO (Either GraphicsError (Maybe Integer, Maybe Integer))
+    let ordinaryRejectsFingerprint = case rejected of
+          Left (GeometryUnavailable _) -> True
+          _ -> False
+    Runtime.withJourneyForCheck $ \runtime -> do
       began <- R.getTime
       let frame = bracket_ R.beginDrawing R.endDrawing $ Runtime.draw runtime (Rectangle 0 0 960 540)
           warm = replicateM_ 82 frame >> healthy runtime
@@ -97,13 +103,14 @@ runJourneyCheck folder = do
                 )
           checks :: [(String, Bool)]
           checks =
-            [ ("continuous rendered ten-minute ride across habitats", J.progress (J.car end) > 2500 && length (nub habitats) >= 3),
-              ("near and far starting chunks evicted", near /= 0 && far /= 0 && absentNear == 0 && absentFar == 0),
+            [ ("rendering-only runtime rejects diagnostic fingerprint requests", ordinaryRejectsFingerprint),
+              ("continuous rendered ten-minute ride across habitats", J.progress (J.car end) > 2500 && length (nub habitats) >= 3),
+              ("near and far starting chunks evicted", isJust near && isJust far && absentNear == Nothing && absentFar == Nothing),
               ("resident caches remain bounded and current terrain is present", bounded == Just True),
               ("regenerated near geometry is byte-identical", near == regeneratedNear),
               ("regenerated far geometry is byte-identical", far == regeneratedFar),
               ("navigation and renderer share each seed's terrain", all fst differences),
-              ("new seeds produce distinct uploaded geometry", length (nub (map snd differences)) == 3 && all ((/= 0) . snd) differences),
+              ("new seeds produce distinct uploaded geometry", length (nub (map snd differences)) == 3 && all (isJust . snd) differences),
               ("renderer follows safe exit, walking, and reboarding", J.seat outside == J.OnFoot && W.position (J.person outside) /= W.position (J.person walked) && J.seat boarded == J.Aboard)
             ]
       BL.writeFile

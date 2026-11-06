@@ -2,8 +2,9 @@
 
 Stillroom separates decisions from their execution.
 
-The journey renderer follows the same principle. Its typed geometry and
-observation core, product frame policy and native interpreter are described in
+The journey renderer follows the same principle. Haskell computes the sampled
+landscape, retains its mesh data, and executes the drawing passes. Its typed
+geometry and observation core, product frame policy and GPU interpreter are described in
 [Functional graphics foundation](graphics-foundation.md).
 
 ```
@@ -46,6 +47,25 @@ from code. `Synthesis` retains the earlier oscillator path for compatibility.
 `Audio.Environment` advances loop phases, smooths gains and places bounded body
 sounds by travel distance. Geometry queries remain on the frame thread.
 See [audio design and reproduction](builtin-world.md).
+
+`Landscape.Field` evaluates terrain, shores, rail alignment, habitat weights
+and collision from an explicit `Journey.World.Seed`. `Landscape.Geometry`
+turns a fixed scene or seeded chunk into immutable contiguous vertex streams,
+compact grass instances, branch-bone pixels, height samples and a water mesh. Its bounded builders use
+local `ST`; CPU generation needs no window or OpenGL context. Constructors and
+record labels stay internal so callers cannot detach a mesh from its attributes
+or replace validated texture dimensions.
+
+`Landscape.Grass.Kernel.bladeCorner` defines a blade's arithmetic once. Evaluating
+it with Float produces the CPU reference; evaluating it with expressions emits
+the GLSL used by both landscape renderers. Each 40-byte blade record supplies
+root, height, width, direction, curve and color to a shared fifteen-corner buffer.
+The last four bytes record the original vertex order for diagnostics. Blossoms
+remain ordinary Grass-material triangles. `materialMesh` returns those
+ordinary streams; `grassBlades` supplies instances and `materialVertexCount`
+counts both. Only `diagnosticMaterialMesh` reconstructs the former interleaved
+vertex stream for frozen-buffer comparisons. Normal upload keeps the compact
+representation and performs no per-frame expansion or upload.
 
 ## Effect boundary
 
@@ -95,8 +115,8 @@ bundled assets and private imported copies. CPU decoding uses native memory on a
 worker; texture uploads stay on the rendering thread. `ForeignPtr` owns decoded
 pixels until upload, and window resources own GPU textures. Replacements load
 before the old texture is released. Image controls are separate reducer events
-and cannot reconfigure playback or window placement. Preferences version 6 accepts
-versions 1–5, mapping retired local photo choices to procedural scenes at the
+and cannot reconfigure playback or window placement. Preferences version 9 accepts
+versions 1–8, mapping retired local photo choices to procedural scenes at the
 JSON boundary without discarding other settings. Working view is always restored at
 startup, independently of the saved scene and motion preference.
 
@@ -129,14 +149,15 @@ after compositing the opaque target so its alpha cannot expose the wallpaper.
 Scene, dimensions and time invalidate the target; a frozen frame reuses it.
 An opaque rest view skips the hidden working-background pass.
 
-Three additional landscapes use `Runtime.Nature`, an opaque bracketed C context
-inside the same window. It retains three generated geometry sets for immediate
-selection, shares shaders/targets, and releases all GPU allocations before the
-context closes. Haskell passes shader contents once and scalar frame parameters;
-long foreign calls are safe and stay on the bound render thread. Scene/size/time
-invalidate a 30 Hz cache. The landscape raster is bounded at 1600×900 with a
-half-resolution reflection. Nested thumbnail rendering restores its caller's
-framebuffer, viewport and matrices. See [generation and ownership details](procedural-landscapes.md).
+Three additional landscapes use `Runtime.Nature` and the Haskell
+`Runtime.Graphics.Landscape` controller inside the same window. It retains three
+uploaded geometry sets for immediate selection. `Graphics.Resource` owns meshes,
+numeric textures and shader handles; `Graphics.Target` replaces render targets
+after a successful allocation. Context-thread cleanup closes these resources
+before the window. Scene/size/time invalidate a 30 Hz cache. Standard quality
+bounds the landscape raster at 1600×900 and uses a half-resolution reflection.
+Nested thumbnail rendering restores its caller's framebuffer, viewport and
+matrices. See [generation and ownership details](procedural-landscapes.md).
 
 `RestCollection` groups the gallery without changing the selected scene. The
 selected scene determines the initial collection when preferences are restored;
@@ -176,13 +197,14 @@ package acceptance explicitly excludes development data paths.
 
 ## Continuous journey
 
-`Journey.World.Seed` is an explicit value passed to native terrain/rail queries.
-The native field uses thread-local scratch for that invocation and a four-control
-rail-height memo keyed by both seed and cell. Interleaved worlds therefore cannot
-change pure Haskell answers. The renderer owns its own immutable seed and selects
-it before every generation/draw entry. Terrain collision and geometry share the
-same field header. Build tooling invalidates both C translation units when an
-included journey header changes; Cabal alone can otherwise reuse stale C objects.
+`Journey.World.Seed` is an explicit value passed to pure `Landscape.Field`
+queries. Each generated chunk shares a bounded immutable set of rail-height
+controls. There is no selected global world or thread-local terrain cache.
+`Journey.Ride` and `Journey.Walk` query the same field used by CPU generation.
+Walking keeps its analytical Double queries; mesh generation samples that field
+at Float raster coordinates. Grass and LOD morphing interpolate the actual
+triangles. These are related surfaces, not an assertion that an analytical
+field equals its piecewise-linear approximation between samples.
 
 `Journey.Ride` and `Journey.Walk` are fixed 60 Hz reducers. Frame input accumulates
 until a semantic tick; edges are consumed once, relative look is distributed,
@@ -203,7 +225,16 @@ viewport and matrices before compositing. The gallery's journey thumbnail is a
 small captured poster so startup never generates the world merely for its card.
 
 Version 1 journey bookmarks store the seed, car progress/pace, seat and walker
-pose/intent, separately from version 7 music/display preferences. Loading checks
-finite bounds and valid ground before calling native field code. Velocity,
+pose/intent, separately from version 9 music/display preferences. Loading checks
+finite bounds and valid ground before restoring a position. Velocity,
 temporary transfer, routes, and generated meshes are not serialized. Writes use
-a sibling temporary file and rename. Versions 1–6 preferences still migrate.
+a sibling temporary file and rename. Versions 1–8 preferences still migrate.
+
+`Runtime.Graphics.Journey` executes the validated `Journey.Frame.FramePlan`
+directly. Each observation supplies its target and typed projection together;
+`Graphics.Encoding` lowers matrix columns to the pinned raylib representation.
+`Runtime.Journey.Packet` remains a diagnostic encoding, outside production
+pass selection. GLSL still runs on the GPU and h-raylib remains the native
+graphics dependency. Application C is restricted to `cbits/native.c` for the
+Windows platform boundary; the former C world and renderers are test oracles,
+not production fallbacks.

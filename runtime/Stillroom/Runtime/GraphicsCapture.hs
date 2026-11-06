@@ -1,4 +1,3 @@
-{-# LANGUAGE ForeignFunctionInterface #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PatternSynonyms #-}
 
@@ -13,9 +12,8 @@ import Data.ByteString qualified as BS
 import Data.ByteString.Char8 qualified as BC
 import Data.ByteString.Lazy qualified as BL
 import Data.List (sort)
-import Data.Maybe (fromMaybe, listToMaybe)
+import Data.Maybe (fromMaybe, isJust, listToMaybe)
 import Foreign (castPtr, free, peek)
-import Foreign.C (CDouble (..), CUInt (..))
 import Raylib.Core qualified as R
 import Raylib.Core.Textures (c'loadImageFromScreen)
 import Raylib.Internal.Foreign (c'free)
@@ -27,17 +25,19 @@ import Stillroom.Journey.Walk qualified as W
 import Stillroom.Journey.World qualified as World
 import Stillroom.Runtime.Capture (screenshot)
 import Stillroom.Runtime.Journey qualified as Runtime
+import Stillroom.Landscape.Field qualified as Field
+import Stillroom.Runtime.Graphics.GL qualified as GL
 import System.Directory (createDirectoryIfMissing)
 import System.FilePath ((</>))
 import System.IO (hSetBinaryMode, stdout)
 
-foreign import ccall unsafe "sr_car_natural_ground" naturalGround :: CUInt -> CDouble -> CDouble -> CDouble
-foreign import ccall safe "sr_nature_sync" finishGPU :: IO ()
+finishGPU :: IO ()
+finishGPU = GL.finish
 
 lakeProgress :: Double
 lakeProgress = fromMaybe 450 $ listToMaybe
-  [s - 12 | s <- [100,102 .. 3000], naturalGround (fromIntegral (World.seedValue World.firstSeed))
-      (realToFrac (J.trackX World.firstSeed s)) (realToFrac (-s)) < -1]
+  [s - 12 | s <- [100,102 .. 3000], Field.naturalGround World.firstSeed
+      (J.trackX World.firstSeed s) (-s) < -1]
 
 pose :: Double -> Double -> J.Journey
 pose progress offset =
@@ -68,7 +68,7 @@ runQualityCapture folder = do
   R.setConfigFlags [WindowHidden, WindowUndecorated, WindowAlwaysRun]
   bracket (R.initWindow 1600 900 "Stillroom quality capture") (R.closeWindow . Just) $ \_ -> do
     R.setTargetFPS 0
-    Runtime.withJourney $ \runtime -> do
+    Runtime.withJourneyForCheck $ \runtime -> do
       entries <- forM [("lake",lake), ("meadow",pose 60 0), ("shore",pose (lakeProgress+40) (-1.1))] $ \(name,start) -> do
         Runtime.restoreModel runtime start
         warm runtime 1600 900
@@ -81,7 +81,7 @@ runQualityCapture folder = do
             fingerprints = (,) <$> (fst <$> Runtime.fingerprintsForCheck runtime cx cz)
                                <*> (snd <$> Runtime.fingerprintsForCheck runtime fx fz)
         fingerprint <- fingerprints
-        unless (fst fingerprint /= 0 && snd fingerprint /= 0) (throwIO (userError "Comparison geometry was not resident"))
+        unless (isJust (fst fingerprint) && isJust (snd fingerprint)) (throwIO (userError "Comparison geometry was not resident"))
         levels <- forM [G.Economy,G.Balanced,G.Detailed,G.Supersampled] $ \quality -> do
           Runtime.quality runtime quality
           replicateM_ 3 (frame runtime 1600 900)
