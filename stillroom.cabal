@@ -36,10 +36,10 @@ library
     Stillroom.Audio.Mix, Stillroom.Audio.Composition, Stillroom.Audio.Environment,
     Stillroom.Journey.World, Stillroom.Journey.Navigation, Stillroom.Journey.Walk,
     Stillroom.Journey.Ride, Stillroom.Journey.Railcar,
-    Stillroom.Landscape.Geometry, Stillroom.Landscape.Field
+    Stillroom.Landscape.Geometry, Stillroom.Landscape.Field, Stillroom.Landscape.Grass
   other-modules: Stillroom.Landscape.Internal, Stillroom.Landscape.Math,
     Stillroom.Landscape.Plants, Stillroom.Landscape.Ecology, Stillroom.Landscape.Railway,
-    Stillroom.Landscape.Fixed, Stillroom.Landscape.Chunk
+    Stillroom.Landscape.Fixed, Stillroom.Landscape.Chunk, Stillroom.Landscape.Grass.Kernel
   build-depends: base >=4.18 && <4.19, containers >=0.6 && <0.7,
     array >=0.5 && <0.6, vector >=0.13 && <0.14, random >=1.2 && <1.4
 
@@ -73,7 +73,7 @@ test-suite laws
   main-is: Main.hs
   hs-source-dirs: test, runtime
   other-modules: Stillroom.Runtime.Storage, Stillroom.Runtime.JourneyStorage, JourneyChecks, GraphicsChecks, Stillroom.Runtime.Journey.Packet,
-    Stillroom.Runtime.Audio.Bank, AudioChecks, EnvironmentChecks, LandscapeChecks
+    Stillroom.Runtime.Audio.Bank, AudioChecks, EnvironmentChecks, LandscapeChecks, GrassChecks
   build-depends: base >=4.18 && <4.19, stillroom, containers >=0.6 && <0.7,
     vector >=0.13 && <0.14, QuickCheck >=2.15 && <2.19,
     aeson >=2.2 && <2.4, bytestring >=0.11 && <0.12, directory >=1.3 && <1.4,
