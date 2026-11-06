@@ -115,9 +115,11 @@ main = do
       comparePlane (show detail) span span 16 (fromIntegral cx*span+span*0.5) (fromIntegral cz*span+span*0.5) (G.waterMesh geometry)
       if detail == G.NearChunk then indexedDraw (G.waterMesh geometry) else pure ()
     small <- either (fail . show) pure (G.seededChunkGeometry (W.seed 1) 0 0 G.FarChunk)
+    bracket (Resource.uploadGeometry small) Resource.releaseGeometry $ \gpu ->
+      assertion "ordinary upload omits diagnostic fingerprints" (Resource.gpuSignature gpu == Nothing)
     forM_ [1..8 :: Int] $ \_ -> do
-      gpu <- Resource.uploadGeometry small
-      assertion "uploaded geometry keeps its CPU signature" (Resource.gpuSignature gpu == G.geometrySignature small)
+      gpu <- Resource.uploadGeometryWithSignature (Just (G.geometrySignature small)) small
+      assertion "diagnostic upload keeps its CPU signature" (Resource.gpuSignature gpu == Just (G.geometrySignature small))
       Resource.releaseGeometry gpu
       Resource.releaseGeometry gpu
       GL.finish

@@ -30,7 +30,9 @@ module Stillroom.Runtime.Graphics.Resource
     drawMesh,
     triangleCount,
     GpuGeometry (..),
+    FingerprintMode (..),
     uploadGeometry,
+    uploadGeometryWithSignature,
     releaseGeometry,
     geometryTriangles,
     ParentState,
@@ -261,6 +263,8 @@ uploadRailcar scope packet = do
 drawMesh :: MaterialHandle -> GpuMesh -> IO ()
 drawMesh (MaterialHandle material) (GpuMesh mesh _) = with matrixIdentity (M.c'drawMesh mesh material)
 
+data FingerprintMode = SkipFingerprints | CaptureFingerprints deriving (Eq, Show)
+
 data GpuGeometry = GpuGeometry
   { gpuMaterials :: ![Maybe GpuMesh],
     gpuWater :: !(Maybe GpuMesh),
@@ -269,12 +273,18 @@ data GpuGeometry = GpuGeometry
     gpuTrees :: !Int,
     gpuGrass :: !Int,
     gpuBonesCount :: !Int,
-    gpuSignature :: !Word64,
+    gpuSignature :: !(Maybe Word64),
     geometryScope :: !Scope
   }
 
 uploadGeometry :: G.Geometry -> IO GpuGeometry
-uploadGeometry geometry = bracketOnError newScope closeScope $ \scope -> do
+uploadGeometry = uploadGeometryWithSignature Nothing
+
+uploadGeometryWithSignature :: Maybe Word64 -> G.Geometry -> IO GpuGeometry
+uploadGeometryWithSignature fingerprint geometry = bracketOnError newScope closeScope $ \scope -> do
+  -- A diagnostic caller may supply a lazy hash. Finish it while CPU buffers
+  -- are present rather than retaining them through a thunk after upload.
+  signature <- traverse evaluate fingerprint
   meshes <- mapM (uploadMesh scope . G.materialMesh geometry) [G.Terrain, G.Wood, G.Foliage, G.Grass]
   water <- uploadMesh scope (G.waterMesh geometry)
   bones <- pixels scope 256 (G.boneTextureHeight geometry) 10 (G.bonePixels geometry) TextureFilterPoint
@@ -290,7 +300,7 @@ uploadGeometry geometry = bracketOnError newScope closeScope $ \scope -> do
             8
             (G.heightPixels geometry)
             TextureFilterBilinear
-  pure (GpuGeometry meshes water bones height (G.treeCount geometry) (G.grassCount geometry) (G.boneCount geometry) (G.geometrySignature geometry) scope)
+  pure (GpuGeometry meshes water bones height (G.treeCount geometry) (G.grassCount geometry) (G.boneCount geometry) signature scope)
   where
     pixels scope width height format values filtering =
       own

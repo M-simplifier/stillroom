@@ -4,6 +4,7 @@
 module Stillroom.Runtime.Graphics.Journey
   ( World,
     open,
+    openWithFingerprints,
     close,
     ready,
     problem,
@@ -70,11 +71,15 @@ data World = World
     farChunks :: !(IORef (Map.IntMap Chunk)),
     counts :: !(IORef Counts),
     executed :: !(IORef (Maybe F.FramePlan)),
+    fingerprintMode :: !FingerprintMode,
     worldScope :: !Scope
   }
 
 open :: Seed.Seed -> [BS.ByteString] -> Mesh.MeshPacket -> IO World
-open worldSeed sources carMesh = bracketOnError newScope closeScope $ \scope -> do
+open = openWithFingerprints SkipFingerprints
+
+openWithFingerprints :: FingerprintMode -> Seed.Seed -> [BS.ByteString] -> Mesh.MeshPacket -> IO World
+openWithFingerprints fingerprints worldSeed sources carMesh = bracketOnError newScope closeScope $ \scope -> do
   r <- own scope (loadRenderer sources) releaseRenderer
   railcar <- uploadRailcar scope carMesh
   near <- newIORef Map.empty
@@ -90,6 +95,7 @@ open worldSeed sources carMesh = bracketOnError newScope closeScope $ \scope -> 
         farChunks = far,
         counts = statistics,
         executed = frame,
+        fingerprintMode = fingerprints,
         worldScope = scope
       }
 
@@ -129,11 +135,22 @@ quality world = setQuality (renderer world)
 chunkAt :: Int -> Int -> Map.IntMap Chunk -> Maybe Chunk
 chunkAt x z = find (\(Chunk chunkX chunkZ _) -> chunkX == x && chunkZ == z) . Map.elems
 
-signature :: World -> Int -> Int -> IO Word64
-signature world x z = maybe 0 (\(Chunk _ _ g) -> gpuSignature g) . chunkAt x z <$> readIORef (nearChunks world)
+signature :: World -> Int -> Int -> IO (Maybe Word64)
+signature world x z = chunkSignature world x z (nearChunks world)
 
-farSignature :: World -> Int -> Int -> IO Word64
-farSignature world x z = maybe 0 (\(Chunk _ _ g) -> gpuSignature g) . chunkAt x z <$> readIORef (farChunks world)
+farSignature :: World -> Int -> Int -> IO (Maybe Word64)
+farSignature world x z = chunkSignature world x z (farChunks world)
+
+chunkSignature :: World -> Int -> Int -> IORef (Map.IntMap Chunk) -> IO (Maybe Word64)
+chunkSignature world x z chunks = do
+  when (fingerprintMode world /= CaptureFingerprints) $
+    throwIO (GeometryUnavailable "Fingerprint requested from a rendering-only world")
+  found <- chunkAt x z <$> readIORef chunks
+  case found of
+    Nothing -> pure Nothing
+    Just (Chunk _ _ g) -> case gpuSignature g of
+      Nothing -> throwIO (GeometryUnavailable "Uploaded geometry lacks its diagnostic fingerprint")
+      Just value -> pure (Just value)
 
 -- A replacement is generated and uploaded before the previous slot is retired.
 -- The two tables remain bounded at 49 near and 81 far geometries.
@@ -168,11 +185,13 @@ streamOne world far x z = mask_ $ do
               (throwIO . GeometryUnavailable . show)
               evaluate
               (G.seededChunkGeometry (seed world) cx cz (if far then G.FarChunk else G.NearChunk))
-          -- Geometry has strict packed buffers and a strict byte signature:
-          -- this receipt forces CPU generation before the upload clock starts.
-          _ <- evaluate (G.geometrySignature geometry)
+          -- Evaluating Geometry completes the runST builder and all strict
+          -- packed streams. Only an explicit diagnostic also traverses them.
+          fingerprint <- case fingerprintMode world of
+            SkipFingerprints -> pure Nothing
+            CaptureFingerprints -> Just <$> evaluate (G.geometrySignature geometry)
           cpuFinished <- R.getTime
-          gpu <- uploadGeometry geometry
+          gpu <- uploadGeometryWithSignature fingerprint geometry
           uploaded <- R.getTime
           pure (gpu, (cpuFinished - began) * 1000, (uploaded - cpuFinished) * 1000)
         case built of
@@ -467,6 +486,7 @@ info world = do
             "maxGenerationMs" .= maxGenerationMs s,
             "lastGenerationMs" .= lastGenerationMs s,
             "cpuGenerationMs" .= cpuGenerationMs s,
+            "geometryFingerprints" .= (fingerprintMode world == CaptureFingerprints),
             "uploadMs" .= uploadMs s,
             "streamMs" .= streamMs s,
             "submitMs" .= submitMs s,

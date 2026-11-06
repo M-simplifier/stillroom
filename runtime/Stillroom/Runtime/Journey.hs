@@ -5,6 +5,7 @@
 module Stillroom.Runtime.Journey
   ( JourneyRuntime,
     withJourney,
+    withJourneyForCheck,
     model,
     soundscape,
     replace,
@@ -28,7 +29,7 @@ module Stillroom.Runtime.Journey
   )
 where
 
-import Control.Exception (IOException, bracket, try, catch, mask_)
+import Control.Exception (IOException, bracket, try, catch, mask_, throwIO)
 import Control.Monad (unless, when)
 import Data.ByteString qualified as BS
 import Data.IORef
@@ -49,7 +50,7 @@ import Stillroom.Journey.Walk qualified as W
 import Stillroom.Journey.World qualified as World
 import Stillroom.Runtime.Pictures qualified as Pictures
 import Stillroom.Runtime.Graphics.Journey qualified as GPU
-import Stillroom.Runtime.Graphics.Resource (GraphicsError)
+import Stillroom.Runtime.Graphics.Resource (GraphicsError (..), FingerprintMode (..))
 import Stillroom.Landscape.Geometry qualified as Landscape
 import System.FilePath ((</>))
 
@@ -82,7 +83,8 @@ data JourneyRuntime = Runtime
     captured :: IORef Bool,
     hintSeconds :: IORef Double,
     help :: IORef Bool,
-    lastPlan :: IORef (Maybe F.FramePlan)
+    lastPlan :: IORef (Maybe F.FramePlan),
+    fingerprintMode :: !FingerprintMode
   }
 
 quality :: JourneyRuntime -> Tier -> IO ()
@@ -95,7 +97,13 @@ quality runtime tier = do
       unless ok (GPU.problem p >>= writeIORef (problem runtime) . Just)
 
 withJourney :: (JourneyRuntime -> IO a) -> IO a
-withJourney = bracket acquire release
+withJourney = withJourneyMode SkipFingerprints
+
+withJourneyForCheck :: (JourneyRuntime -> IO a) -> IO a
+withJourneyForCheck = withJourneyMode CaptureFingerprints
+
+withJourneyMode :: FingerprintMode -> (JourneyRuntime -> IO a) -> IO a
+withJourneyMode fingerprints = bracket acquire release
   where
     acquire =
       Runtime
@@ -110,6 +118,7 @@ withJourney = bracket acquire release
         <*> newIORef 12
         <*> newIORef False
         <*> newIORef Nothing
+        <*> pure fingerprints
     initial = J.initial World.firstSeed
     release runtime = suspend runtime >> releaseWorld runtime
 
@@ -137,15 +146,17 @@ advanceForCheck r count input = do
   writeIORef (previous r) next
   writeIORef (accumulator r) 0
 
-fingerprintsForCheck :: JourneyRuntime -> Int -> Int -> IO (Integer, Integer)
-fingerprintsForCheck r x z =
+fingerprintsForCheck :: JourneyRuntime -> Int -> Int -> IO (Maybe Integer, Maybe Integer)
+fingerprintsForCheck r x z = do
+  unless (fingerprintMode r == CaptureFingerprints) $
+    throwIO (GeometryUnavailable "Fingerprint requested from a rendering-only runtime")
   readIORef (native r)
     >>= maybe
-      (pure (0, 0))
+      (pure (Nothing, Nothing))
       ( \p ->
           (,)
-            <$> (fromIntegral <$> GPU.signature p x z)
-            <*> (fromIntegral <$> GPU.farSignature p x z)
+            <$> (fmap fromIntegral <$> GPU.signature p x z)
+            <*> (fmap fromIntegral <$> GPU.farSignature p x z)
       )
 
 terrainMatchesForCheck :: World.Seed -> IO Bool
@@ -283,7 +294,7 @@ ensure r = do
           Left issue -> writeIORef (problem r) (Just issue) >> pure Nothing
           Right mesh -> mask_ $ do
             j <- model r
-            loaded <- (Right <$> GPU.open (J.worldSeed j) files mesh) `catch` (\(issue :: GraphicsError) -> pure (Left (show issue)))
+            loaded <- (Right <$> GPU.openWithFingerprints (fingerprintMode r) (J.worldSeed j) files mesh) `catch` (\(issue :: GraphicsError) -> pure (Left (show issue)))
             case loaded of
               Left issue -> writeIORef (problem r) (Just issue) >> pure Nothing
               Right pointer -> do

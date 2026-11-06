@@ -69,11 +69,14 @@ def main():
     expected_rows = read_rows([args.reference/'fixed.csv', args.reference/'streamed.csv'])
     actual_rows = read_rows([args.actual_csv])
     mismatches = []
+    signature_mismatches = []
     for name, expected in expected_rows.items():
         actual = actual_rows.get(name, {})
         for key, value in expected.items():
             if key not in ('name', 'signature') and actual.get(key) != value:
                 mismatches.append({'name': name, 'field': key, 'expected': value, 'actual': actual.get(key)})
+        if name != 'fixed-1' and actual.get('signature') != expected['signature']:
+            signature_mismatches.append({'name': name, 'expected': expected['signature'], 'actual': actual.get('signature')})
     buffers = {}
     for path in sorted(args.reference.glob('*.bin')):
         actual = args.actual/path.name
@@ -84,10 +87,10 @@ def main():
     corrupted = bytearray(example)
     struct.pack_into('<f', corrupted, 0, struct.unpack_from('<f', corrupted)[0]+1)
     negative_rejected = not compare_payload(example, corrupted, True)['exact']
-    report = {'passed': not mismatches and all(accepted_rounding(k,v) for k,v in buffers.items()) and negative_rejected,
+    report = {'passed': not mismatches and not signature_mismatches and all(accepted_rounding(k,v) for k,v in buffers.items()) and negative_rejected,
         'cases': len(expected_rows), 'buffers': len(buffers), 'exactBuffers': sum(v['exact'] for v in buffers.values()),
         'referenceBytes': sum(p.stat().st_size for p in args.reference.glob('*.bin')),
-        'countMismatches': mismatches, 'perturbedVertexRejected': negative_rejected,
+        'countMismatches': mismatches, 'signatureMismatches': signature_mismatches, 'perturbedVertexRejected': negative_rejected,
         'exactSignatureCases': sum(actual_rows.get(name,{}).get('signature') == row['signature'] for name,row in expected_rows.items()),
         'boundedRoundingBuffers': [k for k,v in buffers.items() if not v['exact'] and accepted_rounding(k,v)],
         'differences': {k: v for k, v in buffers.items() if not v['exact']},

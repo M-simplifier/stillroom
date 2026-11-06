@@ -57,5 +57,7 @@ boneCount = Internal.boneCount
 treeCount = Internal.treeCount
 grassCount = Internal.grassCount
 
+-- | Explicit diagnostic traversal of the completed render buffers. Geometry
+-- construction already packs every stream; ordinary rendering needs no hash.
 geometrySignature :: Geometry -> Word64
 geometrySignature = Internal.geometrySignature

@@ -61,8 +61,7 @@ data Geometry = Geometry
     waterMesh :: !MeshData, bonePixels :: !(V.Vector Float),
     boneTextureHeight :: !Int, heightPixels :: !(V.Vector Float),
     heightWidth :: !Int, heightHeight :: !Int,
-    boneCount :: !Int, treeCount :: !Int, grassCount :: !Int,
-    geometrySignature :: !Word64
+    boneCount :: !Int, treeCount :: !Int, grassCount :: !Int
   } deriving (Eq, Show)
 
 materialMesh :: Geometry -> Material -> MeshData
@@ -160,8 +159,8 @@ terrainNormal s x z =
   let d = 0.12; h = buildHeight s
    in normalize3 (V3 (h (x-d) z-h (x+d) z) (2*d) (h x (z-d)-h x (z+d)))
 
-freezeBuilder :: Word64 -> Builder s -> ST s (MeshData,Word64)
-freezeBuilder initialHash (Builder _ storage size) = do
+freezeBuilder :: Builder s -> ST s MeshData
+freezeBuilder (Builder _ storage size) = do
   n <- readSTRef size
   current <- readSTRef storage
   positions <- M.new (n*3)
@@ -169,29 +168,20 @@ freezeBuilder initialHash (Builder _ storage size) = do
   texCoords <- M.new (n*2)
   extra <- M.new (n*2)
   colors <- M.new (n*4)
-  let bytes = M.unsafeCast current
-      hashBytes !j !end !signature
-        | j>=end = pure signature
+  let pack !i
+        | i>=n = pure ()
         | otherwise = do
-            byte <- M.read bytes j
-            hashBytes (j+1) end (fnvByte signature byte)
-      pack !i !signature
-        | i>=n = pure signature
-        | otherwise = do
-            vertex@(Vertex (V3 x y z) (V3 nx ny nz) (V2 u v) (V2 bone phase) (Colour r g b a)) <- M.read current i
+            Vertex (V3 x y z) (V3 nx ny nz) (V2 u v) (V2 bone phase) (Colour r g b a) <- M.read current i
             M.write positions (i*3) x; M.write positions (i*3+1) y; M.write positions (i*3+2) z
             M.write normals (i*3) nx; M.write normals (i*3+1) ny; M.write normals (i*3+2) nz
             M.write texCoords (i*2) u; M.write texCoords (i*2+1) v
             M.write extra (i*2) bone; M.write extra (i*2+1) phase
             M.write colors (i*4) r; M.write colors (i*4+1) g; M.write colors (i*4+2) b; M.write colors (i*4+3) a
-            nextSignature <- case targetByteOrder of
-              LittleEndian -> hashBytes (i*44) (i*44+44) signature
-              BigEndian -> pure (fnvVertex signature vertex)
-            pack (i+1) nextSignature
-  signature <- pack 0 initialHash
+            pack (i+1)
+  pack 0
   p <- V.unsafeFreeze positions; nrm <- V.unsafeFreeze normals
   uv <- V.unsafeFreeze texCoords; ex <- V.unsafeFreeze extra; color <- V.unsafeFreeze colors
-  pure (MeshData p nrm uv ex color V.empty,signature)
+  pure (MeshData p nrm uv ex color V.empty)
 
 fnvByte :: Word64 -> Word8 -> Word64
 fnvByte h b = (h `xor` fromIntegral b)*1099511628211
@@ -213,13 +203,61 @@ fnvVertex h (Vertex (V3 x y z) (V3 a b c) (V2 u v) (V2 bone phase) (Colour r g b
    in fnvByte (fnvByte (fnvByte (fnvByte h3 r) g) bl) alpha
 {-# INLINE fnvVertex #-}
 
--- The compatibility signature is defined in little-endian scalar order.
--- Vertex has no padding; on little-endian hosts its stored bytes are already
--- that representation, so hashing need not reconstruct every Float's bits.
+-- Compatibility fingerprints use little-endian scalar order on every host.
 fnvFloats :: Word64 -> V.Vector Float -> Word64
 fnvFloats h values = case targetByteOrder of
   LittleEndian -> V.foldl' fnvByte h (V.unsafeCast values)
   BigEndian -> V.foldl' fnvFloat h values
+
+fnvBytesRange :: Word64 -> V.Vector Word8 -> Int -> Int -> Word64
+fnvBytesRange initial bytes begin end = go begin initial
+  where
+    go !i !signature
+      | i>=end = signature
+      | otherwise = go (i+1) (fnvByte signature (bytes V.! i))
+{-# INLINE fnvBytesRange #-}
+
+-- Hash the original interleaved vertex order directly from the final streams.
+-- No original builder storage or delayed fingerprint is retained by Geometry.
+fnvMesh :: Word64 -> MeshData -> Word64
+fnvMesh initial mesh = case targetByteOrder of
+  LittleEndian -> raw 0 initial
+  BigEndian -> canonical 0 initial
+  where
+    n = meshVertexCount mesh
+    positions = V.unsafeCast (meshPositions mesh)
+    normals = V.unsafeCast (meshNormals mesh)
+    uv = V.unsafeCast (meshTexCoords mesh)
+    extra = V.unsafeCast (meshExtra mesh)
+    colors = meshColors mesh
+    raw !i !signature
+      | i>=n = signature
+      | otherwise =
+          let !s0 = fnvBytesRange signature positions (i*12) (i*12+12)
+              !s1 = fnvBytesRange s0 normals (i*12) (i*12+12)
+              !s2 = fnvBytesRange s1 uv (i*8) (i*8+8)
+              !s3 = fnvBytesRange s2 extra (i*8) (i*8+8)
+              !s4 = fnvBytesRange s3 colors (i*4) (i*4+4)
+           in raw (i+1) s4
+    canonical !i !signature
+      | i>=n = signature
+      | otherwise =
+          let at values stride j = values V.! (i*stride+j)
+              vector3 values = V3 (at values 3 0) (at values 3 1) (at values 3 2)
+              vector2 values = V2 (at values 2 0) (at values 2 1)
+              colour = Colour (at colors 4 0) (at colors 4 1) (at colors 4 2) (at colors 4 3)
+              vertex = Vertex (vector3 (meshPositions mesh)) (vector3 (meshNormals mesh))
+                (vector2 (meshTexCoords mesh)) (vector2 (meshExtra mesh)) colour
+           in canonical (i+1) (fnvVertex signature vertex)
+
+geometrySignature :: Geometry -> Word64
+geometrySignature geometry =
+  let !s0 = fnvFloats 1469598103934665603 (V.take (boneCount geometry*8) (bonePixels geometry))
+      !s1 = fnvFloats s0 (heightPixels geometry)
+      !s2 = fnvMesh s1 (geometryTerrain geometry)
+      !s3 = fnvMesh s2 (geometryWood geometry)
+      !s4 = fnvMesh s3 (geometryFoliage geometry)
+   in fnvMesh s4 (geometryGrass geometry)
 
 finishGeometry :: Build s -> MeshData -> V.Vector Float -> Int -> Int -> ST s (Either GenerationError Geometry)
 finishGeometry s water heights width height = do
@@ -232,13 +270,11 @@ finishGeometry s water heights width height = do
       payload <- M.replicate (256*bh*4) 0
       M.copy (M.slice 0 (bones*8) payload) (M.slice 0 (bones*8) (buildBones s))
       pixels <- V.unsafeFreeze payload
-      let !signature0 = fnvFloats 1469598103934665603 (V.take (bones*8) pixels)
-          !signature1 = fnvFloats signature0 heights
-      (a,signature2) <- freezeBuilder signature1 (terrainBuilder s)
-      (b,signature3) <- freezeBuilder signature2 (woodBuilder s)
-      (c,signature4) <- freezeBuilder signature3 (foliageBuilder s)
-      (d,signature) <- freezeBuilder signature4 (grassBuilder s)
-      pure (Right (Geometry a b c d water pixels bh heights width height bones trees blades signature))
+      a <- freezeBuilder (terrainBuilder s)
+      b <- freezeBuilder (woodBuilder s)
+      c <- freezeBuilder (foliageBuilder s)
+      d <- freezeBuilder (grassBuilder s)
+      pure (Right (Geometry a b c d water pixels bh heights width height bones trees blades))
 
 -- raylib GenMeshPlane's retained vertex/index topology, with world translation.
 plane :: Float -> Float -> Int -> Int -> Float -> Float -> MeshData

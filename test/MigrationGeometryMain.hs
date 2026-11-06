@@ -62,14 +62,15 @@ main = do
         (far,detail) <- [(0 :: Int,G.NearChunk),(1,G.FarChunk)]]
   enabled <- getRTSStatsEnabled
   unless enabled (fail "Run geometry acquisition with +RTS -T -RTS")
-  putStrLn "name,bones,trees,grass,heightWidth,heightRows,water,terrain,wood,foliage,grassVertices,signature,cpuMs,wallMs,allocatedBytes"
+  putStrLn "name,bones,trees,grass,heightWidth,heightRows,water,terrain,wood,foliage,grassVertices,signature,cpuMs,wallMs,allocatedBytes,generationWallMs,fingerprintWallMs"
   forM_ (fixed ++ chunks) $ \(name, result) -> do
     performGC
     began <- getCPUTime
     wallBegan <- getMonotonicTimeNSec
     statsBefore <- getRTSStats
-    geometry <- either (fail . show) pure result
-    _ <- evaluate (G.geometrySignature geometry)
+    geometry <- either (fail . show) evaluate result
+    geometryReady <- getMonotonicTimeNSec
+    signature <- evaluate (G.geometrySignature geometry)
     ended <- getCPUTime
     wallEnded <- getMonotonicTimeNSec
     performGC
@@ -78,6 +79,6 @@ main = do
         counts = [G.boneCount geometry,G.treeCount geometry,G.grassCount geometry,
           G.heightWidth geometry,G.heightHeight geometry,water] ++
           [G.meshVertexCount (G.materialMesh geometry material) | material <- [minBound .. maxBound]]
-    putStrLn (intercalate "," (name : map show counts ++ [show (G.geometrySignature geometry),show (fromIntegral (ended-began)/1e9 :: Double),show (fromIntegral (wallEnded-wallBegan)/1e6 :: Double),show (allocated_bytes statsAfter-allocated_bytes statsBefore)]))
+    putStrLn (intercalate "," (name : map show counts ++ [show signature,show (fromIntegral (ended-began)/1e9 :: Double),show (fromIntegral (wallEnded-wallBegan)/1e6 :: Double),show (allocated_bytes statsAfter-allocated_bytes statsBefore),show (fromIntegral (geometryReady-wallBegan)/1e6 :: Double),show (fromIntegral (wallEnded-geometryReady)/1e6 :: Double)]))
     unless (all (>=0) counts) (fail "Negative generation count")
     writeGeometry folder name geometry
