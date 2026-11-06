@@ -66,7 +66,8 @@ Landscape fields, terrain and plant construction, retained GPU resources and
 render-pass scheduling also live in Haskell. The renderer sends mesh streams,
 matrices and shader parameters through pinned h-raylib; OpenGL and GLSL execute
 the GPU work. See the [graphics foundation](docs/graphics-foundation.md) for the
-boundary and its checks.
+boundary and its checks. Grass uses one Haskell shape definition for its CPU
+reference and generated GLSL, with compact per-blade parameters and shared corners.
 
 ## Build
 

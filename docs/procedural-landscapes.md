@@ -78,9 +78,17 @@ already serves the accepted composition at a smaller implementation cost.
 
 `Landscape.Fixed` generates these three accepted compositions in Haskell.
 `Landscape.Plants` builds the shared trees, foliage, rocks and grass, while
-`Landscape.Geometry` exposes immutable contiguous mesh streams, branch-bone
-pixels, a height grid and the indexed water surface. Bounded local `ST`
+`Landscape.Geometry` exposes immutable contiguous mesh streams, compact grass
+instances, branch-bone pixels, a height grid and the indexed water surface. Bounded local `ST`
 builders cannot escape generation. This CPU computation needs no GL context.
+
+Grass retains five authored triangles per blade, represented by fifteen shared
+corners and a 40-byte record instead of 660 bytes of expanded vertex attributes.
+The 180-byte corner buffer is shared by the renderer. A Haskell definition emits
+both the CPU reference and GLSL shape arithmetic; the existing wind and
+observation transforms follow that generated shape. Flowers remain ordinary
+mesh triangles, and grass remains excluded from shadow submission as before.
+CPU expansion is an explicit diagnostic operation, not retained render data.
 
 `Runtime.Graphics.Landscape` prepares three bounded geometry sets while startup
 thumbnails are drawn, before music begins. Selecting another landscape reuses

@@ -21,6 +21,8 @@ accidentally change the terrain it projects.
 | [`Journey.Frame`](../src/Stillroom/Journey/Frame.hs) | Stillroom's shared geometry context and passenger, light and reflection observations. |
 | [`Landscape.Field`](../src/Stillroom/Landscape/Field.hs) | Explicit-seed analytical terrain, shores, habitats, railway and collision. |
 | [`Landscape.Geometry`](../src/Stillroom/Landscape/Geometry.hs) | Pure bounded construction of fixed scenes and seeded near/far meshes, branch data and height samples. |
+| [`Landscape.Grass`](../src/Stillroom/Landscape/Grass.hs) | Compact blade records, shared corners and explicit CPU compatibility expansion. |
+| [`Landscape.Grass.Kernel`](../src/Stillroom/Landscape/Grass/Kernel.hs) | One authored arithmetic definition, evaluated as Float or emitted as GLSL. |
 | [`Runtime.Graphics.Journey`](../runtime/Stillroom/Runtime/Graphics/Journey.hs) | Retained chunk resources and direct execution of the validated frame and its observations. |
 | [`Runtime.Graphics.Resource`](../runtime/Stillroom/Runtime/Graphics/Resource.hs) | Context-thread ownership, uploads, shader values and typed GPU handles. |
 | [`Runtime.Graphics.Target`](../runtime/Stillroom/Runtime/Graphics/Target.hs) | Target selection, allocation fallback and replacement. |
@@ -73,6 +75,23 @@ named matrix fields. The renderer consumes `FramePlan` directly. The 207-float
 versioned packet remains available for diagnostics; target fallback is resolved
 before planning.
 
+## One grass definition, two executions
+
+A blade carries its root, height, width, direction, curve, color and original
+vertex-order offset in a 40-byte record. The renderer reuses fifteen corners,
+a single 180-byte buffer, for every
+blade. `Grass.Kernel.bladeCorner` is ordinary polymorphic arithmetic: Float
+evaluation supplies the CPU reference, while expression evaluation emits the
+GLSL used by the nature and journey shaders. The blade's angle trigonometry and template's row
+profiles remain on the CPU. The existing wind, origin and observation transforms
+follow the generated shape on the GPU.
+
+Blossoms still use ordinary Grass-material triangles. The opaque geometry
+retains both these streams and `grassBlades`; `materialVertexCount` accounts for
+both. `diagnosticMaterialMesh` and `geometrySignature` reconstruct the original
+mixed blade/blossom order when explicitly requested. Normal rendering uploads
+the compact records once and retains no expanded blade arrays or delayed hash.
+
 ## Visible stability
 
 The terrain shader uses the shared shape-selection view, not the current light
@@ -106,6 +125,19 @@ shader failure. Product captures and actual framebuffer/uniform readback remain
 necessary; internal path equality alone does not establish image preservation.
 The native suite is disabled by default, so ordinary `cabal test` does not
 require a GPU context.
+
+The 0.12 grass acceptance compared 77,760 captured vertices per variant for each
+of the nature and journey shader families on the RTX 3050 host: 108 blades, 24
+frames, main and reflection passes. Maximum measured position disagreement
+before and after wind was 9.54e-7 m; normal angles were equal and UV/color Float
+bits matched. A deliberately wrong wind-coordinate path was rejected. These are
+finite observed comparisons against acceptance thresholds, not proved bounds
+for all Float inputs or GPUs. Grass remains excluded from the shadow pass.
+Of twelve 1600×900 journey quality captures against the frozen renderer, eight
+were pixel-identical; the four meadow views differed in two to seven pixels,
+with maximum RGB-channel difference 17. Rasterization and equal-depth ties
+between blade and blossom draws therefore remain separate image checks from
+the CPU reference's frozen-byte equality.
 
 The following counts and measurements describe the bounded **2026-10-20**
 foundation acceptance study. They are retained historical evidence, not new

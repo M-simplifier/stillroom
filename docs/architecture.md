@@ -51,10 +51,21 @@ See [audio design and reproduction](builtin-world.md).
 `Landscape.Field` evaluates terrain, shores, rail alignment, habitat weights
 and collision from an explicit `Journey.World.Seed`. `Landscape.Geometry`
 turns a fixed scene or seeded chunk into immutable contiguous vertex streams,
-branch-bone pixels, height samples and a water mesh. Its bounded builders use
+compact grass instances, branch-bone pixels, height samples and a water mesh. Its bounded builders use
 local `ST`; CPU generation needs no window or OpenGL context. Constructors and
 record labels stay internal so callers cannot detach a mesh from its attributes
 or replace validated texture dimensions.
+
+`Landscape.Grass.Kernel.bladeCorner` defines a blade's arithmetic once. Evaluating
+it with Float produces the CPU reference; evaluating it with expressions emits
+the GLSL used by both landscape renderers. Each 40-byte blade record supplies
+root, height, width, direction, curve and color to a shared fifteen-corner buffer.
+The last four bytes record the original vertex order for diagnostics. Blossoms
+remain ordinary Grass-material triangles. `materialMesh` returns those
+ordinary streams; `grassBlades` supplies instances and `materialVertexCount`
+counts both. Only `diagnosticMaterialMesh` reconstructs the former interleaved
+vertex stream for frozen-buffer comparisons. Normal upload keeps the compact
+representation and performs no per-frame expansion or upload.
 
 ## Effect boundary
 

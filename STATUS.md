@@ -11,6 +11,9 @@ The Stillroom library and executable use GHC `-O2`, with dependency versions
 unchanged. Ordinary rendering omits diagnostic geometry hashes; explicit
 verification runs retain the complete canonical fingerprints. Conditions and
 retained development measurements are in [journeys](docs/journeys.md).
+Grass uses retained 40-byte instances and a shared fifteen-corner buffer.
+One Haskell expression produces its CPU reference and GLSL shape code; wind and
+the main/reflection observations remain in the existing shader path.
 
 The listening room provides four continuously composed music moods, MP3/WAV/OGG
 folder playback, shuffle, crossfade, pause/next, saved settings, local background images, ten
@@ -40,8 +43,8 @@ hysteresis. Quality changes render targets and shading, never navigation or
 world geometry. See [graphics quality](docs/graphics-quality.md) for budgets
 and measurement boundaries.
 
-The current source passes 83 property/regression groups. They cover the pure
-session/interface, explicit seeds and interleaved pure field queries, bookmark
+The property/regression suite covers the pure session/interface, explicit seeds
+and interleaved pure field queries, bookmark
 validation, fixed-tick input, cross-seed automatic walking and rail-to-foot
 transfers, exact box boundaries, emitted mesh winding, projection and origin
 laws, rejected frame encodings, and independence of reflection resolution.

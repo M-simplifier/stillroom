@@ -151,3 +151,10 @@ fallback. `stillroom.exe --quality-capture OUTPUT` compares identical journey
 poses and geometry fingerprints across qualities. Both use isolated state and
 require a real OpenGL device. See [graphics quality](graphics-quality.md) for
 interpretation; capture throughput is not a real-time frame-rate measurement.
+
+Renderer reports identify the grass path as `grassRenderingPath: "instanced"`
+in normal use. `STILLROOM_EXPANDED_GRASS_FOR_CHECK=1` explicitly selects the
+CPU-expanded comparison path and reports `"expanded-for-check"`. Clear that
+environment variable, as well as the development asset override, when checking
+the release package. The reference path intentionally performs different CPU
+packing and upload work; comparison timings must state which path was used.

@@ -10,6 +10,9 @@
   common geometry, shadow and reflection observations.
 - Reuse shader and material state across each drawing pass, retaining native
   mesh buffers and explicit cleanup on the window thread.
+- Store grass blades as 40-byte instances of a shared fifteen-corner shape.
+  One Haskell definition supplies the CPU reference and generated GLSL; authored
+  blossoms keep their ordinary mesh and original placement.
 - Keep complete geometry fingerprints in explicit diagnostic runs. Ordinary
   scene generation finishes its render data without traversing it for a hash.
 - Remove Stillroom's C graphics implementation and copied raylib headers. Keep
