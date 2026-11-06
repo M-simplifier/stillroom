@@ -17,10 +17,11 @@ module Stillroom.Runtime.Graphics.Renderer
   )
 where
 
-import Control.Exception (bracketOnError)
+import Control.Exception (bracket_, bracketOnError)
 import Control.Monad (forM_, when)
 import Data.Bits ((.&.))
 import Data.ByteString qualified as BS
+import Data.ByteString.Char8 qualified as BS8
 import Data.IORef
 import Raylib.Core.Shapes (drawRectangle)
 import Raylib.Core.Textures (drawTexturePro)
@@ -28,8 +29,10 @@ import Raylib.Types
 import Raylib.Util.Math
 import Stillroom.Graphics.Observation qualified as O
 import Stillroom.Journey.Frame qualified as F
+import Stillroom.Landscape.Grass qualified as Grass
 import Stillroom.Runtime.Graphics.Resource
 import Stillroom.Runtime.Graphics.Target qualified as Target
+import System.Environment (lookupEnv)
 
 data Renderer = Renderer
   { landProgram :: !Program,
@@ -37,6 +40,7 @@ data Renderer = Renderer
     skyProgram :: !Program,
     postProgram :: !Program,
     material :: !MaterialHandle,
+    grassTemplate :: !GrassTemplate,
     targets :: !Target.TargetSet,
     issue :: !(IORef (Maybe String)),
     rendererScope :: !Scope
@@ -45,14 +49,16 @@ data Renderer = Renderer
 loadRenderer :: [BS.ByteString] -> IO Renderer
 loadRenderer sources = bracketOnError newScope closeScope $ \scope -> case sources of
   [common, landVS, landFS, waterVS, waterFS, skyFS, postFS] -> do
-    land <- loadProgram scope common (Just landVS) landFS "uTime"
+    land <- loadProgram scope (common<>BS.singleton 10<>BS8.pack Grass.grassShapeGLSL) (Just landVS) landFS "uTime"
     water <- loadProgram scope common (Just waterVS) waterFS "uReflection"
     skyShader <- loadProgram scope common Nothing skyFS "uForward"
     post <- loadProgram scope common Nothing postFS "texture0"
     mat <- loadMaterial scope
+    grassReference <- lookupEnv "STILLROOM_EXPANDED_GRASS_FOR_CHECK"
+    bladeTemplate <- if grassReference==Just "1" then loadGrassTemplateExpandedForCheck scope else loadGrassTemplate scope
     ts <- own scope Target.newTargets Target.releaseTargets
     problem <- newIORef Nothing
-    let renderer = Renderer land water skyShader post mat ts problem scope
+    let renderer = Renderer land water skyShader post mat bladeTemplate ts problem scope
     _ <- setQuality renderer 1
     pure renderer
   _ -> ioError (userError "Landscape shader source count")
@@ -87,6 +93,7 @@ drawWorld renderer geometry scene sun light shadow time mask shadowPass clip eye
 prepareWorld :: Renderer -> Int -> Vector3 -> Matrix -> Texture -> Bool -> Bool -> Vector3 -> IO ()
 prepareWorld renderer scene sun light shadow shadowPass clip eye = do
   let p = landProgram renderer
+  int p "uGrassInstances" 0
   int p "uLandscape" scene
   useMaterial (material renderer) p
   int p "uShadowPass" (if shadowPass then 1 else 0)
@@ -99,13 +106,17 @@ prepareWorld renderer scene sun light shadow shadowPass clip eye = do
 drawGeometry :: Renderer -> GpuGeometry -> Float -> Int -> Bool -> IO ()
 drawGeometry renderer geometry time mask shadowPass = do
   let p = landProgram renderer
+  int p "uGrassInstances" 0
   texture p "uBones" (gpuBones geometry) 8
   doubleSided (material renderer) $
     forM_ (zip [0 ..] (gpuMaterials geometry)) $ \(kind, mesh) ->
-      when (not (kind == 3 && (shadowPass || mask .&. 4 == 0))) $ forM_ mesh $ \m -> do
+      when (not (kind == 3 && (shadowPass || mask .&. 4 == 0))) $ do
         int p "uKind" kind
         float p "uTime" (if mask .&. (if kind == 3 then 1 else 2) /= 0 then time else 0)
-        drawMesh (material renderer) m
+        forM_ mesh (drawMesh (material renderer))
+        when (kind==3) $ forM_ (gpuBlades geometry) $ \blades ->
+          bracket_ (int p "uGrassInstances" 1) (int p "uGrassInstances" 0)
+            (drawGrass (material renderer) p blades)
 
 fixedSky :: Renderer -> Int -> Vector3 -> Camera3D -> Int -> Int -> IO ()
 fixedSky renderer scene sun camera width height = do

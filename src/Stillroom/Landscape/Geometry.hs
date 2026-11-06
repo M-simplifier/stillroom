@@ -6,7 +6,8 @@ module Stillroom.Landscape.Geometry
   ( Geometry, MeshData, Material (..), Scene (..), ChunkDetail (..), GenerationError (..),
     fixedSceneGeometry, seededChunkGeometry, fixedTerrain,
     chunkSpan, chunkCells, chunkSamplingStep, rasterGround, triangleHeight,
-    materialMesh, waterMesh, meshPositions, meshNormals, meshTexCoords,
+    materialMesh, materialVertexCount, diagnosticMaterialMesh, grassBlades, grassUV,
+    waterMesh, meshPositions, meshNormals, meshTexCoords,
     meshExtra, meshColors, meshIndices, meshVertexCount, meshTriangleCount,
     bonePixels, boneTextureHeight, heightPixels, heightWidth, heightHeight,
     boneCount, treeCount, grassCount, geometrySignature,
@@ -18,6 +19,7 @@ import Stillroom.Landscape.Chunk
 import Stillroom.Landscape.Fixed
 import Stillroom.Landscape.Internal (Geometry, MeshData, Material (..), Scene (..), ChunkDetail (..), GenerationError (..))
 import Stillroom.Landscape.Internal qualified as Internal
+import Stillroom.Landscape.Grass qualified as Grass
 import Stillroom.Landscape.Math qualified as Math
 
 triangleHeight :: Float -> Float -> Float -> Float -> Float -> Float -> Float
@@ -25,6 +27,19 @@ triangleHeight = Math.triangleHeight
 
 materialMesh :: Geometry -> Material -> MeshData
 materialMesh = Internal.materialMesh
+
+materialVertexCount :: Geometry -> Material -> Int
+materialVertexCount = Internal.materialVertexCount
+
+-- Explicit compatibility expansion for frozen byte acquisition, never upload.
+diagnosticMaterialMesh :: Geometry -> Material -> MeshData
+diagnosticMaterialMesh = Internal.diagnosticMaterialMesh
+
+grassBlades :: Geometry -> Vector Grass.GrassBlade
+grassBlades = Internal.grassBlades
+
+grassUV :: Geometry -> Grass.GrassUV
+grassUV = Internal.grassUV
 
 waterMesh :: Geometry -> MeshData
 waterMesh = Internal.waterMesh

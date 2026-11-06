@@ -46,7 +46,7 @@ writeGeometry folder name geometry = do
   writeVector (part "bones") (V.take (G.boneCount geometry*8) (G.bonePixels geometry))
   writeVector (part "height") (G.heightPixels geometry)
   forM_ (zip [0..] [minBound .. maxBound :: G.Material]) $ \(i, material) ->
-    writeMesh (part ("material" ++ show (i :: Int))) (G.materialMesh geometry material)
+    writeMesh (part ("material" ++ show (i :: Int))) (G.diagnosticMaterialMesh geometry material)
   where
     part suffix = folder </> name ++ "-" ++ suffix ++ ".bin"
 
@@ -78,7 +78,7 @@ main = do
     let water = if G.meshVertexCount (G.waterMesh geometry)>0 then 1 else 0 :: Int
         counts = [G.boneCount geometry,G.treeCount geometry,G.grassCount geometry,
           G.heightWidth geometry,G.heightHeight geometry,water] ++
-          [G.meshVertexCount (G.materialMesh geometry material) | material <- [minBound .. maxBound]]
+          [G.materialVertexCount geometry material | material <- [minBound .. maxBound]]
     putStrLn (intercalate "," (name : map show counts ++ [show signature,show (fromIntegral (ended-began)/1e9 :: Double),show (fromIntegral (wallEnded-wallBegan)/1e6 :: Double),show (allocated_bytes statsAfter-allocated_bytes statsBefore),show (fromIntegral (geometryReady-wallBegan)/1e6 :: Double),show (fromIntegral (wallEnded-geometryReady)/1e6 :: Double)]))
     unless (all (>=0) counts) (fail "Negative generation count")
     writeGeometry folder name geometry

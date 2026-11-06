@@ -2,13 +2,14 @@ module Stillroom.Landscape.Grass
   ( GrassBlade, GrassCorner, GrassUV (..), GrassVertex (..),
     grassBlade, bladeRoot, bladeHeight, bladeWidth, bladeSide, bladeCurve,
     bladeColor, bladeVertexOffset, grassCorners, grassVertex, foldGrassVertices,
-    grassShapeGLSL, grassPositionErrorBound,
+    grassShapeGLSL, grassPositionComparisonTolerance,
   ) where
 
 import Data.Vector.Storable qualified as V
 import Data.Word (Word8, Word32)
 import Foreign.Storable (Storable (..), peekByteOff, pokeByteOff)
-import Stillroom.Landscape.Grass.Kernel (bladeCorner, grassShapeGLSL)
+import Stillroom.Landscape.Grass.Kernel (grassShapeGLSL)
+import Stillroom.Landscape.Grass.Kernel qualified as Kernel
 
 data GrassUV = JourneyGrass | FixedGrass deriving (Eq, Show)
 
@@ -69,20 +70,27 @@ grassCorners = V.fromList
 grassVertex :: GrassUV -> GrassBlade -> GrassCorner -> GrassVertex
 grassVertex mode (GrassBlade x y z height width sideX sideZ curve r g b a _) (GrassCorner t profile sideSign) =
   let uvV = case mode of JourneyGrass -> y; FixedGrass -> sideSign
-      (position,normal,texCoord,extra) = bladeCorner (x,y,z) height width (sideX,sideZ) curve (t,profile,sideSign) uvV
-   in GrassVertex position normal texCoord extra (r,g,b,a)
+      inputs = Kernel.BladeInputs
+        { Kernel.root = (x,y,z), Kernel.height = height, Kernel.width = width
+        , Kernel.side = (sideX,sideZ), Kernel.curve = curve }
+      corner = Kernel.CornerInputs
+        { Kernel.t = t, Kernel.profile = profile, Kernel.sideSign = sideSign, Kernel.uvV = uvV }
+      attributes = Kernel.bladeCorner inputs corner
+   in GrassVertex (Kernel.position attributes) (Kernel.normal attributes)
+        (Kernel.texCoord attributes) (Kernel.extra attributes) (r,g,b,a)
 {-# INLINE grassVertex #-}
 
 foldGrassVertices :: (a -> GrassVertex -> a) -> a -> GrassUV -> GrassBlade -> a
 foldGrassVertices combine initial mode blade = V.foldl' (\acc corner -> combine acc (grassVertex mode blade corner)) initial grassCorners
 {-# INLINE foldGrassVertices #-}
 
--- Conservative pre-wind absolute position tolerance for finite authored inputs.
--- Sixteen ULPs at this enclosing magnitude cover the short multiply/add chains,
--- including permitted GPU contraction. Normals, UVs, extra and color use only
--- stored inputs/constants and are exact before the existing wind shader runs.
-grassPositionErrorBound :: GrassBlade -> Float
-grassPositionErrorBound blade =
+-- Audit threshold, not a proof of a GPU error bound. The exercised input range
+-- is finite roots with abs(x,z)<=10001024, y in [0.1,1000], height in [0,2.5],
+-- width in [0,0.1], curve in [-0.22,0.22], and canonical corners. Generation
+-- supplies these trusted parameters; grassBlade is not a validating parser.
+-- Report observed GPU position and normal errors separately from this threshold.
+grassPositionComparisonTolerance :: GrassBlade -> Float
+grassPositionComparisonTolerance blade =
   let (x,y,z) = bladeRoot blade
       magnitude = maximum [1,abs x,abs y,abs z]+abs (bladeHeight blade)+2*abs (bladeWidth blade)+2*abs (bladeCurve blade)
       (_,power) = decodeFloat magnitude

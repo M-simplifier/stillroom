@@ -81,7 +81,7 @@ geometryFor landscape scene = mask_ $ do
       geometry <-
         either
           (throwIO . GeometryUnavailable . show)
-          uploadGeometry
+          (uploadGeometry (grassTemplate (renderer landscape)))
           (G.fixedSceneGeometry choice)
       ended <- R.getTime
       modifyIORef' (cache landscape) (Map.insert scene geometry)
@@ -188,6 +188,10 @@ info landscape = do
             "scene" .= scene,
             "trees" .= maybe 0 gpuTrees geometry,
             "blades" .= maybe 0 gpuGrass geometry,
+            "grassRenderingPath" .= grassRenderingPath (grassTemplate (renderer landscape)),
+            "grassInstances" .= maybe 0 grassInstanceCount geometry,
+            "grassInstanceBytes" .= (40*maybe 0 grassInstanceCount geometry),
+            "grassSharedCornerBytes" .= (180 :: Int),
             "triangles" .= maybe 0 geometryTriangles geometry,
             "draws" .= count,
             "width" .= Target.rasterWidth ts,

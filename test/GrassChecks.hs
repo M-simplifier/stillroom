@@ -1,4 +1,4 @@
-module GrassChecks (grassChecks) where
+module GrassChecks (grassChecks, Sample (..), authored, bladeFor, expanded) where
 
 import Control.Monad (forM)
 import Data.Vector.Storable qualified as V
@@ -65,7 +65,7 @@ grassChecks = do
     [ ("compact grass has fifteen canonical corners and five triangles", V.length grassCorners==15)
     , ("compact grass preserves signed zeros and authored endpoint cases", all propAuthored edgeCases)
     , ("grass oracle rejects changed curvature, corner order, UV rule and color", negativeOracles)
-    , ("grass pre-wind GPU tolerance is finite and positive", all boundedTolerance edgeCases)
+    , ("grass pre-wind GPU comparison threshold is finite and positive", all boundedTolerance edgeCases)
     , ("grass instance and canonical corner layouts round-trip at documented byte offsets", storage)
     ] $ \(title,passed) -> do
       putStrLn title
@@ -96,7 +96,7 @@ negativeOracles =
 
 boundedTolerance :: Sample -> Bool
 boundedTolerance sample =
-  let bound = grassPositionErrorBound (bladeFor 0 sample)
+  let bound = grassPositionComparisonTolerance (bladeFor 0 sample)
    in bound>0 && not (isNaN bound || isInfinite bound)
 
 packedLayout :: IO Bool

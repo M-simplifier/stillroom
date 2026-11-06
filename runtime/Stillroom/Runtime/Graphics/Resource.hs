@@ -33,6 +33,13 @@ module Stillroom.Runtime.Graphics.Resource
     uploadRailcar,
     drawMesh,
     triangleCount,
+    GrassTemplate,
+    loadGrassTemplate,
+    loadGrassTemplateExpandedForCheck,
+    grassRenderingPath,
+    grassInstanceCount,
+    GpuGrass,
+    drawGrass,
     GpuGeometry (..),
     FingerprintMode (..),
     uploadGeometry,
@@ -63,11 +70,12 @@ import Raylib.Core qualified as R
 import Raylib.Core.Models qualified as M
 import Raylib.Core.Textures qualified as T
 import Raylib.Types
-import Raylib.Util.Math (matrixIdentity)
+import Raylib.Util.Math (matrixIdentity, matrixMultiply)
 import Raylib.Util.RLGL qualified as RL
 import Stillroom.Graphics.Encoding.Mesh qualified as Packet
 import Stillroom.Graphics.Space qualified as Space
 import Stillroom.Landscape.Geometry qualified as G
+import Stillroom.Landscape.Grass qualified as Grass
 import Stillroom.Runtime.Graphics.Encoding qualified as Encoding
 import Stillroom.Runtime.Graphics.GL qualified as GL
 
@@ -339,10 +347,92 @@ drawMesh (MaterialHandle material active _) (GpuMesh mesh _ vao drawing) = do
         Indexed count -> RL.c'rlDrawVertexArrayElements 0 count nullPtr
         Vertices count -> RL.c'rlDrawVertexArray 0 count
 
+data GrassRepresentation = InstancedGrass | ExpandedGrassForCheck
+data GrassTemplate = GrassTemplate !CUInt !GrassRepresentation
+
+grassRenderingPath :: GrassTemplate -> String
+grassRenderingPath (GrassTemplate _ representation) = case representation of
+  InstancedGrass -> "instanced"
+  ExpandedGrassForCheck -> "expanded-for-check"
+
+loadGrassTemplate :: Scope -> IO GrassTemplate
+loadGrassTemplate = loadGrassTemplateUsing InstancedGrass
+
+loadGrassTemplateExpandedForCheck :: Scope -> IO GrassTemplate
+loadGrassTemplateExpandedForCheck = loadGrassTemplateUsing ExpandedGrassForCheck
+
+loadGrassTemplateUsing :: GrassRepresentation -> Scope -> IO GrassTemplate
+loadGrassTemplateUsing representation scope = own scope acquire (\(GrassTemplate buffer _) -> RL.c'rlUnloadVertexBuffer buffer)
+  where
+    acquire = do
+      buffer <- V.unsafeWith Grass.grassCorners $ \pointer ->
+        RL.c'rlLoadVertexBuffer (castPtr pointer) (fromIntegral (V.length Grass.grassCorners*12)) 0
+      when (buffer==0) (throwIO (GeometryUnavailable "Grass corner buffer unavailable"))
+      RL.rlDisableVertexBuffer
+      pure (GrassTemplate buffer representation)
+
+data GpuGrass = GpuGrass !CUInt !CUInt !CInt
+
+uploadGrass :: Scope -> GrassTemplate -> V.Vector Grass.GrassBlade -> IO (Maybe GpuGrass)
+uploadGrass scope (GrassTemplate corners _) blades
+  | V.null blades = pure Nothing
+  | otherwise = Just <$> own scope acquire release
+  where
+    acquire = (`finally` cleanupBindings) $ do
+      vao <- RL.c'rlLoadVertexArray
+      when (vao==0) (throwIO (GeometryUnavailable "Grass VAO unavailable"))
+      bracketOnError (pure vao) RL.c'rlUnloadVertexArray $ \_ -> do
+        buffer <- V.unsafeWith blades $ \pointer ->
+          RL.c'rlLoadVertexBuffer (castPtr pointer) (fromIntegral (V.length blades*40)) 0
+        when (buffer==0) (throwIO (GeometryUnavailable "Grass instance buffer unavailable"))
+        bracketOnError (pure buffer) RL.c'rlUnloadVertexBuffer $ \_ -> do
+          bound <- RL.c'rlEnableVertexArray vao
+          when (bound==0) (throwIO (GeometryUnavailable "Grass VAO binding failed"))
+          RL.c'rlEnableVertexBuffer corners
+          attribute 0 3 0x1406 False 12 0 0
+          RL.c'rlEnableVertexBuffer buffer
+          attribute 3 4 0x1401 True 40 32 1
+          attribute 6 4 0x1406 False 40 0 1
+          attribute 7 4 0x1406 False 40 16 1
+          failure <- GL.getError
+          when (failure/=0) (throwIO (GeometryUnavailable ("Grass upload OpenGL error "++show failure)))
+          pure (GpuGrass vao buffer (fromIntegral (V.length blades)))
+    attribute location components scalar normalized stride offset divisor = do
+      RL.rlSetVertexAttribute location components scalar normalized stride offset
+      RL.rlSetVertexAttributeDivisor location divisor
+      RL.rlEnableVertexAttribute location
+    release (GpuGrass vao buffer _) = RL.c'rlUnloadVertexArray vao `finally` RL.c'rlUnloadVertexBuffer buffer
+    cleanupBindings = RL.rlDisableVertexArray >> RL.rlDisableVertexBuffer
+
+drawGrass :: MaterialHandle -> Program -> GpuGrass -> IO ()
+drawGrass material program@(Program _ _ _ contract) (GpuGrass vao _ count) = do
+  retained <- meshPassActive material
+  let acquire = when (not retained) $ do
+        RL.rlDrawRenderBatchActive
+        RL.rlEnableShader (programId program)
+        case contract of
+          ExplicitClip -> pure ()
+          NativeMaterial -> do
+            transform <- RL.rlGetMatrixTransform
+            view <- RL.rlGetMatrixModelview
+            projection <- RL.rlGetMatrixProjection
+            -- Same matrix order as pinned DrawMesh with its identity model.
+            matrix program "mvp" (matrixMultiply (matrixMultiply (matrixMultiply matrixIdentity transform) view) projection)
+      release = when (not retained) $ do
+        RL.rlDisableVertexArray
+        RL.rlDisableVertexBuffer
+        RL.rlDisableVertexBufferElement
+        RL.rlDisableShader
+  bracket_ (acquire `onException` release) release $ do
+    bound <- RL.c'rlEnableVertexArray vao
+    when (bound==0) (throwIO (GeometryUnavailable "Grass VAO unavailable during draw"))
+    RL.c'rlDrawVertexArrayInstanced 0 15 count
+
 data FingerprintMode = SkipFingerprints | CaptureFingerprints deriving (Eq, Show)
 
 data GpuGeometry = GpuGeometry
   { gpuMaterials :: ![Maybe GpuMesh],
+    gpuBlades :: !(Maybe GpuGrass),
     gpuWater :: !(Maybe GpuMesh),
     gpuBones :: !Texture,
     gpuHeight :: !(Maybe Texture),
@@ -353,15 +443,20 @@ data GpuGeometry = GpuGeometry
     geometryScope :: !Scope
   }
 
-uploadGeometry :: G.Geometry -> IO GpuGeometry
-uploadGeometry = uploadGeometryWithSignature Nothing
+uploadGeometry :: GrassTemplate -> G.Geometry -> IO GpuGeometry
+uploadGeometry template = uploadGeometryWithSignature template Nothing
 
-uploadGeometryWithSignature :: Maybe Word64 -> G.Geometry -> IO GpuGeometry
-uploadGeometryWithSignature fingerprint geometry = bracketOnError newScope closeScope $ \scope -> do
+uploadGeometryWithSignature :: GrassTemplate -> Maybe Word64 -> G.Geometry -> IO GpuGeometry
+uploadGeometryWithSignature template fingerprint geometry = bracketOnError newScope closeScope $ \scope -> do
   -- A diagnostic caller may supply a lazy hash. Finish it while CPU buffers
   -- are present rather than retaining them through a thunk after upload.
   signature <- traverse evaluate fingerprint
-  meshes <- mapM (uploadMesh scope . G.materialMesh geometry) [G.Terrain, G.Wood, G.Foliage, G.Grass]
+  let GrassTemplate _ representation = template
+      materialMesh = case representation of InstancedGrass -> G.materialMesh; ExpandedGrassForCheck -> G.diagnosticMaterialMesh
+  meshes <- mapM (uploadMesh scope . materialMesh geometry) [G.Terrain, G.Wood, G.Foliage, G.Grass]
+  blades <- case representation of
+    InstancedGrass -> uploadGrass scope template (G.grassBlades geometry)
+    ExpandedGrassForCheck -> pure Nothing
   water <- uploadMesh scope (G.waterMesh geometry)
   bones <- pixels scope 256 (G.boneTextureHeight geometry) 10 (G.bonePixels geometry) TextureFilterPoint
   height <-
@@ -376,7 +471,7 @@ uploadGeometryWithSignature fingerprint geometry = bracketOnError newScope close
             8
             (G.heightPixels geometry)
             TextureFilterBilinear
-  pure (GpuGeometry meshes water bones height (G.treeCount geometry) (G.grassCount geometry) (G.boneCount geometry) signature scope)
+  pure (GpuGeometry meshes blades water bones height (G.treeCount geometry) (G.grassCount geometry) (G.boneCount geometry) signature scope)
   where
     pixels scope width height format values filtering =
       own
@@ -395,7 +490,11 @@ releaseGeometry :: GpuGeometry -> IO ()
 releaseGeometry = closeScope . geometryScope
 
 geometryTriangles :: GpuGeometry -> Int
-geometryTriangles g = sum (map (maybe 0 triangleCount) (gpuMaterials g)) + maybe 0 triangleCount (gpuWater g)
+geometryTriangles g = sum (map (maybe 0 triangleCount) (gpuMaterials g))
+  + grassInstanceCount g*5 + maybe 0 triangleCount (gpuWater g)
+
+grassInstanceCount :: GpuGeometry -> Int
+grassInstanceCount = maybe 0 (\(GpuGrass _ _ count) -> fromIntegral count) . gpuBlades
 
 data ParentState = ParentState !Integer ![Int] !Matrix !Matrix !Int !Int
 

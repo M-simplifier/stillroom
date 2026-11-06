@@ -9,6 +9,7 @@ import Control.Monad (forM_, when)
 import Control.Monad.ST (ST)
 import Data.STRef (modifySTRef')
 import Stillroom.Landscape.Field qualified as F
+import Stillroom.Landscape.Grass qualified as Grass
 import Stillroom.Landscape.Internal
 import Stillroom.Landscape.Math
 
@@ -196,7 +197,7 @@ rock s x z radius = do
       tri s Terrain (vertex 1) (vertex 2) (vertex 3)
 
 blade :: Build s -> Float -> Float -> Float -> Float -> Float -> Colour -> ST s ()
-blade s x z y h width color = bladeShape s True x z y h width color
+blade s x z y h width color = bladeShape s x z y h width color
 
 fixedBlade :: Build s -> Float -> Float -> Float -> Float -> ST s ()
 fixedBlade s x z h width = do
@@ -205,21 +206,13 @@ fixedBlade s x z h width = do
     -- Angle/curve precede the colour samples in the authored fixed scene.
     a <- range s 0 (2*piF); curve <- range s (-0.22) 0.22
     r <- range s 0.14 0.29; g <- range s 0.24 0.38; b <- range s 0.045 0.11
-    emitBlade s False x z y h width a curve (tint r g b 1)
+    emitBlade s x z y h width a curve (tint r g b 1)
 
-bladeShape :: Build s -> Bool -> Float -> Float -> Float -> Float -> Float -> Colour -> ST s ()
-bladeShape s journey x z y h width color = when (y>=0.10) $ do
+bladeShape :: Build s -> Float -> Float -> Float -> Float -> Float -> Colour -> ST s ()
+bladeShape s x z y h width color = when (y>=0.10) $ do
   a <- range s 0 (2*piF); curve <- range s (-0.22) 0.22
-  emitBlade s journey x z y h width a curve color
+  emitBlade s x z y h width a curve color
 
-emitBlade :: Build s -> Bool -> Float -> Float -> Float -> Float -> Float -> Float -> Float -> Colour -> ST s ()
-emitBlade s journey x z y h width a curve color = do
-  let root = V3 x y z; side = V3 (cos a) 0 (sin a); n = V3 (-sin a) 0.18 (cos a)
-      vertex i sign =
-        let t = fromIntegral i/3; w = width*(1-t)*(0.7+0.3*sin (t*piF))
-            p = add3 root (V3 (curve*t*t) (h*t) (-curve*0.28*t*t))
-         in Vertex (add3 p (scale3 side (sign*w))) n (V2 t (if journey then y else sign)) (V2 x z) color
-  forM_ [0..2 :: Int] $ \i -> do
-    tri s Grass (vertex i (-1)) (vertex i 1) (vertex (i+1) (-1))
-    when (i<2) $ tri s Grass (vertex i 1) (vertex (i+1) 1) (vertex (i+1) (-1))
-  modifySTRef' (buildGrassCount s) (+1)
+emitBlade :: Build s -> Float -> Float -> Float -> Float -> Float -> Float -> Float -> Colour -> ST s ()
+emitBlade s x z y h width a curve (Colour r g b alpha) =
+  addGrassBlade s (\offset -> Grass.grassBlade offset (x,y,z) h width a curve (r,g,b,alpha))

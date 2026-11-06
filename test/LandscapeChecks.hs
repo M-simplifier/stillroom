@@ -8,6 +8,7 @@ import Stillroom.Journey.Walk qualified as Walk
 import Stillroom.Journey.World (Seed, firstSeed, seed)
 import Stillroom.Landscape.Field qualified as Field
 import Stillroom.Landscape.Geometry qualified as Geometry
+import Stillroom.Landscape.Grass qualified as Grass
 import Test.QuickCheck
 
 landscapeChecks :: IO Bool
@@ -94,11 +95,23 @@ validChunk (world,x,z,detail) = case Geometry.seededChunkGeometry world x z deta
         boneIdsValid material =
           let ids = Geometry.meshExtra (Geometry.materialMesh geometry material)
            in and [let bone = ids V.! i in bone>=(-1) && bone<fromIntegral bones && bone==fromInteger (floor bone) | i <- [0,2..V.length ids-1]]
-     in all materialValid [minBound..maxBound] && Geometry.boneCount geometry<=16000
+     in all materialValid [minBound..maxBound] && compactGrass geometry && Geometry.boneCount geometry<=16000
         && ancestryValid && boneIdsValid Geometry.Wood && boneIdsValid Geometry.Foliage
         && V.length (Geometry.bonePixels geometry)==256*Geometry.boneTextureHeight geometry*4
         && V.length (Geometry.heightPixels geometry)==size*size
         && V.all finite (Geometry.bonePixels geometry) && V.all finite (Geometry.heightPixels geometry)
+
+compactGrass :: Geometry.Geometry -> Bool
+compactGrass geometry =
+  let blades = Geometry.grassBlades geometry
+      count = V.length blades
+      ordinary = Geometry.meshVertexCount (Geometry.materialMesh geometry Geometry.Grass)
+      total = Geometry.materialVertexCount geometry Geometry.Grass
+      offsets = map (fromIntegral . Grass.bladeVertexOffset) (V.toList blades) :: [Int]
+      residualBefore = zipWith (\i offset -> offset-i*15) [0..] offsets
+   in count==Geometry.grassCount geometry && total==ordinary+count*15 && total<=8388608
+      && all (\n -> n>=0 && n<=ordinary && n `mod` 3==0) residualBefore
+      && and (zipWith (<=) residualBefore (drop 1 residualBefore))
 
 negativeSeam :: Bool
 negativeSeam = case (Geometry.seededChunkGeometry firstSeed (-2) (-2) Geometry.NearChunk,Geometry.seededChunkGeometry firstSeed (-1) (-2) Geometry.NearChunk) of

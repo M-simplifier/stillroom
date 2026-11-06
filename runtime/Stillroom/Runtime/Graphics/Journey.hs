@@ -195,7 +195,7 @@ streamOne world far x z = mask_ $ do
             SkipFingerprints -> pure Nothing
             CaptureFingerprints -> Just <$> evaluate (G.geometrySignature geometry)
           cpuFinished <- R.getTime
-          gpu <- uploadGeometryWithSignature fingerprint geometry
+          gpu <- uploadGeometryWithSignature (grassTemplate (renderer world)) fingerprint geometry
           uploaded <- R.getTime
           pure (gpu, (cpuFinished - began) * 1000, (uploaded - cpuFinished) * 1000)
         case built of
@@ -324,6 +324,7 @@ drawCar world frame shadow shadowPass clip observation = do
       F.Point x y z = F.objectPoint frame (F.Point 0 0 0)
       distance = sqrt ((cx - x) * (cx - x) + (cy - y) * (cy - y) + (cz - z) * (cz - z))
   when (distance <= 540) $ withMeshPass (material r) p $ do
+    int p "uGrassInstances" 0
     int p "uFarPass" 0
     int p "uKind" 4
     int p "uShadowPass" (if shadowPass then 1 else 0)
@@ -458,7 +459,7 @@ info world = do
   ts <- Target.readTargets (targets (renderer world))
   receipt <- frameCopy world
   let geometries = map (\(Chunk _ _ g) -> g)
-      landTriangles g = sum (map (maybe 0 triangleCount) (gpuMaterials g))
+      landTriangles g = sum (map (maybe 0 triangleCount) (gpuMaterials g))+grassInstanceCount g*5
       shadow = maybe 0 (texture'id . renderTexture'depth) (Target.shadowTarget ts)
   depth <- GL.depthDescription shadow
   name <- GL.rendererName
@@ -480,6 +481,10 @@ info world = do
             "capacity" .= (49 :: Int),
             "trees" .= sum (map gpuTrees (geometries near)),
             "blades" .= sum (map gpuGrass (geometries near)),
+            "grassRenderingPath" .= grassRenderingPath (grassTemplate (renderer world)),
+            "grassInstances" .= sum (map grassInstanceCount (geometries near)),
+            "grassInstanceBytes" .= (40*sum (map grassInstanceCount (geometries near))),
+            "grassSharedCornerBytes" .= (180 :: Int),
             "triangles" .= sum (map landTriangles (geometries near)),
             "generated" .= generated s,
             "evicted" .= evicted s,

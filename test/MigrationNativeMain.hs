@@ -5,6 +5,7 @@ module Main (main) where
 import Control.Exception
 import Control.Monad (forM_, unless)
 import Data.ByteString qualified as BS
+import Data.ByteString.Char8 qualified as BS8
 import Data.IORef
 import Data.Vector.Storable qualified as V
 import Foreign
@@ -20,6 +21,7 @@ import Stillroom.Graphics.Encoding.Mesh qualified as Packet
 import Stillroom.Journey.Railcar qualified as Car
 import Stillroom.Journey.World qualified as W
 import Stillroom.Landscape.Geometry qualified as G
+import Stillroom.Landscape.Grass qualified as Grass
 import Stillroom.Runtime.Graphics.GL qualified as GL
 import Stillroom.Runtime.Graphics.Resource qualified as Resource
 import Stillroom.Runtime.Graphics.Target qualified as Target
@@ -186,7 +188,8 @@ retainedChecks plane = bracket Resource.newScope Resource.closeScope $ \scope ->
     common <- source "common.glsl"
     vertex <- source vs
     fragmentSource <- source fs
-    selected <- Resource.loadProgram scope common (Just vertex) fragmentSource required
+    let shared = if vs=="land.vs" then common<>"\n"<>BS8.pack Grass.grassShapeGLSL else common
+    selected <- Resource.loadProgram scope shared (Just vertex) fragmentSource required
     Resource.withMeshPass material selected $ do
       active <- Resource.meshPassActive material
       assertion (folder ++ "/" ++ vs ++ " selects intended production submission") (active == expected)
@@ -196,7 +199,8 @@ main = do
   scopeChecks
   R.setTraceLogLevel LogWarning
   R.setConfigFlags [WindowHidden,WindowUndecorated,WindowAlwaysRun]
-  bracket (R.initWindow 64 64 "Stillroom migration native check") (R.closeWindow . Just) $ \_ -> do
+  bracket (R.initWindow 64 64 "Stillroom migration native check") (R.closeWindow . Just) $ \_ -> bracket Resource.newScope Resource.closeScope $ \templateScope -> do
+    template <- Resource.loadGrassTemplate templateScope
     targetChecks
     fixed <- either (fail . show) pure (G.fixedSceneGeometry G.BirchLake)
     comparePlane "fixed" 260 224 100 0 (-88) (G.waterMesh fixed)
@@ -205,12 +209,21 @@ main = do
       let extent = fromIntegral (G.chunkSpan detail)
       assertion "selected reference chunk includes water" (G.meshVertexCount (G.waterMesh geometry)>0)
       comparePlane (show detail) extent extent 16 (fromIntegral cx*extent+extent*0.5) (fromIntegral cz*extent+extent*0.5) (G.waterMesh geometry)
-      if detail == G.NearChunk then indexedDraw (G.waterMesh geometry) >> retainedChecks (G.waterMesh geometry) else pure ()
+      if detail == G.NearChunk then do
+        indexedDraw (G.waterMesh geometry)
+        retainedChecks (G.waterMesh geometry)
+        bracket (Resource.uploadGeometry template geometry) Resource.releaseGeometry $ \gpu -> do
+          assertion "default upload retains one compact instance per authored blade" (Resource.grassInstanceCount gpu==G.grassCount geometry && Resource.grassInstanceCount gpu>0)
+          referenceTemplate <- Resource.loadGrassTemplateExpandedForCheck templateScope
+          bracket (Resource.uploadGeometry referenceTemplate geometry) Resource.releaseGeometry $ \reference -> do
+            assertion "expanded reference is explicit and preserves logical triangle/blade counts"
+              (Resource.grassInstanceCount reference==0 && Resource.gpuGrass reference==Resource.gpuGrass gpu && Resource.geometryTriangles reference==Resource.geometryTriangles gpu)
+      else pure ()
     small <- either (fail . show) pure (G.seededChunkGeometry (W.seed 1) 0 0 G.FarChunk)
-    bracket (Resource.uploadGeometry small) Resource.releaseGeometry $ \gpu ->
+    bracket (Resource.uploadGeometry template small) Resource.releaseGeometry $ \gpu ->
       assertion "ordinary upload omits diagnostic fingerprints" (Resource.gpuSignature gpu == Nothing)
     forM_ [1..8 :: Int] $ \_ -> do
-      gpu <- Resource.uploadGeometryWithSignature (Just (G.geometrySignature small)) small
+      gpu <- Resource.uploadGeometryWithSignature template (Just (G.geometrySignature small)) small
       assertion "diagnostic upload keeps its CPU signature" (Resource.gpuSignature gpu == Just (G.geometrySignature small))
       Resource.releaseGeometry gpu
       Resource.releaseGeometry gpu
@@ -221,5 +234,5 @@ main = do
       failed <- try (Resource.loadProgram scope "" Nothing "deliberately invalid GLSL" "missing") :: IO (Either Resource.GraphicsError Resource.Program)
       assertion "shader failure reports a typed error and keeps the context usable" (case failed of Left (Resource.ShaderUnavailable _) -> True; _ -> False)
     GL.clearErrors
-    bracket (Resource.uploadGeometry small) Resource.releaseGeometry $ \_ -> pure ()
+    bracket (Resource.uploadGeometry template small) Resource.releaseGeometry $ \_ -> pure ()
     assertion "GPU allocation succeeds after shader failure" =<< ((==0) <$> GL.getError)
