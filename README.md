@@ -62,24 +62,26 @@ and sample-based composition are ordinary pure functions. A small imperative
 boundary owns the window, two audio decks, native handles and preferences.
 See the [architecture](docs/architecture.md) for the ownership rules.
 
-Landscape fields, terrain and plant construction, retained GPU resources and
-render-pass scheduling also live in Haskell. The renderer sends mesh streams,
-matrices and shader parameters through pinned h-raylib; OpenGL and GLSL execute
-the GPU work. See the [graphics foundation](docs/graphics-foundation.md) for the
-boundary and its checks. Grass uses one Haskell shape definition for its CPU
-reference and generated GLSL, with compact per-blade parameters and shared corners.
+Landscape fields, terrain and plant construction, retained GPU resources, and
+render-pass scheduling live in Haskell. The renderer submits work directly to
+Vulkan through Haskell Game IO. Grass uses one Haskell shape definition for its
+CPU reference and SPIR-V shader, with compact per-blade parameters and shared
+corners. See the [graphics foundation](docs/graphics-foundation.md).
 
 ## Build
 
-On Windows x64, install GHC **9.6.7**, Cabal **3.12.1.0** and GHCup's MSYS2 tools:
+On Windows x64, use GHC **9.6.7**, Cabal **3.12.1.0**, Git, Python 3, and GHCup's
+MSYS2 tools. Running Stillroom requires a Vulkan 1.3 driver with either KHR or
+EXT surface and swapchain maintenance1 support.
 
 ```powershell
 ./tools/dev.ps1 Build -Online  # First build: fetch pinned dependencies
 ./tools/dev.ps1 Capture       # Incremental build + 32 UI/landscape/journey screenshots
 ```
 
-The entrypoint finds the pinned tools, sets up GMP and development assets, then
-restores the caller's environment. Later runs are offline by default. Full logs
+The entrypoint finds the pinned tools, prepares the
+[Haskell dependency adaptations](tools/native-dependencies/README.md), and
+sets up GMP and development assets. Later runs are offline by default. Full logs
 and a JSON summary go to a fresh folder under `scratch/dev`; the console prints
 the result, commit, executable hash and report path. The first native dependency
 build can take several minutes. Native checks need real graphics/audio devices:
@@ -89,9 +91,9 @@ build can take several minutes. Native checks need real graphics/audio devices:
 ./tools/dev.ps1 CheckPackage -Executable C:/path/to/extracted/stillroom.exe
 ```
 
-Package checks require the extracted application's own assets and DLL; they
-cannot fall back to development assets. See [development commands and check
-selection](docs/development.md), including packaging and renderer benchmarks.
+Package checks use the extracted application's own assets, audio worker, and
+GMP DLL. See [development commands and check selection](docs/development.md)
+for packaging and renderer benchmarks.
 See [GMP distribution](docs/gmp.md) for library source and notices.
 
 ## Scope and license

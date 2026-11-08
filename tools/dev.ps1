@@ -106,7 +106,7 @@ try {
         $result.toolchain = @{ghc=$Ghc; cabal=$Cabal}
         $result.assetMode = 'development'
         Invoke-Logged 'build' {
-            & (Join-Path $PSScriptRoot 'build.ps1') -Cabal $Cabal -Offline:(-not $Online) -SkipTests:($Task -ne 'Build')
+            & (Join-Path $PSScriptRoot 'build.ps1') -Cabal $Cabal -Ghc $Ghc -Offline:(-not $Online) -SkipTests:($Task -ne 'Build')
         }
         $plan = Get-Content -LiteralPath (Join-Path $root 'dist-newstyle/cache/plan.json') -Raw -Encoding UTF8 | ConvertFrom-Json
         $Executable = ($plan.'install-plan' | Where-Object { $_.'component-name' -eq 'exe:stillroom' }).'bin-file'

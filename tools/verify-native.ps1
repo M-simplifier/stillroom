@@ -14,6 +14,7 @@ if ((Test-Path -LiteralPath $reportFile) -or (Test-Path -LiteralPath $summaryFil
 }
 $savedPath = [Environment]::GetEnvironmentVariable('PATH','Process')
 $savedData = [Environment]::GetEnvironmentVariable('stillroom_datadir','Process')
+$savedWorker = [Environment]::GetEnvironmentVariable('GAMEIO_AUDIO_WORKER','Process')
 $timer = [Diagnostics.Stopwatch]::StartNew()
 $result = [ordered]@{passed=$false; executable=$Executable; executableSHA256=$null; assetMode='package'; checks=0; failures=@(); report=$reportFile}
 
@@ -25,6 +26,7 @@ try {
     $result.executableSHA256 = (Get-FileHash -LiteralPath $Executable -Algorithm SHA256).Hash.ToLowerInvariant()
     $binaryRoot = Split-Path -Parent $Executable
     $assetRoot = $binaryRoot
+    Remove-Item -LiteralPath Env:GAMEIO_AUDIO_WORKER -ErrorAction SilentlyContinue
     if ($DevelopmentAssetRoot) {
         $assetRoot = (Resolve-Path -LiteralPath $DevelopmentAssetRoot).Path
         $result.assetMode = 'development'
@@ -35,13 +37,9 @@ try {
         Remove-Item -LiteralPath Env:stillroom_datadir -ErrorAction SilentlyContinue
         $env:PATH = (Join-Path $env:SystemRoot 'System32') + ';' + $env:SystemRoot
     }
-    $required = @((Join-Path $binaryRoot 'libgmp-10.dll'))
+    $required = @((Join-Path $binaryRoot 'libgmp-10.dll'), (Join-Path $binaryRoot 'gameio-audio-worker.exe'))
     foreach ($file in @(
-        'fonts/NotoSansJP.otf','fonts/OFL.txt','rest/procedural.fs',
-        'rest/nature/common.glsl','rest/nature/land.vs','rest/nature/land.fs',
-        'rest/nature/water.vs','rest/nature/water.fs','rest/nature/sky.fs','rest/nature/post.fs',
-        'rest/journey/common.glsl','rest/journey/land.vs','rest/journey/land.fs','rest/journey/water.vs',
-        'rest/journey/water.fs','rest/journey/sky.fs','rest/journey/post.fs','rest/journey/poster.png',
+        'fonts/NotoSansJP.otf','fonts/OFL.txt','rest/journey/poster.png','icon/stillroom.ico',
         'backgrounds/01-mist-lake.png','backgrounds/02-quiet-forest.png',
         'backgrounds/03-soft-dunes.png','backgrounds/04-night-field.png',
         'backgrounds/05-afternoon-lake.png','backgrounds/06-woodland-pond.png','icon/stillroom.png',
@@ -85,7 +83,7 @@ try {
 } catch {
     $result.failures += $_.Exception.Message
 } finally {
-    $restore = @{PATH=$savedPath; stillroom_datadir=$savedData}
+    $restore = @{PATH=$savedPath; stillroom_datadir=$savedData; GAMEIO_AUDIO_WORKER=$savedWorker}
     foreach ($name in $restore.Keys) {
         if ($null -eq $restore[$name]) { Remove-Item -LiteralPath "Env:$name" -ErrorAction SilentlyContinue }
         else { [Environment]::SetEnvironmentVariable($name,$restore[$name],'Process') }

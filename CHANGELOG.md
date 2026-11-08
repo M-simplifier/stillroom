@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.13.0
+
+- Render the working view, rest scenes, and journeys with Vulkan through
+  Haskell Game IO. Haskell shader programs lower to SPIR-V at runtime.
+- Use Win32 for input, window management, and native file pickers. Decode
+  the existing fonts and wallpaper formats in Haskell.
+- Read WAV, MP3, and Ogg Vorbis in Haskell. Keep the music source and WASAPI
+  device in separate processes, isolating their sample clocks from garbage
+  collection in the renderer.
+- Preserve the settings and journey bookmark formats. The Windows ZIP includes
+  the audio worker, bundled media and font, and replaceable GMP with its source.
+
 ## 0.12.0 — 2026-11-06
 
 - Generate nature scenes and journey terrain, plants, water and railway geometry

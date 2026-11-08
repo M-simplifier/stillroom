@@ -22,10 +22,10 @@ accidentally change the terrain it projects.
 | [`Landscape.Field`](../src/Stillroom/Landscape/Field.hs) | Explicit-seed analytical terrain, shores, habitats, railway and collision. |
 | [`Landscape.Geometry`](../src/Stillroom/Landscape/Geometry.hs) | Pure bounded construction of fixed scenes and seeded near/far meshes, branch data and height samples. |
 | [`Landscape.Grass`](../src/Stillroom/Landscape/Grass.hs) | Compact blade records, shared corners and explicit CPU compatibility expansion. |
-| [`Landscape.Grass.Kernel`](../src/Stillroom/Landscape/Grass/Kernel.hs) | One authored arithmetic definition, evaluated as Float or emitted as GLSL. |
+| [`Landscape.Grass.Kernel`](../src/Stillroom/Landscape/Grass/Kernel.hs) | One authored arithmetic definition, evaluated as Float or lowered to SPIR-V. |
 | [`Runtime.Graphics.Journey`](../runtime/Stillroom/Runtime/Graphics/Journey.hs) | Retained chunk resources and direct execution of the validated frame and its observations. |
-| [`Runtime.Graphics.Resource`](../runtime/Stillroom/Runtime/Graphics/Resource.hs) | Context-thread ownership, uploads, shader values and typed GPU handles. |
-| [`Runtime.Graphics.Target`](../runtime/Stillroom/Runtime/Graphics/Target.hs) | Target selection, allocation fallback and replacement. |
+| [`Runtime.Graphics.Scene`](../runtime/Stillroom/Runtime/Graphics/Scene.hs) | Scoped Vulkan resource ownership and scene draw plans. |
+| [`Runtime.Graphics.WorldRenderer`](../runtime/Stillroom/Runtime/Graphics/WorldRenderer.hs) | Target selection, allocation fallback and replacement. |
 | [`Runtime.Journey.Packet`](../runtime/Stillroom/Runtime/Journey/Packet.hs) | Validated finite diagnostic encoding, outside production pass selection. |
 | [`Graphics.Encoding.Mesh`](../src/Stillroom/Graphics/Encoding/Mesh.hs) | Validated native vertex encoding, retained and uploaded once per world. |
 
@@ -69,9 +69,9 @@ Haskell runtime; the pure values do not own GPU handles.
 
 Transforms are computed in Double. Object translations become relative to a
 nearby origin before conversion to Float. The light grid is anchored in the
-light's basis, rather than rounded along world X/Z. `Space.matrixElements`
-exposes four total columns; `Runtime.Graphics.Encoding` lowers those to raylib's
-named matrix fields. The renderer consumes `FramePlan` directly. The 207-float
+light's basis. `Space.matrixElements` exposes four total columns, which are
+lowered into the renderer's matrix layout. The renderer consumes `FramePlan`
+directly. The 207-float
 versioned packet remains available for diagnostics; target fallback is resolved
 before planning.
 
@@ -81,8 +81,8 @@ A blade carries its root, height, width, direction, curve, color and original
 vertex-order offset in a 40-byte record. The renderer reuses fifteen corners,
 a single 180-byte buffer, for every
 blade. `Grass.Kernel.bladeCorner` is ordinary polymorphic arithmetic: Float
-evaluation supplies the CPU reference, while expression evaluation emits the
-GLSL used by the nature and journey shaders. The blade's angle trigonometry and template's row
+evaluation supplies the CPU reference, while the expression is compiled to
+SPIR-V for the nature and journey shaders. The blade's angle trigonometry and template's row
 profiles remain on the CPU. The existing wind, origin and observation transforms
 follow the generated shape on the GPU.
 

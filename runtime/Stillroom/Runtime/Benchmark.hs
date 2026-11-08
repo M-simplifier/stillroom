@@ -6,16 +6,16 @@
 module Stillroom.Runtime.Benchmark (runBenchmark) where
 
 import Control.Exception (bracket)
-import Control.Monad (forM, replicateM_, unless)
+import Control.Monad (forM, replicateM_, unless, void)
 import Data.Aeson (FromJSON (..), Value, decode, encode, object, withObject, (.:), (.=))
 import Data.ByteString.Lazy qualified as BL
 import Data.ByteString.Lazy.Char8 qualified as BLC
 import Data.List (sort)
 import GHC.Stats
-import Raylib.Core qualified as R
-import Raylib.Types
+import GameIO.Graphics qualified as GPU
+import GameIO.Platform qualified as Platform
 import Stillroom.Domain
-import Stillroom.Runtime.Nature qualified as Nature
+import Stillroom.Runtime.Graphics.CheckIO
 import Stillroom.Runtime.Render qualified as View
 import Stillroom.Runtime.Rest qualified as Rest
 import Stillroom.Session
@@ -29,33 +29,28 @@ runBenchmark output = do
   enabled <- getRTSStatsEnabled
   unless enabled (ioError (userError "Run --benchmark OUTPUT +RTS -T -RTS"))
   createDirectoryIfMissing True output
-  R.setTraceLogLevel LogWarning
-  R.setConfigFlags [WindowHidden, WindowUndecorated, WindowAlwaysRun]
-  bracket (R.initWindow 760 500 "Stillroom renderer benchmark") (R.closeWindow . Just) $ \window -> do
-    R.setTargetFPS 0
-    font <- View.loadTypeface window [title]
-    Rest.withRestAssets window $ \assets -> do
+  withHiddenRenderer "Stillroom renderer benchmark" 760 500 $ \window renderer ->
+    bracket (View.loadTypeface renderer [title]) (View.unloadTypeface renderer) $ \font -> Rest.withRestAssets window renderer $ \assets -> do
       ready <- Rest.proceduralReady assets
       unless (ready && Rest.thumbnailsReady assets) $
         ioError (userError "Renderer benchmark requires the procedural shader and all thumbnails.")
       rows <- forM [1 .. 3 :: Int] $ \repetition -> forM cases $ \(name, w, h, state) -> do
-        R.setWindowSize w h
+        Platform.resizeWindow window w h
         let draw :: Int -> IO ()
-            draw i = do
-              R.beginDrawing
-              View.render font assets w h state {restSeconds = if restMotion state == Still then 0 else fromIntegral i / 60} Nothing "1 / 4   Mist lake" title Nothing (-1, -1)
-              R.endDrawing
+            draw i = void $ View.render renderer False font assets w h
+              state {restSeconds = if restMotion state == Still then 0 else fromIntegral i / 60}
+              Nothing "1 / 4   Mist lake" title Nothing (-1, -1)
         replicateM_ 8 (draw 0)
         performGC
         before <- getRTSStats
         cpuBefore <- getCPUTime
-        wallBefore <- R.getTime
+        wallBefore <- clockSeconds
         samples <- forM [1 .. frames] $ \i -> do
-          start <- R.getTime
+          start <- clockSeconds
           draw i
-          end <- R.getTime
+          end <- clockSeconds
           pure ((end - start) * 1000)
-        wallAfter <- R.getTime
+        wallAfter <- clockSeconds
         cpuAfter <- getCPUTime
         performGC
         after <- getRTSStats
@@ -73,13 +68,13 @@ runBenchmark output = do
               "wall_p95_ms" .= percentile 0.95 samples,
               "allocated_bytes_per_frame" .= (fromIntegral (allocated_bytes after - allocated_bytes before) / count :: Double)
             ]
-      (landscapes, contracts) <- landscapeBenchmark font assets
+      (landscapes, contracts) <- landscapeBenchmark window renderer font assets
       BL.writeFile (output </> "renderer-benchmark.json")
         $ encode
         $ object
-          [ "workload" .= ("actual View.render; no audio; hidden OpenGL window; no FPS target or VSync request; warm caches; 3 repetitions" :: String),
+          [ "workload" .= ("actual View.render; hidden Vulkan window; audio and pacing disabled; warm caches; 3 repetitions" :: String),
             "results" .= concat rows,
-            "landscapeWorkload" .= ("actual View.render; same scene, camera, 30 Hz clock and shaders; endDrawing + glFinish; hidden undecorated window; no audio, capture, pacing or VSync request; reference = full-size reflection, uncapped raster, 2048 shadow; standard = half reflection, max 1600x900 raster, 2048 shadow; 2 repetitions, 30 frames each" :: String),
+            "landscapeWorkload" .= ("actual View.render with Vulkan graphics fence and GPU timestamps; same scene, camera and 30 Hz clock; hidden window; reference uses full-size reflection and uncapped raster; standard uses half-size reflection and max 1600x900 raster; both use 2048 shadow; 2 repetitions, 30 frames each" :: String),
             "landscapeResults" .= landscapes,
             "landscapeContracts" .= contracts
           ]
@@ -110,14 +105,12 @@ data LandscapeStats = LandscapeStats {drawCount :: Int, rasterWidth :: Int, rast
 instance FromJSON LandscapeStats where
   parseJSON = withObject "LandscapeStats" $ \v -> LandscapeStats <$> v .: "draws" <*> v .: "width" <*> v .: "height"
 
-landscapeBenchmark :: View.Typeface -> Rest.RestAssets -> IO ([Value], Value)
-landscapeBenchmark font assets = do
+landscapeBenchmark :: Platform.Window -> GPU.Renderer -> View.Typeface -> Rest.RestAssets -> IO ([Value], Value)
+landscapeBenchmark window renderer font assets = do
   let state scene = (initialSession defaultVolume) {graphicsQuality = Standard, viewingMode = Resting, restScene = scene, restHintSeconds = 0, restShade = Original}
       draw w h scene clock = do
-        R.beginDrawing
-        View.render font assets w h (state scene) {restSeconds = clock} Nothing "" "" Nothing (-1, -1)
-        R.endDrawing
-        Nature.synchronize
+        void (View.render renderer False font assets w h (state scene) {restSeconds = clock} Nothing "" "" Nothing (-1, -1))
+        GPU.waitRenderer renderer
       stats = do
         raw <- Rest.landscapeInfo assets
         maybe (ioError (userError "Invalid landscape diagnostics")) pure (decode (BLC.pack raw))
@@ -125,18 +118,19 @@ landscapeBenchmark font assets = do
   rows <- forM [1, 2 :: Int] $ \repetition -> forM [BirchLake, AlpineLake, MeadowStream] $ \scene ->
     forM [(1280, 720), (1920, 1080)] $ \(w, h) -> forM ["reference", "balanced", "still" :: String] $ \profile -> do
       Rest.landscapeReference assets (profile == "reference")
-      R.setWindowSize w h
+      Platform.resizeWindow window w h
       replicateM_ 8 (draw w h scene 12)
-      actual <- (,) <$> R.getScreenWidth <*> R.getScreenHeight
+      actual <- Platform.windowFramebufferSize window
       unless (actual == (w, h)) (ioError (userError "Benchmark surface size differs from workload"))
       performGC
       before <- getRTSStats
       cpuBefore <- getCPUTime
       samples <- forM [1 .. count] $ \i -> do
-        start <- R.getTime
+        start <- clockSeconds
         draw w h scene (if profile == "still" then 12 else 12 + fromIntegral i / 30 + 0.000001)
-        end <- R.getTime
-        pure ((end - start) * 1000)
+        end <- clockSeconds
+        metrics <- GPU.rendererLastMetrics renderer
+        pure ((end - start) * 1000, fmap (/1000000) (metrics >>= GPU.frameGPUNSec))
       cpuAfter <- getCPUTime
       performGC
       after <- getRTSStats
@@ -152,20 +146,21 @@ landscapeBenchmark font assets = do
             "height" .= h,
             "frames" .= count,
             "cpu_ms_per_frame" .= (fromIntegral (cpuAfter - cpuBefore) / 1e9 / fromIntegral count :: Double),
-            "wall_median_ms" .= percentile 0.5 samples,
-            "wall_p95_ms" .= percentile 0.95 samples,
+            "wall_median_ms" .= percentile 0.5 (map fst samples),
+            "wall_p95_ms" .= percentile 0.95 (map fst samples),
+            "gpu_ms" .= map snd samples,
             "allocated_bytes_per_frame" .= (fromIntegral (allocated_bytes after - allocated_bytes before) / fromIntegral count :: Double),
             "native" .= (decode (BLC.pack details) :: Maybe Value)
           ]
   Rest.landscapeReference assets False
-  R.setWindowSize 1280 720
+  Platform.resizeWindow window 1280 720
   draw 1280 720 BirchLake 12
   before <- stats
   replicateM_ 3 (draw 1280 720 BirchLake 12)
   held <- stats
   draw 1280 720 BirchLake 13
   moved <- stats
-  R.setWindowSize 1920 1080
+  Platform.resizeWindow window 1920 1080
   draw 1920 1080 BirchLake 13
   resized <- stats
   draw 1920 1080 AlpineLake 13

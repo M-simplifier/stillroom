@@ -17,6 +17,8 @@ jobs:
         with:
           ghc-version: '9.6.7'
           cabal-version: '3.12.1.0'
+          # build.ps1 prepares the pinned local dependencies before updating.
+          cabal-update: false
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ${{ steps.setup.outputs.cabal-store }}

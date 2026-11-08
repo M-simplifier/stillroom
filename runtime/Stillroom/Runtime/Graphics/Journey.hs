@@ -1,511 +1,254 @@
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE PatternSynonyms #-}
 
 module Stillroom.Runtime.Graphics.Journey
-  ( World,
-    open,
-    openWithFingerprints,
-    close,
-    ready,
-    problem,
-    quality,
-    prepare,
-    frameTargets,
-    render,
-    referenceDrawForCheck,
-    frameCopy,
-    frameUniforms,
-    signature,
-    farSignature,
-    info,
-  )
-where
+  ( World, FingerprintMode(..), openWithFingerprints, close, ready, problem, quality
+  , prepare, frameTargets, render, executedFrame, clipProjectionError, signature, farSignature, info
+  , setAllocationLimitsForCheck
+  ) where
 
-import Control.Exception
+import Control.Exception (bracketOnError, evaluate, finally, mask_, throwIO)
 import Control.Monad (forM_, when)
 import Data.Aeson (encode, object, (.=))
-import Data.ByteString qualified as BS
 import Data.ByteString.Lazy.Char8 qualified as BL
 import Data.IORef
 import Data.IntMap.Strict qualified as Map
 import Data.List (find, minimumBy)
+import Data.Maybe (isNothing)
 import Data.Ord (comparing)
-import Data.Vector.Storable qualified as V
 import Data.Word (Word64)
-import Raylib.Core qualified as R
-import Raylib.Types
-import Raylib.Util.RLGL qualified as RL
+import GameIO.Graphics qualified as GPU
+import GHC.Clock (getMonotonicTimeNSec)
+import Stillroom.Graphics qualified as G
 import Stillroom.Graphics.Encoding.Mesh qualified as Mesh
 import Stillroom.Graphics.Observation qualified as O
 import Stillroom.Journey.Frame qualified as F
 import Stillroom.Journey.World qualified as Seed
-import Stillroom.Landscape.Geometry qualified as G
-import Stillroom.Runtime.Graphics.Encoding qualified as Encoding
-import Stillroom.Runtime.Graphics.GL qualified as GL
-import Stillroom.Runtime.Graphics.Renderer
-import Stillroom.Runtime.Graphics.Resource
-import Stillroom.Runtime.Graphics.Target qualified as Target
-import Stillroom.Runtime.Journey.Packet qualified as Packet
+import Stillroom.Landscape.Geometry qualified as Land
+import Stillroom.Runtime.Graphics.Scene
+import Stillroom.Runtime.Graphics.WorldGeometry qualified as Geometry
+import Stillroom.Runtime.Graphics.WorldRenderer qualified as Render
+import Stillroom.Runtime.Graphics.WorldShaders (WorldStyle(JourneyWorld))
 
-data Chunk = Chunk !Int !Int !GpuGeometry
+data FingerprintMode = SkipFingerprints | CaptureFingerprints deriving (Eq, Show)
+
+data Chunk = Chunk !Int !Int !Geometry.Geometry
 
 data Counts = Counts
-  { generated :: !Int,
-    evicted :: !Int,
-    farGenerated :: !Int,
-    farEvicted :: !Int,
-    frames :: !Int,
-    lastGenerationMs :: !Double,
-    maxGenerationMs :: !Double,
-    nearMissing :: !Bool,
-    cpuGenerationMs :: !Double,
-    uploadMs :: !Double,
-    streamMs :: !Double,
-    submitMs :: !Double
+  { generated :: !Int, evicted :: !Int, farGenerated :: !Int, farEvicted :: !Int
+  , frames :: !Int, lastGenerationMs :: !Double, maxGenerationMs :: !Double
+  , cpuGenerationMs :: !Double, uploadMs :: !Double, streamMs :: !Double
+  , nearMissing :: !Bool
   }
 
 data World = World
-  { renderer :: !Renderer,
-    seed :: !Seed.Seed,
-    car :: !GpuMesh,
-    nearChunks :: !(IORef (Map.IntMap Chunk)),
-    farChunks :: !(IORef (Map.IntMap Chunk)),
-    counts :: !(IORef Counts),
-    executed :: !(IORef (Maybe F.FramePlan)),
-    fingerprintMode :: !FingerprintMode,
-    worldScope :: !Scope
+  { gpu :: !GPU.Renderer
+  , renderer :: !Render.WorldRenderer
+  , seed :: !Seed.Seed
+  , car :: !GPU.Mesh
+  , carTriangles :: !Int
+  , nearChunks :: !(IORef (Map.IntMap Chunk))
+  , farChunks :: !(IORef (Map.IntMap Chunk))
+  , counts :: !(IORef Counts)
+  , desired :: !(IORef G.Tier)
+  , issue :: !(IORef (Maybe String))
+  , executed :: !(IORef (Maybe F.FramePlan))
+  , fingerprintMode :: !FingerprintMode
+  , scope :: !Scope
   }
 
-open :: Seed.Seed -> [BS.ByteString] -> Mesh.MeshPacket -> IO World
-open = openWithFingerprints SkipFingerprints
-
-openWithFingerprints :: FingerprintMode -> Seed.Seed -> [BS.ByteString] -> Mesh.MeshPacket -> IO World
-openWithFingerprints fingerprints worldSeed sources carMesh = bracketOnError newScope closeScope $ \scope -> do
-  r <- own scope (loadRenderer sources) releaseRenderer
-  railcar <- uploadRailcar scope carMesh
-  near <- newIORef Map.empty
-  far <- newIORef Map.empty
-  statistics <- newIORef emptyCounts
-  frame <- newIORef Nothing
-  pure
-    World
-      { renderer = r,
-        seed = worldSeed,
-        car = railcar,
-        nearChunks = near,
-        farChunks = far,
-        counts = statistics,
-        executed = frame,
-        fingerprintMode = fingerprints,
-        worldScope = scope
-      }
-
-emptyCounts :: Counts
-emptyCounts =
-  Counts
-    { generated = 0,
-      evicted = 0,
-      farGenerated = 0,
-      farEvicted = 0,
-      frames = 0,
-      lastGenerationMs = 0,
-      maxGenerationMs = 0,
-      nearMissing = False,
-      cpuGenerationMs = 0,
-      uploadMs = 0,
-      streamMs = 0,
-      submitMs = 0
-    }
+openWithFingerprints :: GPU.Renderer -> FingerprintMode -> Seed.Seed -> Mesh.MeshPacket -> IO World
+openWithFingerprints device fingerprints worldSeed carMesh = bracketOnError newScope closeScope $ \resources -> do
+  native <- own resources (Render.openWorldRenderer device JourneyWorld) Render.closeWorldRenderer
+  railcar <- Geometry.uploadCar device resources carMesh
+  World device native worldSeed railcar (Mesh.meshVertexCount carMesh `div` 3)
+    <$> newIORef Map.empty <*> newIORef Map.empty <*> newIORef (Counts 0 0 0 0 0 0 0 0 0 0 False)
+    <*> newIORef G.Balanced <*> newIORef Nothing <*> newIORef Nothing <*> pure fingerprints <*> pure resources
 
 close :: World -> IO ()
 close world = mask_ $ do
   near <- atomicModifyIORef' (nearChunks world) (\m -> (Map.empty, m))
   far <- atomicModifyIORef' (farChunks world) (\m -> (Map.empty, m))
-  let release (Chunk _ _ geometry) = releaseGeometry geometry
-  mapM_ release near `finally` (mapM_ release far `finally` closeScope (worldScope world))
+  let release (Chunk _ _ geometry) = Geometry.releaseGeometry geometry
+  foldr (finally . release) (closeScope (scope world)) (Map.elems near ++ Map.elems far)
 
 ready :: World -> IO Bool
-ready = healthy . renderer
+ready world = (== Nothing) <$> readIORef (issue world)
 
 problem :: World -> IO String
-problem world = maybe "" id <$> readIORef (issue (renderer world))
+problem world = maybe "" id <$> readIORef (issue world)
 
-quality :: World -> Int -> IO Bool
-quality world = setQuality (renderer world)
+quality :: World -> G.Tier -> IO ()
+quality world = writeIORef (desired world)
 
-referenceDrawForCheck :: World -> Bool -> IO ()
-referenceDrawForCheck world = referenceMeshesForCheck (material (renderer world))
+setAllocationLimitsForCheck :: World -> Int -> Int -> IO ()
+setAllocationLimitsForCheck = Render.setAllocationLimitsForCheck . renderer
 
 chunkAt :: Int -> Int -> Map.IntMap Chunk -> Maybe Chunk
-chunkAt x z = find (\(Chunk chunkX chunkZ _) -> chunkX == x && chunkZ == z) . Map.elems
+chunkAt x z = find (\(Chunk cx cz _) -> cx == x && cz == z) . Map.elems
 
-signature :: World -> Int -> Int -> IO (Maybe Word64)
+signature, farSignature :: World -> Int -> Int -> IO (Maybe Word64)
 signature world x z = chunkSignature world x z (nearChunks world)
-
-farSignature :: World -> Int -> Int -> IO (Maybe Word64)
 farSignature world x z = chunkSignature world x z (farChunks world)
 
 chunkSignature :: World -> Int -> Int -> IORef (Map.IntMap Chunk) -> IO (Maybe Word64)
-chunkSignature world x z chunks = do
-  when (fingerprintMode world /= CaptureFingerprints) $
-    throwIO (GeometryUnavailable "Fingerprint requested from a rendering-only world")
-  found <- chunkAt x z <$> readIORef chunks
-  case found of
-    Nothing -> pure Nothing
-    Just (Chunk _ _ g) -> case gpuSignature g of
-      Nothing -> throwIO (GeometryUnavailable "Uploaded geometry lacks its diagnostic fingerprint")
-      Just value -> pure (Just value)
+chunkSignature world x z cache = do
+  when (fingerprintMode world /= CaptureFingerprints) (throwIO (userError "Geometry fingerprints were not requested"))
+  found <- chunkAt x z <$> readIORef cache
+  pure (found >>= \(Chunk _ _ geometry) -> Geometry.signature geometry)
 
--- A replacement is generated and uploaded before the previous slot is retired.
--- The two tables remain bounded at 49 near and 81 far geometries.
+-- Keep the original stable slot order and nearest-first streaming. Each new
+-- immutable chunk is resident before the corresponding old one is released.
 streamOne :: World -> Bool -> Double -> Double -> IO Bool
 streamOne world far x z = mask_ $ do
-  existing <- readIORef ref
+  existing <- readIORef cache
   let centerX = floor (x / fromIntegral extent)
-      centerZ = floor (z / fromIntegral extent)
-      missing =
-        [ (centerX + i, centerZ + j, i * i + j * j)
-          | j <- [-radius .. radius],
-            i <- [-radius .. radius],
-            case chunkAt (centerX + i) (centerZ + j) existing of
-              Nothing -> True
-              Just _ -> False
-        ]
-      outside (_, Chunk a b _) = abs (a - centerX) > radius || abs (b - centerZ) > radius
-      vacant = find (`Map.notMember` existing) [0 .. capacity - 1]
-      slot = case vacant of
+  let centerZ = floor (z / fromIntegral extent)
+  let outside (_, Chunk a b _) = abs (a-centerX) > radius || abs (b-centerZ) > radius
+  let missing = [(centerX+i, centerZ+j, i*i+j*j) | j <- [-radius..radius], i <- [-radius..radius],
+        case chunkAt (centerX+i) (centerZ+j) existing of Nothing -> True; Just _ -> False]
+  let slot = case find (`Map.notMember` existing) [0..capacity-1] of
         Just index -> Just index
         Nothing -> fst <$> find outside (Map.toAscList existing)
   case missing of
     [] -> pure True
     _ -> case slot of
-      Nothing -> failRenderer (renderer world) "No bounded stream slot" >> pure False
+      Nothing -> writeIORef (issue world) (Just "No bounded journey stream slot") >> pure False
       Just index -> do
-        let (cx, cz, _) = minimumBy (comparing (\(_, _, d) -> d)) missing
-        began <- R.getTime
-        built <- try $ do
-          geometry <-
-            either
-              (throwIO . GeometryUnavailable . show)
-              evaluate
-              (G.seededChunkGeometry (seed world) cx cz (if far then G.FarChunk else G.NearChunk))
-          -- Evaluating Geometry completes the runST builder and all strict
-          -- packed streams. Only an explicit diagnostic also traverses them.
-          fingerprint <- case fingerprintMode world of
-            SkipFingerprints -> pure Nothing
-            CaptureFingerprints -> Just <$> evaluate (G.geometrySignature geometry)
-          cpuFinished <- R.getTime
-          gpu <- uploadGeometryWithSignature (grassTemplate (renderer world)) fingerprint geometry
-          uploaded <- R.getTime
-          pure (gpu, (cpuFinished - began) * 1000, (uploaded - cpuFinished) * 1000)
-        case built of
-          Left (e :: GraphicsError) -> failRenderer (renderer world) (show e) >> pure False
-          Right (geometry, cpuElapsed, uploadElapsed) -> do
-            writeIORef ref (Map.insert index (Chunk cx cz geometry) existing)
-            forM_ (Map.lookup index existing) (\(Chunk _ _ old) -> releaseGeometry old)
-            ended <- R.getTime
-            let elapsed = (ended - began) * 1000
-                replaced = if Map.member index existing then 1 else 0
+        let (cx,cz,_) = minimumBy (comparing (\(_,_,d) -> d)) missing
+        let detail = if far then Land.FarChunk else Land.NearChunk
+        let anchor = Geometry.Anchor (fromIntegral cx*fromIntegral extent) (fromIntegral cz*fromIntegral extent)
+        started <- getMonotonicTimeNSec
+        case Land.seededChunkGeometry (seed world) cx cz detail of
+          Left failure -> writeIORef (issue world) (Just (show failure)) >> pure False
+          Right source -> do
+            generatedGeometry <- evaluate source
+            cpu <- getMonotonicTimeNSec
+            resident <- Geometry.uploadGeometry (gpu world) anchor (fingerprintMode world == CaptureFingerprints) generatedGeometry
+            uploaded <- getMonotonicTimeNSec
+            writeIORef cache (Map.insert index (Chunk cx cz resident) existing)
+            forM_ (Map.lookup index existing) (\(Chunk _ _ old) -> Geometry.releaseGeometry old)
+            ended <- getMonotonicTimeNSec
+            let elapsed = milliseconds (ended-started)
+            let replaced = if Map.member index existing then 1 else 0
             modifyIORef' (counts world) $ \s ->
-              let timed =
-                    s
-                      { lastGenerationMs = elapsed,
-                        maxGenerationMs = max elapsed (maxGenerationMs s),
-                        cpuGenerationMs = cpuGenerationMs s + cpuElapsed,
-                        uploadMs = uploadMs s + uploadElapsed,
-                        streamMs = streamMs s + elapsed
-                      }
-               in if far
-                    then timed {farGenerated = farGenerated s + 1, farEvicted = farEvicted s + replaced}
-                    else timed {generated = generated s + 1, evicted = evicted s + replaced}
+              let timed = s {lastGenerationMs = elapsed, maxGenerationMs = max elapsed (maxGenerationMs s),
+                    cpuGenerationMs = cpuGenerationMs s + milliseconds (cpu-started),
+                    uploadMs = uploadMs s + milliseconds (uploaded-cpu), streamMs = streamMs s + elapsed}
+              in if far then timed {farGenerated = farGenerated s+1, farEvicted = farEvicted s+replaced}
+                 else timed {generated = generated s+1, evicted = evicted s+replaced}
             pure True
   where
-    ref = if far then farChunks world else nearChunks world
+    cache = if far then farChunks world else nearChunks world
     extent = if far then 128 else 32 :: Int
     radius = if far then 4 else 3 :: Int
     capacity = if far then 81 else 49
+    milliseconds ns = fromIntegral ns / 1000000
 
 stream :: World -> Double -> Double -> IO Bool
 stream world x z = do
-  nearReady <- streamOne world False x z
-  if nearReady then streamOne world True x z else pure False
+  near <- streamOne world False x z
+  if near then streamOne world True x z else pure False
 
 prepare :: World -> Double -> Double -> IO Int
 prepare world x z = do
-  ok <- ready world
-  if not ok
-    then pure (-1)
-    else do
-      streamed <- stream world x z
-      if not streamed
-        then pure (-1)
-        else do
-          nearCount <- Map.size <$> readIORef (nearChunks world)
-          farCount <- Map.size <$> readIORef (farChunks world)
-          pure (130 - nearCount - farCount)
+  healthy <- ready world
+  streamed <- if healthy then stream world x z else pure False
+  if streamed then do
+    near <- Map.size <$> readIORef (nearChunks world)
+    far <- Map.size <$> readIORef (farChunks world)
+    pure (130-near-far)
+  else pure (-1)
 
 frameTargets :: World -> Double -> Double -> Int -> Int -> IO (Maybe F.Targets)
 frameTargets world x z width height = do
-  ok <- ready world
-  if not ok || width < 1 || height < 1
-    then pure Nothing
-    else do
-      streamed <- stream world x z
-      near <- readIORef (nearChunks world)
-      let missing = case chunkAt (floor (x / 32)) (floor (z / 32)) near of
-            Nothing -> True
-            Just _ -> False
-      modifyIORef' (counts world) (\s -> s {nearMissing = missing})
-      allocated <- if streamed && not missing then Target.budgetTargets (targets (renderer world)) (fromIntegral width) (fromIntegral height) False else pure False
-      if not allocated
-        then pure Nothing
-        else do
-          ts <- Target.readTargets (targets (renderer world))
-          pure $ case (Target.shadowTarget ts, Target.reflectionTarget ts) of
-            (Just shadow, Just reflection) ->
-              Just
-                ( F.Targets
-                    (Target.rasterWidth ts)
-                    (Target.rasterHeight ts)
-                    (texture'width (renderTexture'depth shadow))
-                    (texture'width (renderTexture'texture reflection))
-                    (texture'height (renderTexture'texture reflection))
-                )
-            _ -> Nothing
+  healthy <- ready world
+  if not healthy || width < 1 || height < 1 then pure Nothing else do
+    streamed <- stream world x z
+    near <- readIORef (nearChunks world)
+    let current = chunkAt (floor (x/32)) (floor (z/32)) near
+    modifyIORef' (counts world) (\countsValue -> countsValue {nearMissing = isNothing current})
+    case current of
+      Just _ | streamed -> do
+        tier <- readIORef (desired world)
+        allocated <- Render.prepareTargets (renderer world) tier False width height
+        when (isNothing allocated) (writeIORef (issue world) (Just "Journey render targets unavailable"))
+        pure (Render.targets <$> allocated)
+      _ -> pure Nothing
 
-beginPass :: O.Observation target -> IO ()
-beginPass observation = do
-  view <- nativeTransform (O.viewMatrix observation)
-  projection <- nativeTransform (O.projectionMatrix observation)
-  RL.rlDrawRenderBatchActive
-  RL.rlMatrixMode RLProjection
-  RL.rlPushMatrix
-  RL.rlSetMatrixProjection projection
-  RL.rlMatrixMode RLModelView
-  RL.rlSetMatrixModelview view
-  RL.rlEnableDepthTest
+render :: World -> F.FramePlan -> SceneRect -> IO SceneDraw
+render world frame rectangle = do
+  images <- Render.currentTargets (renderer world)
+  case images of
+    Just targets | Render.targets targets == F.targets frame -> do
+      far <- Map.elems <$> readIORef (farChunks world)
+      near <- Map.elems <$> readIORef (nearChunks world)
+      let context = F.geometry frame
+      let reference@(F.Point rx _ rz) = F.referenceEye context
+      let origin = F.renderOrigin context
+      let units = GPU.Vec4 (realToFrac (F.shadowTexel frame)) (realToFrac F.shadowDepthSpan)
+            (realToFrac F.shadowBaseBias) (realToFrac F.shadowSlopeBias)
+      let chooseFar (Chunk x z geometry) =
+            let dx = max 0 (abs (rx-(fromIntegral x+0.5)*128)-64)
+                dz = max 0 (abs (rz-(fromIntegral z+0.5)*128)-64)
+            in Render.ChunkDraw geometry True (dx*dx+dz*dz <= 560*560) False False
+      let chooseNear (Chunk x z geometry) =
+            let dx = rx-(fromIntegral x+0.5)*32
+                dz = rz-(fromIntegral z+0.5)*32
+                distance = dx*dx+dz*dz
+                mx = max 0 (abs dx-16)
+                mz = max 0 (abs dz-16)
+            in Render.ChunkDraw geometry False (distance <= 132*132) (distance <= 112*112) (mx*mx+mz*mz < 2500)
+      let worldFrame = Render.WorldFrame 0 (F.semanticTime context) (F.sunDirection frame) origin
+            (F.relative origin reference) (F.shadowPass frame) (F.reflectionPass frame) (F.mainPass frame)
+            units (map chooseFar far ++ map chooseNear near) (Just (car world, F.carTransform frame))
+      let draw = Render.worldDraw (renderer world) targets worldFrame rectangle
+      pure draw {scenePresented = \status -> when (status == GPU.FramePresented) $ do
+        writeIORef (executed world) (Just frame)
+        modifyIORef' (counts world) (\s -> s {frames = frames s+1})}
+    _ -> writeIORef (issue world) (Just "Journey observations do not match the allocated images") >> pure mempty
 
-pass :: O.Observation target -> IO a -> IO a
-pass observation = bracket_ (beginPass observation) R.endMode3D
+executedFrame :: World -> IO (Maybe F.FramePlan)
+executedFrame = readIORef . executed
 
-allLand :: World -> F.FramePlan -> Texture -> Bool -> Bool -> O.Observation target -> IO ()
-allLand world frame shadow shadowPass clip observation = withMeshPass (material (renderer world)) (landProgram (renderer world)) $ do
-  let r = renderer world
-      p = landProgram r
-      F.Point rx _ rz = F.referenceEye (F.geometry frame)
-      sun = Encoding.direction (F.sunDirection frame)
-      time = realToFrac (F.semanticTime (F.geometry frame))
-      eye = Encoding.point (O.passEye observation)
-  light <- nativeTransform (O.clipFromRender (F.shadowPass frame))
-  prepareWorld r 0 sun light shadow shadowPass clip eye
-  let draw visibility (Chunk _ _ geometry) = drawGeometry r geometry time visibility shadowPass
-  when (not shadowPass) $ do
-    int p "uFarPass" 1
-    chunks <- Map.elems <$> readIORef (farChunks world)
-    forM_ chunks $ \chunk@(Chunk x z _) -> do
-      let dx = max 0 (abs (rx - (fromIntegral x + 0.5) * 128) - 64)
-          dz = max 0 (abs (rz - (fromIntegral z + 0.5) * 128) - 64)
-      when (dx * dx + dz * dz <= 560 * 560) (draw 3 chunk)
-  int p "uFarPass" 0
-  chunks <- Map.elems <$> readIORef (nearChunks world)
-  forM_ chunks $ \chunk@(Chunk x z _) -> do
-    let dx = rx - (fromIntegral x + 0.5) * 32
-        dz = rz - (fromIntegral z + 0.5) * 32
-        distance = sqrt (dx * dx + dz * dz)
-        mx = max 0 (abs dx - 16)
-        mz = max 0 (abs dz - 16)
-    when (distance <= if shadowPass then 112 else 132) (draw (if mx * mx + mz * mz < 2500 then 7 else 3) chunk)
-
-drawCar :: World -> F.FramePlan -> Texture -> Bool -> Bool -> O.Observation target -> IO ()
-drawCar world frame shadow shadowPass clip observation = do
-  let r = renderer world
-      p = landProgram r
-      F.Point cx cy cz = O.passEye observation
-      F.Point x y z = F.objectPoint frame (F.Point 0 0 0)
-      distance = sqrt ((cx - x) * (cx - x) + (cy - y) * (cy - y) + (cz - z) * (cz - z))
-  when (distance <= 540) $ withMeshPass (material r) p $ do
-    int p "uGrassInstances" 0
-    int p "uFarPass" 0
-    int p "uKind" 4
-    int p "uShadowPass" (if shadowPass then 1 else 0)
-    int p "uClip" (if clip then 1 else 0)
-    vec3 p "uEye" (Encoding.point (O.passEye observation))
-    vec3 p "uSun" (Encoding.direction (F.sunDirection frame))
-    matrixTransform p "uLightVP" (O.clipFromRender (F.shadowPass frame))
-    matrixTransform p "uObject" (F.carTransform frame)
-    texture p "uShadow" shadow 9
-    useMaterial (material r) p
-    doubleSided (material r) (drawMesh (material r) (car world))
-
-render :: World -> F.FramePlan -> Rectangle -> IO Bool
-render world frame rectangle@(Rectangle _ _ width height) = do
-  ok <- ready world
-  ts <- Target.readTargets (targets r)
-  let planned = F.targets frame
-      valid =
-        F.rasterWidth planned == Target.rasterWidth ts
-          && F.rasterHeight planned == Target.rasterHeight ts
-          && F.shadowResolution planned == maybe 0 (texture'width . renderTexture'depth) (Target.shadowTarget ts)
-          && F.reflectionWidth planned == maybe 0 (texture'width . renderTexture'texture) (Target.reflectionTarget ts)
-          && F.reflectionHeight planned == maybe 0 (texture'height . renderTexture'texture) (Target.reflectionTarget ts)
-  if not ok || width < 1 || height < 1
-    then pure False
-    else
-      if not valid
-        then failRenderer r "Frame observations do not match allocated targets" >> pure False
-        else case (Target.shadowTarget ts, Target.reflectionTarget ts, Target.hdrTarget ts) of
-          (Just shadow, Just reflection, Just hdr) -> do
-            began <- R.getTime
-            bracket saveParent restoreParent $ \_ -> do
-              setShaderQuality r (Target.currentQuality ts)
-              renderPasses world frame shadow reflection hdr
-            composite r hdr rectangle
-            submitted <- R.getTime
-            writeIORef (executed world) (Just frame)
-            modifyIORef' (counts world) (\s -> s {frames = frames s + 1, submitMs = submitMs s + (submitted - began) * 1000})
-            e <- GL.getError
-            when (e /= 0) (failRenderer r ("OpenGL error " ++ show e))
-            ready world
-          _ -> failRenderer r "Journey targets unavailable" >> pure False
-  where
-    r = renderer world
-
-renderPasses :: World -> F.FramePlan -> RenderTexture -> RenderTexture -> RenderTexture -> IO ()
-renderPasses world frame shadow reflection hdr = do
-  let r = renderer world
-      land = landProgram r
-      water = waterProgram r
-      context = F.geometry frame
-      sun = Encoding.direction (F.sunDirection frame)
-      shadowImage = renderTexture'depth shadow
-      worldPass shadowPass clip observation = allLand world frame shadowImage shadowPass clip observation >> drawCar world frame shadowImage shadowPass clip observation
-      main = F.mainPass frame
-      light = F.shadowPass frame
-      mirror = F.reflectionPass frame
-  vec3 land "uReferenceEye" (Encoding.point (F.referenceEye context))
-  vec3 land "uOrigin" (Encoding.point (F.renderOrigin context))
-  vec3 water "uOrigin" (Encoding.point (F.renderOrigin context))
-  vec4 land "uShadowUnits" (Vector4 (realToFrac (F.shadowTexel frame)) (realToFrac F.shadowDepthSpan) (realToFrac F.shadowBaseBias) (realToFrac F.shadowSlopeBias))
-  textureMode shadow $ do
-    R.clearBackground white
-    pass light $ matrixTransform land "uClipFromRender" (O.clipFromRender light) >> worldPass True False light
-  textureMode reflection $ do
-    R.clearBackground black
-    plannedSky r 0 sun mirror
-    pass mirror $ matrixTransform land "uClipFromRender" (O.clipFromRender mirror) >> worldPass False True mirror
-  textureMode hdr $ do
-    R.clearBackground black
-    plannedSky r 0 sun main
-    pass main $ do
-      matrixTransform land "uClipFromRender" (O.clipFromRender main)
-      worldPass False False main
-      withMeshPass (material r) water $ do
-        useMaterial (material r) water
-        matrixTransform water "uClipFromRender" (O.clipFromRender main)
-        vec3 water "uEye" (Encoding.point (O.passEye main))
-        vec3 water "uSun" sun
-        float water "uTime" (realToFrac (F.semanticTime context))
-        int water "uLandscape" 2
-        matrixTransform water "uReflectionVP" (O.clipFromRender mirror)
-        texture water "uReflection" (renderTexture'texture reflection) 10
-        doubleSided (material r) $ forM_ [True, False] $ \far -> do
-          int water "uFarPass" (if far then 1 else 0)
-          chunks <- Map.elems <$> readIORef (if far then farChunks world else nearChunks world)
-          let extent = if far then 128 else 32
-              texel = if far then 8 else 1
-              F.Point originX _ originZ = F.renderOrigin context
-          forM_ chunks $ \(Chunk x z geometry) -> case (gpuWater geometry, gpuHeight geometry) of
-            (Just mesh, Just height) -> do
-              vec4
-                water
-                "uHeightRect"
-                ( Vector4
-                    (realToFrac (fromIntegral x * extent - originX - texel * 0.5))
-                    (realToFrac (fromIntegral z * extent - originZ - texel * 0.5))
-                    (realToFrac (extent + texel))
-                    (realToFrac (extent + texel))
-                )
-              texture water "uHeight" height 11
-              drawMesh (material r) mesh
-            _ -> pure ()
-
--- Serialization is only a diagnostic view; production execution consumes the
--- typed plan and observations above and has no packet offsets.
-frameCopy :: World -> IO (V.Vector Float)
-frameCopy world = do
-  frame <- readIORef (executed world)
-  pure $ case frame >>= either (const Nothing) Just . Packet.lowerFrame of
-    Nothing -> V.empty
-    Just packet -> Packet.packetValues packet
-
-frameUniforms :: World -> IO (Maybe (V.Vector Float))
-frameUniforms world = do
-  frame <- readIORef (executed world)
-  case frame of
-    Nothing -> pure Nothing
-    Just _ -> do
-      let p = landProgram (renderer world)
-      parts <-
-        mapM
-          (\(name, n) -> uniformLocation p name >>= \loc -> GL.readUniform (programId p) loc n)
-          [("uObject", 16), ("uLightVP", 16), ("uClipFromRender", 16), ("uReferenceEye", 3), ("uOrigin", 3)]
-      pure (V.fromList . concat <$> sequence parts)
+-- Independent clip-coordinate reference over asymmetric points in the already
+-- submitted observations. Actual fragment and shadow placement is checked by
+-- framebuffer captures, separately from this lowering error.
+clipProjectionError :: F.FramePlan -> Float
+clipProjectionError frame = maximum
+  [maximum (zipWith (\observed reference -> abs (observed-reference)) gpuClip expected) |
+    (pass, observation) <- [(F.Main,F.mainPass frame),(F.Shadow,F.shadowPass frame),(F.Reflection,F.reflectionPass frame)],
+    point@(F.Point x y z) <- [F.Point 0.71 1.62 (-2.37), F.Point (-15.15) 3.31 19.27, F.Point 68.7 (-5.8) (-41.2)],
+    let (cx,cy,cz,cw) = F.clipPoint frame pass point,
+    let expected = map realToFrac [cx,-cy,(cz+cw)*0.5,cw],
+    let GPU.Vec4 a b c d = GPU.transformVec4 (Render.projectClip (O.clipFromRender observation))
+          (GPU.Vec4 (realToFrac x) (realToFrac y) (realToFrac z) 1),
+    let gpuClip = [a,b,c,d]]
 
 info :: World -> IO String
 info world = do
-  near <- Map.elems <$> readIORef (nearChunks world)
-  far <- Map.elems <$> readIORef (farChunks world)
+  near <- map chunkGeometry . Map.elems <$> readIORef (nearChunks world)
+  far <- map chunkGeometry . Map.elems <$> readIORef (farChunks world)
   s <- readIORef (counts world)
-  ts <- Target.readTargets (targets (renderer world))
-  receipt <- frameCopy world
-  let geometries = map (\(Chunk _ _ g) -> g)
-      landTriangles g = sum (map (maybe 0 triangleCount) (gpuMaterials g))+grassInstanceCount g*5
-      shadow = maybe 0 (texture'id . renderTexture'depth) (Target.shadowTarget ts)
-  depth <- GL.depthDescription shadow
-  name <- GL.rendererName
-  pure $
-    BL.unpack $
-      encode $
-        object
-          [ "quality" .= Target.currentQuality ts,
-            "rasterWidth" .= Target.rasterWidth ts,
-            "rasterHeight" .= Target.rasterHeight ts,
-            "shadowWidth" .= maybe 0 (texture'width . renderTexture'depth) (Target.shadowTarget ts),
-            "reflectionWidth" .= maybe 0 (texture'width . renderTexture'texture) (Target.reflectionTarget ts),
-            "farResident" .= length far,
-            "farCapacity" .= (81 :: Int),
-            "farTriangles" .= sum (map landTriangles (geometries far)),
-            "farGenerated" .= farGenerated s,
-            "farEvicted" .= farEvicted s,
-            "resident" .= length near,
-            "capacity" .= (49 :: Int),
-            "trees" .= sum (map gpuTrees (geometries near)),
-            "blades" .= sum (map gpuGrass (geometries near)),
-            "grassRenderingPath" .= grassRenderingPath (grassTemplate (renderer world)),
-            "grassInstances" .= sum (map grassInstanceCount (geometries near)),
-            "grassInstanceBytes" .= (40*sum (map grassInstanceCount (geometries near))),
-            "grassSharedCornerBytes" .= (180 :: Int),
-            "triangles" .= sum (map landTriangles (geometries near)),
-            "generated" .= generated s,
-            "evicted" .= evicted s,
-            "frames" .= frames s,
-            "maxGenerationMs" .= maxGenerationMs s,
-            "lastGenerationMs" .= lastGenerationMs s,
-            "cpuGenerationMs" .= cpuGenerationMs s,
-            "geometryFingerprints" .= (fingerprintMode world == CaptureFingerprints),
-            "uploadMs" .= uploadMs s,
-            "streamMs" .= streamMs s,
-            "submitMs" .= submitMs s,
-            "submitBoundary" .= ("parent capture through postprocess submission; excludes EndDrawing/present" :: String),
-            "nearMissing" .= (if nearMissing s then 1 else 0 :: Int),
-            "depthFormat" .= at 0 depth,
-            "depthBits" .= at 1 depth,
-            "depthType" .= at 2 depth,
-            "carTriangles" .= triangleCount (car world),
-            "frameVersion" .= (if V.null receipt then 0 else receipt V.! 0),
-            "renderer" .= name
-          ]
+  images <- Render.currentTargets (renderer world)
+  metrics <- GPU.rendererLastMetrics (gpu world)
+  let measure view = maybe 0 (view . Render.targets) images
+  let instances = sum (map Geometry.instanceCount near)
+  pure $ BL.unpack $ encode $ object
+    ["quality" .= maybe (-1) (fromEnum . Render.selectedTier) images,
+     "rasterWidth" .= measure F.rasterWidth, "rasterHeight" .= measure F.rasterHeight,
+     "shadowWidth" .= measure F.shadowResolution, "reflectionWidth" .= measure F.reflectionWidth,
+     "farResident" .= length far, "farCapacity" .= (81::Int), "farTriangles" .= sum (map Geometry.triangleCount far),
+     "farGenerated" .= farGenerated s, "farEvicted" .= farEvicted s, "resident" .= length near, "capacity" .= (49::Int),
+     "trees" .= sum (map Geometry.treeCount near), "blades" .= sum (map Geometry.grassCount near),
+     "grassRenderingPath" .= ("instanced"::String), "grassInstances" .= instances,
+     "grassInstanceBytes" .= (GPU.instanceStride*instances), "grassSharedCornerBytes" .= (GPU.cornerStride*15),
+     "triangles" .= sum (map Geometry.triangleCount near), "carTriangles" .= carTriangles world,
+     "generated" .= generated s, "evicted" .= evicted s, "frames" .= frames s,
+     "maxGenerationMs" .= maxGenerationMs s, "lastGenerationMs" .= lastGenerationMs s,
+     "cpuGenerationMs" .= cpuGenerationMs s, "uploadMs" .= uploadMs s, "streamMs" .= streamMs s,
+     "geometryFingerprints" .= (fingerprintMode world == CaptureFingerprints),
+     "nearMissing" .= (if nearMissing s then 1 else 0 :: Int),
+     "gpuMs" .= (fmap (/1000000) (metrics >>= GPU.frameGPUNSec)),
+     "depthFormat" .= ("D32_SFLOAT"::String), "depthBits" .= (32::Int), "renderer" .= GPU.rendererAdapterName (gpu world)]
   where
-    at n xs = case drop n xs of
-      value : _ -> value
-      [] -> 0
+    chunkGeometry (Chunk _ _ geometry) = geometry

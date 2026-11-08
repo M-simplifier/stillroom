@@ -1,32 +1,32 @@
-{-# LANGUAGE PatternSynonyms #-}
+{-# LANGUAGE BangPatterns #-}
 
--- CPU decoding runs on a worker; only texture upload touches the GL thread.
+-- | CPU decoding belongs to the picture worker. The renderer uploads and owns
+-- only the completed immutable RGBA image.
 module Stillroom.Runtime.Pictures
   ( PictureEntry (..), PictureOrigin (..), PictureError (..), PreparedPicture,
+    PictureTexture (..),
     discoverPictures, findPicture, adjacentPicture, importPicture, preparePicture,
-    uploadPicture, releasePicture, removePicture, pictureErrorText, assetPath,
-    setAppIcon,
+    uploadPicture, unloadPicture, removePicture, pictureErrorText, assetPath,
   ) where
 
 import Control.Exception hiding (handle)
 import Control.Monad (filterM, unless, when)
 import Data.ByteString qualified as BS
+import Data.ByteString.Internal qualified as BSI
+import Data.ByteString.Unsafe qualified as BSU
 import Data.Char (toLower)
 import Data.List (find, findIndex, sort)
-import Foreign (ForeignPtr, Ptr, castPtr, finalizeForeignPtr, free, nullPtr, peek, withForeignPtr)
-import Foreign.C (withCString)
-import Foreign.Concurrent qualified as FC
-import Paths_stillroom (getDataFileName)
-import Raylib.Core (c'setWindowIcon)
-import Raylib.Core.Textures
-import Raylib.Internal (WindowResources, managed)
-import Raylib.Internal.Foreign (c'free, pop)
-import Raylib.Types
+import Data.Vector qualified as V
+import Data.Word (Word8)
+import Foreign.Storable (pokeByteOff)
+import GameIO.Graphics qualified as GPU
+import GameIO.Image qualified as Image
 import Stillroom.Domain
+import Stillroom.Runtime.Assets (assetPath)
 import System.Directory
-import System.Environment (getExecutablePath)
 import System.FilePath
 import System.IO (IOMode (ReadMode), hClose, openBinaryTempFile, withBinaryFile)
+
 
 data PictureOrigin = Bundled | Imported deriving (Eq, Show)
 data PictureEntry = PictureEntry
@@ -37,7 +37,8 @@ data PictureEntry = PictureEntry
 data PictureError = ImageUnavailable | UnsupportedImage | ImageTooLarge | ImageDecodeFailed
   deriving (Eq, Show)
 instance Exception PictureError
-newtype PreparedPicture = PreparedPicture (ForeignPtr Image)
+newtype PreparedPicture = PreparedPicture Image.Image
+data PictureTexture = PictureTexture !Int !Int !GPU.Texture
 
 pictureErrorText :: Language -> PictureError -> String
 pictureErrorText Japanese ImageUnavailable = "画像を読み込めません。現在の背景を続けます。"
@@ -48,13 +49,6 @@ pictureErrorText English ImageUnavailable = "Image unavailable; the current back
 pictureErrorText English UnsupportedImage = "Choose a PNG, JPEG or BMP image."
 pictureErrorText English ImageTooLarge = "Image limit: 32 MB, 8192 px per edge, 32 megapixels."
 pictureErrorText English ImageDecodeFailed = "Cannot decode this image; the current background continues."
-
-assetPath :: FilePath -> IO FilePath
-assetPath relative = do
-  executable <- getExecutablePath
-  let beside = takeDirectory executable </> relative
-  exists <- doesPathExist beside
-  if exists then pure beside else getDataFileName relative
 
 supported :: FilePath -> Bool
 supported file = map toLower (takeExtension file) `elem` [".png", ".jpg", ".jpeg", ".bmp"]
@@ -105,66 +99,86 @@ readImageBytes file = do
   when (BS.length bytes > 32 * 1024 * 1024) (throwIO ImageTooLarge)
   pure bytes
 
-prepareBytes :: FilePath -> BS.ByteString -> IO PreparedPicture
-prepareBytes file bytes = mask $ \restore -> do
-  raw <- BS.useAsCStringLen bytes $ \(buffer, size) ->
-    withCString (map toLower (takeExtension file)) $ \extension ->
-      c'loadImageFromMemory extension (castPtr buffer) (fromIntegral size)
-  when (raw == nullPtr) (throwIO ImageDecodeFailed)
-  owned <- FC.newForeignPtr raw (freeImage raw)
-  restore (do
-    valid <- c'isImageValid raw
-    unless (valid /= 0) (throwIO ImageDecodeFailed)
-    width <- peek (p'image'width raw)
-    height <- peek (p'image'height raw)
-    when (width > 8192 || height > 8192 || toInteger width * toInteger height > 32000000) (throwIO ImageTooLarge)
-    let scale = min 1 (3840 / fromIntegral (max width height) :: Double)
-    when (scale < 1) $ c'imageResize raw (max 1 (round (fromIntegral width * scale))) (max 1 (round (fromIntegral height * scale)))
-    pure (PreparedPicture owned)) `onException` finalizeForeignPtr owned
+prepareBytes :: BS.ByteString -> IO PreparedPicture
+prepareBytes bytes =
+  either (throwIO . pictureError) (pure . PreparedPicture) (Image.decodeImage bytes >>= limitPicture)
   where
-    -- h-raylib 5.6 stores decoded pixels as a linked Haskell byte list when
-    -- using pop Image. Keep native ownership here to avoid that large copy.
-    freeImage :: Ptr Image -> IO ()
-    freeImage raw = (c'free . castPtr =<< peek (p'image'data raw)) `finally` free raw
+    pictureError (Image.ImageDimensions width height)
+      | width > 8192 || height > 8192 || toInteger width * toInteger height > 32000000 = ImageTooLarge
+    pictureError _ = ImageDecodeFailed
+
+-- Bilinear resampling is bounded by the original preview texture limit. A
+-- single RGBA buffer replaces the decoded one when an edge exceeds 3840.
+limitPicture :: Image.Image -> Either Image.ImageError Image.Image
+limitPicture image
+  | extent <= 3840 = Right image
+  | otherwise = Image.rgbaImage newWidth newHeight pixels
+  where
+    (width, height) = Image.imageSize image
+    extent = max width height
+    newWidth = max 1 (div (width * 3840 + div extent 2) extent)
+    newHeight = max 1 (div (height * 3840 + div extent 2) extent)
+    source = Image.imageRGBA image
+    fraction = 256 :: Int
+    horizontal = V.generate newWidth (axis width newWidth)
+    axis oldSize newSize sample =
+      let numerator = (2 * sample + 1) * oldSize - newSize
+          (base, offset) = divMod numerator (2 * newSize)
+          blend = div (offset * fraction) (2 * newSize)
+      in (base, min (oldSize - 1) (base + 1), blend)
+    pixels = BSI.unsafeCreate (newWidth * newHeight * 4) $ \destination -> do
+      let rows !y
+            | y >= newHeight = pure ()
+            | otherwise = do
+                let (y0, y1, fy) = axis height newHeight y
+                    columns !x
+                      | x >= newWidth = pure ()
+                      | otherwise = do
+                          let (x0, x1, fx) = V.unsafeIndex horizontal x
+                              byte px py channel = fromIntegral (BSU.unsafeIndex source (4 * (py * width + px) + channel))
+                              linear a b t = a * (fraction - t) + b * t
+                              channelValue channel =
+                                let top = linear (byte x0 y0 channel) (byte x1 y0 channel) fx
+                                    bottom = linear (byte x0 y1 channel) (byte x1 y1 channel) fx
+                                in fromIntegral (div (linear top bottom fy + 32768) 65536)
+                              offset = 4 * (y * newWidth + x)
+                              channels !channel
+                                | channel == 4 = pure ()
+                                | otherwise = pokeByteOff destination (offset + channel) (channelValue channel :: Word8) >> channels (channel + 1)
+                          channels 0
+                          columns (x + 1)
+                columns 0
+                rows (y + 1)
+      rows 0
 
 preparePicture :: PictureEntry -> IO (Either PictureError PreparedPicture)
-preparePicture entry = attempt (readImageBytes (picturePath entry) >>= prepareBytes (picturePath entry))
+preparePicture entry = attempt (readImageBytes (picturePath entry) >>= prepareBytes)
 
 importPicture :: FilePath -> FilePath -> IO (Either PictureError (PictureEntry, PreparedPicture))
 importPicture directory source = attempt $ do
   bytes <- readImageBytes source
-  prepared <- prepareBytes source bytes
-  flip onException (releasePicture prepared) $ do
-    createDirectoryIfMissing True directory
-    -- The exact bytes just validated are copied; the original is never owned.
-    file <- bracketOnError
-      (openBinaryTempFile directory (takeBaseName source ++ map toLower (takeExtension source)))
-      (\(path, handle) -> hClose handle `finally` removeFile path)
-      (\(path, handle) -> BS.hPut handle bytes >> hClose handle >> pure path)
-    pure (PictureEntry ("user:" ++ takeFileName file) file (takeBaseName file) Imported, prepared)
+  prepared <- prepareBytes bytes
+  createDirectoryIfMissing True directory
+  -- Copy the exact bytes that passed validation. The original is borrowed.
+  file <- bracketOnError
+    (openBinaryTempFile directory (takeBaseName source ++ map toLower (takeExtension source)))
+    (\(path, handle) -> finally (hClose handle) (removeFile path))
+    (\(path, handle) -> BS.hPut handle bytes >> hClose handle >> pure path)
+  pure (PictureEntry ("user:" ++ takeFileName file) file (takeBaseName file) Imported, prepared)
 
-uploadPicture :: WindowResources -> PreparedPicture -> IO Texture
-uploadPicture window prepared@(PreparedPicture owned) = flip finally (releasePicture prepared) $
-  withForeignPtr owned $ \raw -> do
-    texture <- managed window (c'loadTextureFromImage raw >>= pop)
-    valid <- isTextureValid texture
-    unless valid (throwIO ImageDecodeFailed)
-    _ <- setTextureFilter texture TextureFilterBilinear
-    pure texture
+uploadPicture :: GPU.Renderer -> PreparedPicture -> IO PictureTexture
+uploadPicture renderer (PreparedPicture image) = do
+  let (width, height) = Image.imageSize image
+  texture <- catch (GPU.createTextureRGBA8With renderer GPU.Linear width height (Image.imageRGBA image)) $ \issue ->
+    case issue of
+      GPU.InvalidTexture _ _ _ -> throwIO ImageDecodeFailed
+      other -> throwIO other
+  pure (PictureTexture width height texture)
 
-releasePicture :: PreparedPicture -> IO ()
-releasePicture (PreparedPicture owned) = finalizeForeignPtr owned
+unloadPicture :: GPU.Renderer -> PictureTexture -> IO ()
+unloadPicture renderer (PictureTexture _ _ texture) = GPU.destroyTexture renderer texture
 
 removePicture :: PictureEntry -> IO (Either PictureError ())
 removePicture entry = case pictureOrigin entry of
   Bundled -> pure (Right ())
   Imported -> attempt (removeFile (picturePath entry))
-
-setAppIcon :: IO ()
-setAppIcon = do
-  file <- assetPath ("assets" </> "icon" </> "stillroom.png")
-  result <- attempt (readImageBytes file >>= prepareBytes file)
-  case result of
-    Left _ -> pure ()
-    Right prepared@(PreparedPicture owned) ->
-      withForeignPtr owned c'setWindowIcon `finally` releasePicture prepared

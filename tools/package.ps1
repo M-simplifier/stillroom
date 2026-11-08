@@ -1,17 +1,27 @@
-param([string]$Cabal = 'cabal', [string]$OutputDirectory = (Join-Path $PSScriptRoot '../release'), [switch]$LocalReview)
+param(
+    [string]$Cabal = 'cabal',
+    [string]$Ghc = 'ghc',
+    [string]$BuildDirectory = 'dist-newstyle',
+    [string]$OutputDirectory = (Join-Path $PSScriptRoot '../release'),
+    [switch]$LocalReview
+)
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
 $OutputDirectory = [IO.Path]::GetFullPath($OutputDirectory)
 Push-Location $root
 try {
-    $plan = Get-Content -LiteralPath (Join-Path $root 'dist-newstyle/cache/plan.json') -Raw -Encoding UTF8 | ConvertFrom-Json
-    $executable = ($plan.'install-plan' | Where-Object { $_.'component-name' -eq 'exe:stillroom' }).'bin-file'
-    if (-not $executable -or -not (Test-Path -LiteralPath $executable)) { throw 'Build the executable first.' }
-    $ghcLib = (& ghc --print-libdir).Trim()
+    $plan = Get-Content -LiteralPath (Join-Path $BuildDirectory 'cache/plan.json') -Raw -Encoding UTF8 | ConvertFrom-Json
+    $app = $plan.'install-plan' | Where-Object { $_.'component-name' -eq 'exe:stillroom' }
+    $executable = $app.'bin-file'
+    $worker = ($plan.'install-plan' | Where-Object { $_.'component-name' -eq 'exe:gameio-audio-worker' }).'bin-file'
+    $ghcLib = (& $Ghc --print-libdir).Trim()
     $objdump = Join-Path (Split-Path -Parent $ghcLib) 'mingw/bin/objdump.exe'
-    $imports = & $objdump -p $executable
-    if ($LASTEXITCODE -or -not ($imports | Select-String 'DLL Name:\s+libgmp-10\.dll')) {
-        throw 'Use tools/build.ps1 to produce an executable with replaceable GMP.'
+    foreach ($binary in @($executable, $worker)) {
+        if (-not $binary -or -not (Test-Path -LiteralPath $binary -PathType Leaf)) { throw 'Build the executable and its audio worker first.' }
+        $imports = & $objdump -p $binary
+        if ($LASTEXITCODE -or -not ($imports | Select-String 'DLL Name:\s+libgmp-10\.dll')) {
+            throw "Use tools/build.ps1 to link against replaceable GMP: $binary"
+        }
     }
     $gmp = Join-Path $root 'vendor/gmp'
     $dll = Join-Path (Split-Path -Parent $executable) 'libgmp-10.dll'
@@ -28,10 +38,12 @@ try {
             throw 'GMP binary/source mismatch. Run tools/build.ps1 before packaging.'
         }
     }
-    $bundle = Join-Path $OutputDirectory 'stillroom-0.12.0-windows-x64'
+    $version = $app.'pkg-version' -replace '^(\d+\.\d+\.\d+)\.0$', '$1'
+    $bundle = Join-Path $OutputDirectory "stillroom-$version-windows-x64"
     if (Test-Path -LiteralPath $bundle) { throw "Choose an empty destination: $bundle" }
     New-Item -ItemType Directory -Force -Path (Join-Path $bundle 'assets/fonts') | Out-Null
     Copy-Item -LiteralPath $executable -Destination (Join-Path $bundle 'stillroom.exe')
+    Copy-Item -LiteralPath $worker -Destination (Join-Path $bundle 'gameio-audio-worker.exe')
     Copy-Item -LiteralPath $dll -Destination $bundle
     New-Item -ItemType Directory -Path (Join-Path $bundle 'third-party-source') | Out-Null
     Copy-Item -LiteralPath (Join-Path $gmp 'gmp.src.tar.zst') -Destination (Join-Path $bundle 'third-party-source/gmp-6.3.0-2.src.tar.zst')
@@ -42,10 +54,8 @@ try {
     Copy-Item -LiteralPath (Join-Path $root 'assets/backgrounds') -Destination (Join-Path $bundle 'assets') -Recurse
     Copy-Item -LiteralPath (Join-Path $root 'assets/audio') -Destination (Join-Path $bundle 'assets') -Recurse
     Copy-Item -LiteralPath (Join-Path $root 'assets/icon') -Destination (Join-Path $bundle 'assets') -Recurse
-    New-Item -ItemType Directory -Path (Join-Path $bundle 'assets/rest') | Out-Null
-    Copy-Item -LiteralPath (Join-Path $root 'assets/rest/procedural.fs') -Destination (Join-Path $bundle 'assets/rest')
-    Copy-Item -LiteralPath (Join-Path $root 'assets/rest/nature') -Destination (Join-Path $bundle 'assets/rest') -Recurse
-    Copy-Item -LiteralPath (Join-Path $root 'assets/rest/journey') -Destination (Join-Path $bundle 'assets/rest') -Recurse
+    New-Item -ItemType Directory -Force -Path (Join-Path $bundle 'assets/rest/journey') | Out-Null
+    Copy-Item -LiteralPath (Join-Path $root 'assets/rest/journey/poster.png') -Destination (Join-Path $bundle 'assets/rest/journey')
     Copy-Item -LiteralPath (Join-Path $root 'licenses') -Destination $bundle -Recurse
     foreach ($name in @('LICENSE','README.md','STATUS.md','CONTRIBUTING.md','MAINTAINERS.md','CHANGELOG.md')) {
         Copy-Item -LiteralPath (Join-Path $root $name) -Destination $bundle
