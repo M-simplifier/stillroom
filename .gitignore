@@ -32,6 +32,11 @@
 !/test/fixtures/landscape-migration-provenance.json
 !/tools/
 !/tools/*.ps1
+!/tools/prepare-native-dependencies.py
+!/tools/native-dependencies/
+!/tools/native-dependencies/*.hs
+!/tools/native-dependencies/*.inc
+!/tools/native-dependencies/*.md
 !/tools/verify-rest-frames.py
 !/tools/migration-reference-field.c
 !/tools/migration-reference-geometry.py

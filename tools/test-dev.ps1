@@ -6,6 +6,7 @@ $OutputDirectory = [IO.Path]::GetFullPath($OutputDirectory)
 New-Item -ItemType Directory -Path $OutputDirectory | Out-Null
 $savedPath = [Environment]::GetEnvironmentVariable('PATH','Process')
 $savedData = [Environment]::GetEnvironmentVariable('stillroom_datadir','Process')
+$savedWorker = [Environment]::GetEnvironmentVariable('GAMEIO_AUDIO_WORKER','Process')
 $checks = @()
 
 function Require([bool]$Condition, [string]$Message) { if (-not $Condition) { throw $Message } }
@@ -18,12 +19,15 @@ function Reject([string]$Name, [scriptblock]$Work) {
 function Same-Environment {
     Require ([Environment]::GetEnvironmentVariable('PATH','Process') -ceq $script:expectedPath) 'PATH was not restored.'
     Require ([Environment]::GetEnvironmentVariable('stillroom_datadir','Process') -ceq $script:expectedData) 'stillroom_datadir was not restored.'
+    Require ([Environment]::GetEnvironmentVariable('GAMEIO_AUDIO_WORKER','Process') -ceq $script:expectedWorker) 'GAMEIO_AUDIO_WORKER was not restored.'
 }
 try {
     $env:PATH = $savedPath + ';stillroom-environment-sentinel'
     $env:stillroom_datadir = $root
+    $env:GAMEIO_AUDIO_WORKER = Join-Path $OutputDirectory 'outside-bundle.exe'
     $script:expectedPath = $env:PATH
     $script:expectedData = $env:stillroom_datadir
+    $script:expectedWorker = $env:GAMEIO_AUDIO_WORKER
     $absentTool = Join-Path $OutputDirectory 'absent-ghc.exe'
     $badTool = Join-Path $OutputDirectory 'bad-tool'
     Reject 'bad-tool' { & "$PSScriptRoot/dev.ps1" Capture -Ghc $absentTool -OutputDirectory $badTool }
@@ -72,7 +76,7 @@ try {
     Same-Environment
     $checks += 'an initially absent data override stays absent after failure'
 } finally {
-    $restore = @{PATH=$savedPath; stillroom_datadir=$savedData}
+    $restore = @{PATH=$savedPath; stillroom_datadir=$savedData; GAMEIO_AUDIO_WORKER=$savedWorker}
     foreach ($name in $restore.Keys) {
         if ($null -eq $restore[$name]) { Remove-Item -LiteralPath "Env:$name" -ErrorAction SilentlyContinue }
         else { [Environment]::SetEnvironmentVariable($name,$restore[$name],'Process') }

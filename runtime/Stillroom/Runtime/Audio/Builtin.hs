@@ -15,7 +15,7 @@ import Stillroom.Audio.Environment
 import Stillroom.Audio.Mix (MixError, bankTailFrames, renderMix, sampleRate)
 import Stillroom.Domain (Preset)
 import Stillroom.Runtime.Audio.Bank (loadBank, loadSamples)
-import Stillroom.Runtime.Pictures (assetPath)
+import Stillroom.Runtime.Assets (assetPath)
 import System.FilePath ((</>))
 
 -- Structural aliases match Runtime.Audio without importing its device module.

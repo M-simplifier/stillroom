@@ -33,8 +33,8 @@ Stillroom source and original synthesis are MIT licensed. Dependencies and the f
 | ghc-bignum | 1.3 | BSD3 | [ghc-bignum-1.3.txt](ghc-bignum-1.3.txt) |
 | ghc-boot-th | 9.6.7 | BSD-3-Clause (GHC distribution notice) | [ghc-boot-th-9.6.7.txt](ghc-boot-th-9.6.7.txt) |
 | ghc-prim | 0.10.0 | BSD-3-Clause | [ghc-prim-0.10.0.txt](ghc-prim-0.10.0.txt) |
-| h-raylib | 5.6.0.0 | Apache-2.0 | [h-raylib-5.6.0.0.txt](h-raylib-5.6.0.0.txt) |
 | hashable | 1.5.1.0 | BSD-3-Clause | [hashable-1.5.1.0.txt](hashable-1.5.1.0.txt) |
+| haskell-game-io | 0.1.0.0 | MIT | [haskell-game-io-0.1.0.0.txt](haskell-game-io-0.1.0.0.txt), [codec notices](gameio-audio-codecs.txt) |
 | indexed-traversable-instances | 0.1.2.1 | BSD2 | [indexed-traversable-instances-0.1.2.1.txt](indexed-traversable-instances-0.1.2.1.txt) |
 | indexed-traversable | 0.1.5 | BSD2 | [indexed-traversable-0.1.5.txt](indexed-traversable-0.1.5.txt) |
 | integer-conversion | 0.1.1 | BSD-3-Clause | [integer-conversion-0.1.1.txt](integer-conversion-0.1.1.txt) |
@@ -45,6 +45,7 @@ Stillroom source and original synthesis are MIT licensed. Dependencies and the f
 | parsec | 3.1.16.1 | BSD2 | [parsec-3.1.16.1.txt](parsec-3.1.16.1.txt) |
 | pretty | 1.1.3.6 | BSD3 | [pretty-1.1.3.6.txt](pretty-1.1.3.6.txt) |
 | primitive | 0.9.1.0 | BSD3 | [primitive-0.9.1.0.txt](primitive-0.9.1.0.txt) |
+| process | 1.6.19.0 | BSD-style, Haskell 98 Report | [process-1.6.19.0.txt](process-1.6.19.0.txt) |
 | random | 1.3.1 | BSD3 | [random-1.3.1.txt](random-1.3.1.txt) |
 | rts | 1.0.2 | BSD-3-Clause (GHC distribution notice) | [rts-1.0.2.txt](rts-1.0.2.txt) |
 | scientific | 0.3.8.1 | BSD3 | [scientific-0.3.8.1.txt](scientific-0.3.8.1.txt) |
@@ -71,7 +72,11 @@ Stillroom source and original synthesis are MIT licensed. Dependencies and the f
 | vector-stream | 0.1.0.1 | BSD3 | [vector-stream-0.1.0.1.txt](vector-stream-0.1.0.1.txt) |
 | witherable | 0.5 | BSD-3-Clause | [witherable-0.5.txt](witherable-0.5.txt) |
 
-Native components: see `raylib-native.txt` and `windows-runtime.txt`. The bundled Noto Sans CJK JP Regular font is under SIL OFL 1.1; see `assets/fonts/OFL.txt` and `docs/assets.md`.
+See `windows-runtime.txt` for compiler runtime notices. The bundled Noto Sans
+CJK JP Regular font is under SIL OFL 1.1. See `assets/fonts/OFL.txt` and
+`docs/assets.md`. Four dependencies are prepared from pinned upstream source.
+Their original licenses apply. See the
+[adaptations and compatibility checks](../tools/native-dependencies/README.md).
 
 The Windows release dynamically links GNU MP 6.3.0 (MSYS2 UCRT64 package 6.3.0-2),
 copyright the Free Software Foundation and GMP contributors. It is used under

@@ -1,7 +1,5 @@
-{-# LANGUAGE PatternSynonyms #-}
-
 -- | One lazily acquired GPU world, one pure journey, and the input adapter.
--- All native resources are released on the window thread before its GL context.
+-- All native resources are released on the window thread before its renderer.
 module Stillroom.Runtime.Journey
   ( JourneyRuntime,
     withJourney,
@@ -25,34 +23,33 @@ module Stillroom.Runtime.Journey
     terrainMatchesForCheck,
     quality,
     frameMatchesForCheck,
-    frameUniformErrorForCheck,
+    frameProjectionErrorForCheck,
+    setAllocationLimitsForCheck,
   )
 where
 
-import Control.Exception (IOException, bracket, try, catch, mask_, throwIO)
+import Control.Exception (bracket, mask_, throwIO)
 import Control.Monad (unless, when)
-import Data.ByteString qualified as BS
+import Data.Char (ord)
 import Data.IORef
 import Data.Maybe (isNothing)
 import Data.Vector.Storable qualified as V
-import Raylib.Core qualified as R
-import Raylib.Core.Shapes (drawRectangleRec)
-import Raylib.Types
+import GameIO.Graphics qualified as Native
+import GameIO.Input qualified as I
+import GameIO.Platform qualified as Platform
 import Stillroom.Domain (Language (..))
 import Stillroom.Audio.Environment (EnvironmentInput, environmentInput)
 import Stillroom.Graphics (Tier)
 import Stillroom.Journey.Frame qualified as F
-import Stillroom.Runtime.Journey.Packet qualified as Packet
 import Stillroom.Graphics.Encoding.Mesh qualified as Mesh
 import Stillroom.Journey.Railcar qualified as Railcar
 import Stillroom.Journey.Ride qualified as J
 import Stillroom.Journey.Walk qualified as W
 import Stillroom.Journey.World qualified as World
-import Stillroom.Runtime.Pictures qualified as Pictures
 import Stillroom.Runtime.Graphics.Journey qualified as GPU
-import Stillroom.Runtime.Graphics.Resource (GraphicsError (..), FingerprintMode (..))
+import Stillroom.Runtime.Graphics.Journey (FingerprintMode(..))
+import Stillroom.Runtime.Graphics.Scene
 import Stillroom.Landscape.Geometry qualified as Landscape
-import System.FilePath ((</>))
 
 -- Geometry is sampled on the frame thread, never in the audio supplier.
 -- Sound receives only the few physical quantities it needs to interpolate.
@@ -73,7 +70,9 @@ soundscape runtime = do
   pure (environmentInput (J.seat j == J.Aboard) (J.speed (J.car j)) forest (W.shoreDistance seed x z))
 
 data JourneyRuntime = Runtime
-  { native :: IORef (Maybe GPU.World),
+  { window :: !Platform.Window,
+    renderer :: !Native.Renderer,
+    native :: IORef (Maybe GPU.World),
     current :: IORef J.Journey,
     previous :: IORef J.Journey,
     accumulator :: IORef Double,
@@ -90,23 +89,24 @@ data JourneyRuntime = Runtime
 quality :: JourneyRuntime -> Tier -> IO ()
 quality runtime tier = do
   pointer <- ensure runtime
-  case pointer of
-    Nothing -> pure ()
-    Just p -> do
-      ok <- GPU.quality p (fromEnum tier)
-      unless ok (GPU.problem p >>= writeIORef (problem runtime) . Just)
+  mapM_ (\world -> GPU.quality world tier) pointer
 
-withJourney :: (JourneyRuntime -> IO a) -> IO a
+setAllocationLimitsForCheck :: JourneyRuntime -> Int -> Int -> IO ()
+setAllocationLimitsForCheck runtime color depth = do
+  pointer <- ensure runtime
+  mapM_ (\world -> GPU.setAllocationLimitsForCheck world color depth) pointer
+
+withJourney :: Platform.Window -> Native.Renderer -> (JourneyRuntime -> IO a) -> IO a
 withJourney = withJourneyMode SkipFingerprints
 
-withJourneyForCheck :: (JourneyRuntime -> IO a) -> IO a
+withJourneyForCheck :: Platform.Window -> Native.Renderer -> (JourneyRuntime -> IO a) -> IO a
 withJourneyForCheck = withJourneyMode CaptureFingerprints
 
-withJourneyMode :: FingerprintMode -> (JourneyRuntime -> IO a) -> IO a
-withJourneyMode fingerprints = bracket acquire release
+withJourneyMode :: FingerprintMode -> Platform.Window -> Native.Renderer -> (JourneyRuntime -> IO a) -> IO a
+withJourneyMode fingerprints owner device = bracket acquire release
   where
     acquire =
-      Runtime
+      Runtime owner device
         <$> newIORef Nothing
         <*> newIORef initial
         <*> newIORef initial
@@ -149,7 +149,7 @@ advanceForCheck r count input = do
 fingerprintsForCheck :: JourneyRuntime -> Int -> Int -> IO (Maybe Integer, Maybe Integer)
 fingerprintsForCheck r x z = do
   unless (fingerprintMode r == CaptureFingerprints) $
-    throwIO (GeometryUnavailable "Fingerprint requested from a rendering-only runtime")
+    throwIO (userError "Fingerprint requested from a rendering-only runtime")
   readIORef (native r)
     >>= maybe
       (pure (Nothing, Nothing))
@@ -201,7 +201,8 @@ enter r = do
 suspend :: JourneyRuntime -> IO ()
 suspend r = do
   was <- atomicModifyIORef' (captured r) (\x -> (False, x))
-  when was R.enableCursor
+  Platform.setPointerCapture (window r) False
+  when was (Platform.setPointerVisible (window r) True)
   j <- model r
   let c = J.car j
       w = J.person j
@@ -220,32 +221,33 @@ suspend r = do
   writeIORef (help r) False
 
 isCaptured :: JourneyRuntime -> IO Bool
-isCaptured = readIORef . captured
+isCaptured = Platform.windowPointerCaptured . window
 
 -- The host already sampled relative mouse movement; never consume it twice.
-update :: JourneyRuntime -> Double -> Bool -> (Float, Float) -> IO ()
-update r dt click (dx, dy) = do
+update :: JourneyRuntime -> Double -> Bool -> (Float, Float) -> I.InputState -> [I.InputChange] -> IO ()
+update r dt click (dx, dy) keys changes = do
   loaded <- (== 0) <$> readIORef (remaining r)
   healthy <- isNothing <$> readIORef (problem r)
   when (loaded && healthy) $ do
     oldCapture <- isCaptured r
-    release <- R.isKeyPressed KeyTab
-    let capture = not release && (if click then not oldCapture else oldCapture)
-    when (capture /= oldCapture) $ do
-      (if capture then R.disableCursor else R.enableCursor)
-      writeIORef (captured r) capture
-    reveal <- R.isKeyPressed KeyF1
+    let release = pressed 0x09
+    let wanted = not release && (if click then not oldCapture else oldCapture)
+    when (wanted /= oldCapture) (Platform.setPointerCapture (window r) wanted)
+    capture <- isCaptured r
+    was <- atomicModifyIORef' (captured r) (\previously -> (capture, previously))
+    when (capture /= was) (Platform.setPointerVisible (window r) (not capture))
+    let reveal = pressed 0x70
     when reveal (modifyIORef' (help r) not)
-    w <- R.isKeyDown KeyW
-    s <- R.isKeyDown KeyS
-    a <- R.isKeyDown KeyA
-    d <- R.isKeyDown KeyD
-    left <- R.isKeyDown KeyLeft
-    right <- R.isKeyDown KeyRight
-    space <- R.isKeyPressed KeySpace
-    access <- R.isKeyPressed KeyE
-    up <- R.isKeyPressed KeyUp
-    down <- R.isKeyPressed KeyDown
+    let w = held (letter 'W')
+    let s = held (letter 'S')
+    let a = held (letter 'A')
+    let d = held (letter 'D')
+    let left = held 0x25
+    let right = held 0x27
+    let space = pressed 0x20
+    let access = pressed (letter 'E')
+    let up = pressed 0x26
+    let down = pressed 0x28
     waiting <- readIORef (pending r)
     oldAccumulator <- readIORef (accumulator r)
     let elapsed = if dt > 0.5 then 0 else max 0 dt
@@ -274,6 +276,12 @@ update r dt click (dx, dy) = do
     writeIORef (current r) after
     writeIORef (accumulator r) rest
     writeIORef (pending r) (if count == 0 then input else J.neutral)
+  where
+    letter = fromIntegral . ord
+    held = I.virtualKeyHeld keys
+    pressed key = any (\change -> case change of
+      I.InputKey I.KeyPressed message -> I.keyVirtual message == key
+      _ -> False) changes
 
 ensure :: JourneyRuntime -> IO (Maybe GPU.World)
 ensure r = do
@@ -282,26 +290,13 @@ ensure r = do
   case (existing, failed) of
     (Just p, _) -> pure (Just p)
     (_, Just _) -> pure Nothing
-    _ -> do
-      sources <-
-        try $
-          mapM
-            (\name -> Pictures.assetPath ("assets" </> "rest" </> "journey" </> name) >>= BS.readFile)
-            ["common.glsl", "land.vs", "land.fs", "water.vs", "water.fs", "sky.fs", "post.fs"]
-      case sources of
-        Left (_ :: IOException) -> writeIORef (problem r) (Just "Journey shaders unavailable") >> pure Nothing
-        Right files -> case railcarPacket of
-          Left issue -> writeIORef (problem r) (Just issue) >> pure Nothing
-          Right mesh -> mask_ $ do
-            j <- model r
-            loaded <- (Right <$> GPU.openWithFingerprints (fingerprintMode r) (J.worldSeed j) files mesh) `catch` (\(issue :: GraphicsError) -> pure (Left (show issue)))
-            case loaded of
-              Left issue -> writeIORef (problem r) (Just issue) >> pure Nothing
-              Right pointer -> do
-                writeIORef (native r) (Just pointer)
-                ok <- GPU.ready pointer
-                unless ok (GPU.problem pointer >>= writeIORef (problem r) . Just)
-                pure (Just pointer)
+    _ -> case railcarPacket of
+      Left issue -> writeIORef (problem r) (Just issue) >> pure Nothing
+      Right mesh -> mask_ $ do
+        j <- model r
+        resident <- GPU.openWithFingerprints (renderer r) (fingerprintMode r) (J.worldSeed j) mesh
+        writeIORef (native r) (Just resident)
+        pure (Just resident)
 
 -- Retain the pure compilation result across world recreation. Shapes are not
 -- compiled during drawing; only the GPU resource belongs to a world's lifetime.
@@ -310,12 +305,12 @@ railcarPacket = do
   mesh <- either (Left . show) Right Railcar.railcarMesh
   either (Left . show) Right (Mesh.lowerMesh mesh)
 
-draw :: JourneyRuntime -> Rectangle -> IO ()
-draw r rectangle@(Rectangle left top width height) = do
-  drawRectangleRec rectangle (Color 13 25 24 255)
+draw :: JourneyRuntime -> SceneRect -> IO SceneDraw
+draw r rectangle@(SceneRect _ _ width height) = do
+  let clear = mempty {sceneOverlay = [solid rectangle (Native.Color (13/255) (25/255) (24/255) 1)]}
   pointer <- ensure r
   case pointer of
-    Nothing -> pure ()
+    Nothing -> pure clear
     Just p -> do
       j <- model r
       before <- readIORef (previous r)
@@ -327,12 +322,12 @@ draw r rectangle@(Rectangle left top width height) = do
       needed <- if missing > 0 then GPU.prepare p (W.posX v) (W.posZ v) else pure missing
       writeIORef (remaining r) needed
       when (needed < 0) (GPU.problem p >>= writeIORef (problem r) . Just)
-      when (needed == 0) $ do
+      if needed /= 0 then pure clear else do
         let rw = max 1 (floor width)
             rh = max 1 (floor height)
         dimensions <- GPU.frameTargets p (W.posX v) (W.posZ v) rw rh
         result <- case dimensions of
-          Nothing -> pure (Right False)
+          Nothing -> pure (Right mempty)
           Just sizes -> do
             let seed = J.worldSeed shown
                 progress = J.progress c
@@ -348,47 +343,33 @@ draw r rectangle@(Rectangle left top width height) = do
               Left issue -> pure (Left issue)
               Right frame -> do
                 writeIORef (lastPlan r) (Just frame)
-                Right <$> GPU.render p frame (Rectangle left top (fromIntegral rw) (fromIntegral rh))
+                Right <$> GPU.render p frame rectangle
 
         case result of
-          Left issue -> writeIORef (problem r) (Just issue)
-          Right True -> pure ()
-          Right _ -> GPU.problem p >>= writeIORef (problem r) . Just
-        when (J.fade j > 0) (drawRectangleRec rectangle (Color 5 10 10 (round (255 * J.fade j))))
-
-plannedValuesForCheck :: JourneyRuntime -> IO (V.Vector Float)
-plannedValuesForCheck r = do
-  frame<-readIORef (lastPlan r)
-  pure $ case frame >>= either (const Nothing) Just . Packet.lowerFrame of
-    Nothing->V.empty
-    Just packet->Packet.packetValues packet
+          Left issue -> writeIORef (problem r) (Just issue) >> pure clear
+          Right scene -> do
+            ok <- GPU.ready p
+            unless ok (GPU.problem p >>= writeIORef (problem r) . Just)
+            let fade = if J.fade j > 0 then mempty {sceneOverlay =
+                  [solid rectangle (Native.Color (5/255) (10/255) (10/255) (realToFrac (J.fade j)))]} else mempty
+            pure (clear <> scene <> fade)
 
 -- Compare the values consumed by the GPU interpreter with the validated plan.
 frameMatchesForCheck :: JourneyRuntime -> IO Bool
 frameMatchesForCheck r = do
-  expected <- plannedValuesForCheck r
+  expected <- readIORef (lastPlan r)
   pointer <- readIORef (native r)
   case pointer of
     Nothing -> pure False
     Just p -> do
-      actual <- GPU.frameCopy p
-      pure (expected == actual && V.length actual == Packet.packetSize)
+      actual <- GPU.executedFrame p
+      pure (expected == actual && not (isNothing actual))
 
--- Uniform values read back from the actual linked land shader after drawing.
--- Projection uses the exact lowered value; the backend never recomputes it.
-frameUniformErrorForCheck :: JourneyRuntime -> IO (Maybe Float)
-frameUniformErrorForCheck r = do
-  p <- readIORef (native r)
-  expected <- plannedValuesForCheck r
-  case p of
-    Nothing -> pure Nothing
-    Just pointer -> do
-      actual <- GPU.frameUniforms pointer
-      pure $ case actual of
-        Just values | V.length expected == Packet.packetSize ->
-          let wanted=V.concat [V.slice 16 32 expected,V.slice 191 16 expected,V.slice 10 3 expected,V.slice 7 3 expected]
-           in Just (V.maximum (V.zipWith (\a b -> abs(a-b)) values wanted))
-        _ -> Nothing
+frameProjectionErrorForCheck :: JourneyRuntime -> IO (Maybe Float)
+frameProjectionErrorForCheck r = do
+  pointer <- readIORef (native r)
+  frame <- maybe (pure Nothing) GPU.executedFrame pointer
+  pure (GPU.clipProjectionError <$> frame)
 
 status :: JourneyRuntime -> Language -> IO (Maybe String)
 status r language = do

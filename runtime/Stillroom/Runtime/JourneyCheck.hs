@@ -1,9 +1,8 @@
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE PatternSynonyms #-}
 
 module Stillroom.Runtime.JourneyCheck (runJourneyCheck) where
 
-import Control.Exception (bracket, bracket_, throwIO, try)
+import Control.Exception (IOException, throwIO, try)
 import Control.Monad (forM, forM_, replicateM_, unless)
 import Data.Aeson (Value, decodeStrict', encode, object, withObject, (.:), (.=))
 import Data.Aeson.Types (parseMaybe)
@@ -11,15 +10,14 @@ import Data.ByteString.Char8 qualified as BC
 import Data.ByteString.Lazy qualified as BL
 import Data.List (nub)
 import Data.Maybe (isJust, listToMaybe)
-import Raylib.Core qualified as R
-import Raylib.Types
 import Stillroom.Domain (Language (English))
 import Stillroom.Journey.Ride qualified as J
 import Stillroom.Journey.Walk qualified as W
 import Stillroom.Journey.World qualified as World
 import Stillroom.Runtime.Capture (screenshot)
+import Stillroom.Runtime.Graphics.CheckIO
+import Stillroom.Runtime.Graphics.Scene (wholeSurface)
 import Stillroom.Runtime.Journey qualified as Runtime
-import Stillroom.Runtime.Graphics.Resource (GraphicsError (..))
 import System.Directory (createDirectoryIfMissing)
 import System.FilePath ((</>))
 
@@ -28,18 +26,16 @@ import System.FilePath ((</>))
 runJourneyCheck :: FilePath -> IO Bool
 runJourneyCheck folder = do
   createDirectoryIfMissing True folder
-  R.setTraceLogLevel LogWarning
-  R.setConfigFlags [WindowHidden, WindowUndecorated, WindowAlwaysRun]
-  bracket (R.initWindow 960 540 "Stillroom journey check") (R.closeWindow . Just) $ \_ -> do
-    R.setTargetFPS 0
-    rejected <- Runtime.withJourney $ \runtime ->
-      try (Runtime.fingerprintsForCheck runtime 0 0) :: IO (Either GraphicsError (Maybe Integer, Maybe Integer))
+  withHiddenRenderer "Stillroom journey check" 960 540 $ \window renderer -> do
+    rejected <- Runtime.withJourney window renderer $ \runtime ->
+      try (Runtime.fingerprintsForCheck runtime 0 0) :: IO (Either IOException (Maybe Integer, Maybe Integer))
     let ordinaryRejectsFingerprint = case rejected of
-          Left (GeometryUnavailable _) -> True
+          Left _ -> True
           _ -> False
-    Runtime.withJourneyForCheck $ \runtime -> do
-      began <- R.getTime
-      let frame = bracket_ R.beginDrawing R.endDrawing $ Runtime.draw runtime (Rectangle 0 0 960 540)
+    Runtime.withJourneyForCheck window renderer $ \runtime -> do
+      began <- clockSeconds
+      let draw = Runtime.draw runtime (wholeSurface 960 540)
+          frame = presentScene renderer draw
           warm = replicateM_ 82 frame >> healthy runtime
       warm
       initial <- Runtime.model runtime
@@ -52,7 +48,7 @@ runJourneyCheck folder = do
         healthy runtime
         j <- Runtime.model runtime
         let person = J.person j
-        if i `mod` 600 == 0 then screenshot (folder </> ("journey-" ++ show i ++ ".png")) else pure ()
+        if i `mod` 600 == 0 then screenshot (folder </> ("journey-" ++ show i ++ ".png")) (readScene renderer draw) else pure ()
         pure (W.habitatAt (J.worldSeed j) (W.posX person) (W.posZ person))
       end <- Runtime.model runtime
       metadata <- Runtime.info runtime
@@ -83,14 +79,14 @@ runJourneyCheck folder = do
       outside <- Runtime.model runtime
       Runtime.advanceForCheck runtime 60 (J.neutral {J.walking = W.neutral {W.forward = 1}})
       frame
-      screenshot (folder </> "journey-on-foot.png")
+      screenshot (folder </> "journey-on-foot.png") (readScene renderer draw)
       walked <- Runtime.model runtime
       Runtime.advanceForCheck runtime 60 (J.neutral {J.walking = W.neutral {W.forward = (-1)}})
       Runtime.advanceForCheck runtime 1 (J.neutral {J.access = True})
       Runtime.advanceForCheck runtime 45 J.neutral
       frame
       boarded <- Runtime.model runtime
-      finished <- R.getTime
+      finished <- clockSeconds
       let diagnostics = decodeStrict' (BC.pack metadata) :: Maybe Value
           bounded =
             diagnostics

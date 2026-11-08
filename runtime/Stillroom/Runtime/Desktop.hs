@@ -1,13 +1,12 @@
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE PatternSynonyms #-}
 
 module Stillroom.Runtime.Desktop (runDesktop, runLocalReview) where
 
 import Control.Applicative ((<|>))
-import Control.Concurrent (forkOS)
+import Control.Concurrent (forkOS, threadDelay)
 import Control.Concurrent.MVar
 import Control.Exception hiding (handle)
-import Control.Monad (forM_, unless, when)
+import Control.Monad (foldM, forM_, unless, when)
 import Data.Aeson (encode, object, (.=))
 import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as BL
@@ -15,18 +14,21 @@ import Data.IORef
 import Data.List (find, sort)
 import Data.List.NonEmpty qualified as NE
 import Data.Maybe (fromMaybe, isJust)
+import Data.Word (Word32, Word64)
 import Data.Time.Clock.POSIX (getPOSIXTime)
 import GHC.Clock (getMonotonicTimeNSec)
-import Raylib.Core qualified as R
-import Raylib.Core.Textures (unloadTexture)
-import Raylib.Internal (WindowResources)
-import Raylib.Types
+import GameIO.Audio qualified as GameAudio
+import GameIO.Graphics qualified as GPU
+import GameIO.Input qualified as Input
+import GameIO.Platform qualified as Platform
+import GameIO.Platform.Icon (withWindowIcon)
+
 import Stillroom.Domain
 import Stillroom.Interface qualified as UI
 import Stillroom.Journey.Ride qualified as Ride
 import Stillroom.Journey.World qualified as World
-import Stillroom.Runtime.Audio qualified as Audio
-import Stillroom.Runtime.Audio.Builtin qualified as Builtin
+import Stillroom.Runtime.Assets (assetPath)
+import Stillroom.Runtime.Audio.Remote qualified as Audio
 import Stillroom.Runtime.Capture (screenshot)
 import Stillroom.Runtime.Journey qualified as Journey
 import Stillroom.Runtime.JourneyStorage qualified as JourneyStorage
@@ -41,7 +43,10 @@ import System.FilePath (takeDirectory, (</>))
 import System.Random (randomIO)
 
 data Desktop = Desktop
-  { sessionRef :: !(IORef Session),
+  { desktopWindow :: !Platform.Window,
+    desktopRenderer :: !GPU.Renderer,
+    applicationInstance :: !(Maybe Native.ApplicationInstance),
+    sessionRef :: !(IORef Session),
     preferencesRef :: !(IORef Preferences),
     noticeRef :: !(IORef (Maybe String)),
     pickerBusy :: !(IORef Bool),
@@ -50,129 +55,126 @@ data Desktop = Desktop
     fontRef :: !(IORef View.Typeface),
     fontTitlesRef :: !(IORef [String]),
     picturesRef :: !(IORef [Pictures.PictureEntry]),
-    pictureRef :: !(IORef (Maybe (Pictures.PictureEntry, Texture))),
+    pictureRef :: !(IORef (Maybe (Pictures.PictureEntry, Pictures.PictureTexture))),
     pictureBusy :: !(IORef Bool),
     pictureGeneration :: !(IORef Integer),
     pictureResult :: !(MVar (Integer, Either Pictures.PictureError (Maybe (Pictures.PictureEntry, Pictures.PreparedPicture)))),
     restAssets :: !Rest.RestAssets,
-    focusedRef :: !(IORef Bool),
     controlFocusRef :: !(IORef (Maybe UI.UIAction)),
     checkFrameTimes :: !(IORef [(RestScene, Double)]),
     checkSwitchStart :: !(IORef (Maybe (RestScene, Double))),
     checkSwitchTimes :: !(IORef [(RestScene, Double)]),
+    checkAudioPhases :: !(IORef [(Int, Word64)]),
     engine :: !Audio.Engine,
     preferencesPath :: !FilePath,
     mutedCheck :: !Bool
   }
 
-runDesktop :: FilePath -> Maybe FilePath -> Maybe FilePath -> IO Bool
-runDesktop = runDesktopStarting Playing "Stillroom"
+runDesktop :: Maybe Native.ApplicationInstance -> FilePath -> Maybe FilePath -> Maybe FilePath -> IO Bool
+runDesktop instanceValue = runDesktopStarting instanceValue Playing "Stillroom"
 
 runLocalReview :: FilePath -> IO Bool
-runLocalReview statePath = runDesktopStarting Paused "Stillroom · Haskell版" statePath Nothing Nothing
+runLocalReview statePath = runDesktopStarting Nothing Paused "Stillroom · Haskell版" statePath Nothing Nothing
 
-runDesktopStarting :: Transport -> String -> FilePath -> Maybe FilePath -> Maybe FilePath -> IO Bool
-runDesktopStarting initialTransport title statePath checkDirectory overrideFolder = do
+runDesktopStarting :: Maybe Native.ApplicationInstance -> Transport -> String -> FilePath -> Maybe FilePath -> Maybe FilePath -> IO Bool
+runDesktopStarting instanceValue initialTransport title statePath checkDirectory overrideFolder = do
   startupBegan <- getMonotonicTimeNSec
   languageValue <- Native.systemLanguage
   (loaded, initialNotice) <- readPreferences statePath languageValue
-  let preferences = loaded {savedFolder = case overrideFolder of Just p -> Just p; Nothing -> savedFolder loaded}
+  let preferences = loaded {savedFolder = overrideFolder <|> savedFolder loaded}
       prefs = if isJust checkDirectory then preferences {savedVolume = 0, savedWindow = Compact, savedLanguage = English} else preferences
   let builtins = presetTrack (savedMusicPreset prefs)
   tracksResult <- maybe (pure (Right builtins)) scanFolder (savedFolder prefs)
   let tracks = either (const builtins) id tracksResult
       notice = either (const (Just "Music folder unavailable; built-in music is playing.")) (const initialNotice) tracksResult
-  R.setTraceLogLevel LogWarning
-  R.setConfigFlags ([VsyncHint, WindowAlwaysRun, WindowResizable] ++ [WindowHidden | isJust checkDirectory])
-  bracket (R.initWindow 760 500 title) (R.closeWindow . Just) $ \window -> do
-    R.setExitKey KeyNull
-    R.setWindowMinSize 700 500
-    Pictures.setAppIcon
-    -- Keep presentation synchronized; do not alternate short frames with an
-    -- unrelated Haskell sleep while a borderless window covers a display.
-    R.setTargetFPS 60
-    -- A normal native title bar is available in compact mode; the full-screen
-    -- mode uses an undecorated, non-topmost window on exactly one display.
-    pictures <- Pictures.discoverPictures (takeDirectory statePath </> "backgrounds")
-    Rest.withRestAssets window $ \rests -> do
-      JourneyStorage.readJourney (takeDirectory statePath </> "journey.json") >>= Journey.restoreModel (Rest.journey rests)
-      seed <- round . (* 1000000) <$> getPOSIXTime
-      (musicSource, ambienceSource) <- Builtin.loadBuiltinSources (fromIntegral seed)
-      let start chosen startupNotice =
-            -- A failed library restarts the audio session. Acquire a fresh font
-            -- too: an earlier picture/music change may have released the first
-            -- font. The current font is always closed before the GL context.
-            withSessionFont window (map trackTitle (NE.toList chosen) ++ map Pictures.pictureName pictures) $
-              \liveFont -> Audio.withEngineLayersStarting initialTransport musicSource ambienceSource chosen seed (loudness (restoreSession prefs)) $ \audio -> do
-                desktop <-
-                  Desktop
-                    <$> newIORef ((restoreSession prefs) {transport = initialTransport, builtInMusic = all isBuiltIn (NE.toList chosen)})
-                    <*> newIORef prefs
-                    <*> newIORef startupNotice
-                    <*> newIORef False
-                    <*> newIORef 0
-                    <*> newEmptyMVar
-                    <*> pure liveFont
-                    <*> newIORef (map trackTitle (NE.toList chosen))
-                    <*> newIORef pictures
-                    <*> newIORef Nothing
-                    <*> newIORef False
-                    <*> newIORef 0
-                    <*> newEmptyMVar
-                    <*> pure rests
-                    <*> newIORef False
-                    <*> newIORef Nothing
-                    <*> newIORef []
-                    <*> newIORef Nothing
-                    <*> newIORef []
-                    <*> pure audio
-                    <*> pure statePath
-                    <*> pure (isJust checkDirectory)
-                forM_ (Pictures.findPicture (savedPicture prefs) pictures) $ \entry -> do
-                  prepared <- Pictures.preparePicture entry
-                  case prepared of
-                    Left issue ->
-                      when (savedBackground prefs == Picture) $
-                        writeIORef (noticeRef desktop) (Just (Pictures.pictureErrorText (savedLanguage prefs) issue))
-                    Right image -> do
-                      texture <- Pictures.uploadPicture window image
-                      writeIORef (pictureRef desktop) (Just (entry, texture))
-                      modifyIORef' (preferencesRef desktop) (\p -> p {savedPicture = Just (Pictures.pictureKey entry)})
-                place desktop False
-                now <- R.getTime
-                phase <- newIORef (0 :: Int, now)
-                checks <- newIORef ([] :: [(String, Bool)])
-                pausePosition <- newIORef 0
-                case checkDirectory of
-                  Just folder -> do
-                    createDirectoryIfMissing True folder
-                    startupFinished <- getMonotonicTimeNSec
-                    initialSound <- Audio.snapshot audio
-                    BL.writeFile (folder </> "startup.json")
-                      $ encode
-                      $ object
-                        [ "readyBeforeFirstLoopMs" .= (fromIntegral (startupFinished - startupBegan) / 1e6 :: Double),
-                          "audioClockBeforeFirstLoopSeconds" .= Audio.position initialSound,
-                          "scope" .= ("App entry to ready loop, includes three landscape uploads, font and audio setup; muted check; excludes process-loader time; not first audible sample latency." :: String)
-                        ]
-                  Nothing -> pure ()
-                loop window desktop checkDirectory phase checks pausePosition now now 0
-      -- An unavailable or corrupt selected library is a recoverable startup
-      -- condition. Device/window failures remain visible rather than looping.
-      result <- tryJust onlyLibraryFailure (start tracks notice)
-      case result of
-        Right success -> pure success
-        Left _ -> start builtins (Just "Music files could not be decoded; built-in music is playing.")
+  Platform.withWindowVisibility (not (isJust checkDirectory)) (Platform.WindowConfig title 760 500) $ \window ->
+    flip finally (Native.setPower Paused Compact) $ do
+      Platform.setWindowMinimumSize window 700 500
+      icon <- assetPath ("assets" </> "icon" </> "stillroom.ico")
+      hasIcon <- doesFileExist icon
+      let iconScope = if hasIcon then withWindowIcon window icon else id
+      iconScope $ GPU.withRenderer window $ \renderer -> do
+        rendererReady <- getMonotonicTimeNSec
+        pictures <- Pictures.discoverPictures (takeDirectory statePath </> "backgrounds")
+        Rest.withRestAssets window renderer $ \rests -> do
+          scenesReady <- getMonotonicTimeNSec
+          JourneyStorage.readJourney (takeDirectory statePath </> "journey.json") >>= Journey.restoreModel (Rest.journey rests)
+          seed <- round . (* 1000000) <$> getPOSIXTime
+          let start chosen startupNotice =
+                withSessionFont renderer (map trackTitle (NE.toList chosen) ++ map Pictures.pictureName pictures) $ \liveFont -> do
+                  fontReady <- getMonotonicTimeNSec
+                  bracket (newIORef Nothing) (releasePicture renderer) $ \livePicture ->
+                    Audio.withEngine initialTransport chosen seed (loudness (restoreSession prefs)) $ \audio -> do
+                      workerReady <- getMonotonicTimeNSec
+                      desktop <-
+                        Desktop window renderer instanceValue
+                          <$> newIORef ((restoreSession prefs) {transport = initialTransport, builtInMusic = all isBuiltIn (NE.toList chosen)})
+                          <*> newIORef prefs
+                          <*> newIORef startupNotice
+                          <*> newIORef False
+                          <*> newIORef 0
+                          <*> newEmptyMVar
+                          <*> pure liveFont
+                          <*> newIORef (map trackTitle (NE.toList chosen))
+                          <*> newIORef pictures
+                          <*> pure livePicture
+                          <*> newIORef False
+                          <*> newIORef 0
+                          <*> newEmptyMVar
+                          <*> pure rests
+                          <*> newIORef Nothing
+                          <*> newIORef []
+                          <*> newIORef Nothing
+                          <*> newIORef []
+                          <*> newIORef []
+                          <*> pure audio
+                          <*> pure statePath
+                          <*> pure (isJust checkDirectory)
+                      forM_ (Pictures.findPicture (savedPicture prefs) pictures) $ \entry -> do
+                        prepared <- Pictures.preparePicture entry
+                        case prepared of
+                          Left issue ->
+                            when (savedBackground prefs == Picture) $
+                              writeIORef (noticeRef desktop) (Just (Pictures.pictureErrorText (savedLanguage prefs) issue))
+                          Right image -> mask_ $ do
+                            texture <- Pictures.uploadPicture renderer image
+                            writeIORef livePicture (Just (entry, texture))
+                            modifyIORef' (preferencesRef desktop) (\p -> p {savedPicture = Just (Pictures.pictureKey entry)})
+                      place desktop False
+                      now <- monotonicSeconds
+                      phase <- newIORef (0 :: Int, now)
+                      checks <- newIORef ([] :: [(String, Bool)])
+                      pausePosition <- newIORef 0
+                      forM_ checkDirectory $ \folder -> do
+                        createDirectoryIfMissing True folder
+                        startupFinished <- getMonotonicTimeNSec
+                        initialSound <- Audio.snapshot audio
+                        let sinceStart time = fromIntegral (time - startupBegan) / 1e6 :: Double
+                        BL.writeFile (folder </> "startup.json") $ encode $ object
+                          [ "rendererReadyMs" .= sinceStart rendererReady,
+                            "scenesReadyMs" .= sinceStart scenesReady,
+                            "fontReadyMs" .= sinceStart fontReady,
+                            "audioWorkerReadyMs" .= sinceStart workerReady,
+                            "readyBeforeFirstLoopMs" .= sinceStart startupFinished,
+                            "audioClockBeforeFirstLoopSeconds" .= Audio.position initialSound,
+                            "scope" .= ("App entry to ready loop, with Vulkan resources, font and audio worker. The check is muted." :: String)
+                          ]
+                      loop desktop checkDirectory phase checks pausePosition Input.initialInput now now
+          result <- tryJust onlyLibraryFailure (start tracks notice)
+          case result of
+            Right success -> pure success
+            Left _ -> start builtins (Just "Music files could not be decoded; built-in music is playing.")
   where
     isBuiltIn track = case trackSource track of LocalFile _ -> False; _ -> True
     onlyLibraryFailure Audio.NoPlayableTracks = Just ()
     onlyLibraryFailure _ = Nothing
+    releasePicture renderer ref = readIORef ref >>= mapM_ (Pictures.unloadPicture renderer . snd)
 
-withSessionFont :: WindowResources -> [String] -> (IORef View.Typeface -> IO a) -> IO a
-withSessionFont window titles =
+withSessionFont :: GPU.Renderer -> [String] -> (IORef View.Typeface -> IO a) -> IO a
+withSessionFont renderer titles =
   bracket
-    (View.loadTypeface window titles >>= newIORef)
-    (\ref -> readIORef ref >>= View.unloadTypeface window)
+    (View.loadTypeface renderer titles >>= newIORef)
+    (\ref -> readIORef ref >>= View.unloadTypeface renderer)
 
 place :: Desktop -> Bool -> IO ()
 place desktop moveNext = do
@@ -186,32 +188,13 @@ place desktop moveNext = do
       currentScreen = fromMaybe preferred (find ((== savedScreen prefs) . Native.monitorName) screens)
       afterCurrent = dropWhile ((/= Native.monitorName currentScreen) . Native.monitorName) screens
       chosen = if moveNext then fromMaybe preferred (safeFirst (drop 1 afterCurrent ++ screens)) else currentScreen
-      (w, h, x, y) = case windowMode s of
-        -- Exact monitor-sized OpenGL windows can be promoted to fullscreen by
-        -- the driver. Overscan by one pixel, then clip to this display in Win32.
-        Fullscreen -> (Native.monitorWidth chosen + 2, Native.monitorHeight chosen + 2, Native.monitorX chosen - 1, Native.monitorY chosen - 1)
-        Compact ->
-          ( 760,
-            500,
-            Native.monitorX chosen + (Native.monitorWidth chosen - 760) `div` 2,
-            Native.monitorY chosen + (Native.monitorHeight chosen - 500) `div` 2
-          )
-  handle <- R.getWindowHandle
-  if windowMode s == Fullscreen
-    then do
-      R.setWindowState [WindowUndecorated]
-      -- Set the clip before the single native resize/move. Its WM_SIZE
-      -- callback updates raylib's surface size without an intermediate spill.
-      Native.positionWindow handle x y w h
-    else do
-      R.clearWindowState [WindowUndecorated]
-      R.setWindowSize w h
-      R.setWindowPosition x y
-      Native.unclipWindow handle
+  Native.placeWindow (desktopWindow desktop) chosen (windowMode s)
   writeIORef (preferencesRef desktop) prefs {savedScreen = Native.monitorName chosen}
   Native.setPower (transport s) (windowMode s)
   where
-    safeFirst [] = Nothing; safeFirst (x : _) = Just x
+    safeFirst [] = Nothing
+    safeFirst (x : _) = Just x
+
 
 save :: Desktop -> IO ()
 save desktop = do
@@ -269,10 +252,10 @@ apply desktop event = do
       modifyIORef' (preferencesRef desktop) useBuiltInMusic
       writeIORef (noticeRef desktop) Nothing
     PickMusicFolder -> do
-      busy <- readIORef (pickerBusy desktop)
+      busy <- (||) <$> readIORef (pickerBusy desktop) <*> readIORef (pictureBusy desktop)
       unless busy $ do
         writeIORef (pickerBusy desktop) True
-        handle <- R.getWindowHandle
+        handle <- Platform.nativeWindowHandle (desktopWindow desktop)
         prefs <- readIORef (preferencesRef desktop)
         generation <- readIORef (pickerGeneration desktop)
         _ <- forkOS $ do
@@ -280,13 +263,15 @@ apply desktop event = do
           putMVar (pickerResult desktop) (generation, result)
         pure ()
     PickPicture -> do
-      handle <- R.getWindowHandle
-      requestPicture desktop $ do
-        chosen <- Native.pickPicture handle
-        case chosen of
-          Left _ -> pure (Left Pictures.ImageUnavailable)
-          Right Nothing -> pure (Right Nothing)
-          Right (Just file) -> fmap Just <$> Pictures.importPicture (pictureDirectory desktop) file
+      busy <- readIORef (pickerBusy desktop)
+      unless busy $ do
+        handle <- Platform.nativeWindowHandle (desktopWindow desktop)
+        requestPicture desktop $ do
+          chosen <- Native.pickPicture handle
+          case chosen of
+            Left _ -> pure (Left Pictures.ImageUnavailable)
+            Right Nothing -> pure (Right Nothing)
+            Right (Just file) -> fmap Just <$> Pictures.importPicture (pictureDirectory desktop) file
     SelectPicture direction -> do
       entries <- readIORef (picturesRef desktop)
       prefs <- readIORef (preferencesRef desktop)
@@ -323,17 +308,13 @@ requestPicture desktop work = do
       putMVar (pictureResult desktop) (generation, result)
     pure ()
 
-receivePicture :: WindowResources -> Desktop -> IO ()
-receivePicture window desktop = do
+receivePicture :: Desktop -> IO ()
+receivePicture desktop = do
   completed <- tryTakeMVar (pictureResult desktop)
   forM_ completed $ \(generation, result) -> do
     writeIORef (pictureBusy desktop) False
     current <- readIORef (pictureGeneration desktop)
-    if generation == current
-      then accept result
-      else case result of
-        Right (Just (_, prepared)) -> Pictures.releasePicture prepared
-        _ -> pure ()
+    when (generation == current) (accept result)
   where
     accept result = do
       state <- readIORef (sessionRef desktop)
@@ -341,27 +322,27 @@ receivePicture window desktop = do
         Left issue -> writeIORef (noticeRef desktop) (Just (Pictures.pictureErrorText (language state) issue))
         Right Nothing -> pure ()
         Right (Just (entry, prepared)) -> do
-          loaded <- try (Pictures.uploadPicture window prepared)
+          loaded <- try (Pictures.uploadPicture (desktopRenderer desktop) prepared)
           case loaded of
             Left issue -> writeIORef (noticeRef desktop) (Just (Pictures.pictureErrorText (language state) issue))
             Right texture -> do
               previous <- atomicModifyIORef' (pictureRef desktop) (\old -> (Just (entry, texture), old))
-              forM_ previous (\(_, oldTexture) -> unloadTexture oldTexture window)
+              forM_ previous (\(_, oldTexture) -> Pictures.unloadPicture (desktopRenderer desktop) oldTexture)
               entries <- Pictures.discoverPictures (pictureDirectory desktop)
               oldEntries <- readIORef (picturesRef desktop)
               writeIORef (picturesRef desktop) entries
               when (entries /= oldEntries) $ do
                 titles <- readIORef (fontTitlesRef desktop)
-                newFont <- View.loadTypeface window (titles ++ map Pictures.pictureName entries)
+                newFont <- View.loadTypeface (desktopRenderer desktop) (titles ++ map Pictures.pictureName entries)
                 oldFont <- atomicModifyIORef' (fontRef desktop) (\old -> (newFont, old))
-                View.unloadTypeface window oldFont
+                View.unloadTypeface (desktopRenderer desktop) oldFont
               modifyIORef' (preferencesRef desktop) (\p -> p {savedPicture = Just (Pictures.pictureKey entry)})
               writeIORef (noticeRef desktop) Nothing
               apply desktop (ChooseBackground Picture)
       apply desktop Activity
 
-receiveMusic :: WindowResources -> Desktop -> IO ()
-receiveMusic window desktop = do
+receiveMusic :: Desktop -> IO ()
+receiveMusic desktop = do
   selected <- tryTakeMVar (pickerResult desktop)
   forM_ selected $ \(generation, result) -> do
     writeIORef (pickerBusy desktop) False
@@ -382,9 +363,9 @@ receiveMusic window desktop = do
                 let titles = map trackTitle (NE.toList tracks)
                 writeIORef (fontTitlesRef desktop) titles
                 entries <- readIORef (picturesRef desktop)
-                newFont <- View.loadTypeface window (titles ++ map Pictures.pictureName entries)
+                newFont <- View.loadTypeface (desktopRenderer desktop) (titles ++ map Pictures.pictureName entries)
                 oldFont <- atomicModifyIORef' (fontRef desktop) (\old -> (newFont, old))
-                View.unloadTypeface window oldFont
+                View.unloadTypeface (desktopRenderer desktop) oldFont
                 modifyIORef' (preferencesRef desktop) (useMusicFolder folder)
                 modifyIORef' (sessionRef desktop) (\s -> s {builtInMusic = False})
                 writeIORef (noticeRef desktop) Nothing
@@ -393,188 +374,205 @@ receiveMusic window desktop = do
   where
     synchronous e = case fromException e :: Maybe AsyncException of Just _ -> Nothing; Nothing -> Just e
 
-keyboard :: Session -> Bool -> IO [Event]
-keyboard s _ | viewingMode s == Resting = do
-  leave <- or <$> mapM R.isKeyPressed [KeyEscape, KeyR]
-  pure [LeaveRest | leave]
-keyboard s hasFocus = do
-  ordinary <-
-    pressed
-      ( [(KeySpace, TogglePlayback) | not hasFocus]
-          ++ [ (KeyR, ToggleRest),
-               (KeyN, NextTrack),
-               (KeyF11, ToggleWindow),
-               (KeyEscape, Escape),
-               (KeyM, NextScreen),
-               (KeyO, OpenMusic),
-               (KeyP, UsePresets),
-               (KeyS, ToggleSettings),
-               (KeyI, OpenPicture),
-               (KeyLeftBracket, BrowsePicture PreviousPicture),
-               (KeyRightBracket, BrowsePicture NextPicture),
-               (KeyB, if restControls then CycleRestShade else CyclePictureShade),
-               (KeyEqual, ChangeVolume 0.025),
-               (KeyMinus, ChangeVolume (-0.025))
-             ]
-      )
-  restActions <-
-    if restControls
-      then
-        pressed [(KeyA, ToggleRestMotion)]
-      else pure []
-  pure (ordinary ++ restActions)
+desktopKey :: Session -> Bool -> Word32 -> Maybe Event
+desktopKey s focused key
+  | viewingMode s == Resting = if key == 0x1b || key == 0x52 then Just LeaveRest else Nothing
+  | otherwise = lookup key bindings
   where
     restControls = settingsOpen s && settingsPage s == RestSettings
-    pressed = fmap concat . mapM (\(key, event) -> do down <- R.isKeyPressed key; pure [event | down])
+    bindings =
+      [(0x20, TogglePlayback) | not focused]
+        ++ [ (0x52, ToggleRest),
+             (0x4e, NextTrack),
+             (0x7a, ToggleWindow),
+             (0x1b, Escape),
+             (0x4d, NextScreen),
+             (0x4f, OpenMusic),
+             (0x50, UsePresets),
+             (0x53, ToggleSettings),
+             (0x49, OpenPicture),
+             (0xdb, BrowsePicture PreviousPicture),
+             (0xdd, BrowsePicture NextPicture),
+             (0x42, if restControls then CycleRestShade else CyclePictureShade),
+             (0xbb, ChangeVolume 0.025),
+             (0xbd, ChangeVolume (-0.025))
+           ]
+        ++ [(0x41, ToggleRestMotion) | restControls]
+
+-- Apply Windows edges in sequence. A click resolves against the UI visible
+-- before polling, even when a movement in the same poll wakes the controls.
+desktopInput :: Desktop -> (Int, Int) -> Session -> Input.InputState -> [Input.TimedWindowEvent] -> IO (Input.InputState, [Input.InputChange], Bool)
+desktopInput desktop (width, height) visible = \input events -> do
+  (end, reversed, quit) <- foldM consume (input, [], False) events
+  pure (end, reverse reversed, quit)
+  where
+    activate (UI.Intent event) = apply desktop event >> pure False
+    activate UI.Quit = pure True
+    consume (input, reversed, quit) event = do
+      let (end, changes) = Input.reduceInput input [event]
+      closed <- foldM (\already (_, change) -> if already then pure True else handleChange input end change) quit changes
+      pure (end, foldl (\acc (_, change) -> change : acc) reversed changes, closed)
+    handleChange _ _ Input.InputClose = pure True
+    handleChange _ _ (Input.InputFocus False) = do
+      apply desktop LeaveRest
+      writeIORef (controlFocusRef desktop) Nothing
+      pure False
+    handleChange old _ (Input.InputPointer x y) = do
+      when (inside x y && Input.pointerPosition old /= Just (x, y)) $ do
+        apply desktop Activity
+        writeIORef (controlFocusRef desktop) Nothing
+      pure False
+    handleChange _ _ (Input.InputButton Input.PointerLeft True x y) = do
+      writeIORef (controlFocusRef desktop) Nothing
+      if inside x y
+        then case UI.hitTest width height visible (fromIntegral x, fromIntegral y) of
+          Just action -> activate action
+          Nothing -> apply desktop Activity >> pure False
+        else pure False
+    handleChange _ input (Input.InputKey Input.KeyPressed message) = do
+      state <- readIORef (sessionRef desktop)
+      let key = Input.keyVirtual message
+      if key == 0x09 && viewingMode state == Working
+        then do
+          apply desktop Activity
+          awake <- readIORef (sessionRef desktop)
+          let backwards = any (Input.virtualKeyHeld input) [0x10, 0xa0, 0xa1]
+          modifyIORef' (controlFocusRef desktop) (UI.nextFocus backwards (UI.controls width height awake))
+          pure False
+        else do
+          focused <- readIORef (controlFocusRef desktop)
+          let active = focused >>= \action -> if any ((== action) . UI.action) (UI.controls width height state) then Just action else Nothing
+          mapM_ (apply desktop) (desktopKey state (isJust active) key)
+          case active of
+            Just action | key == 0x0d || key == 0x20 -> activate action
+            _ -> pure False
+    handleChange _ _ _ = pure False
+    inside x y = x >= 0 && x < width && y >= 0 && y < height
+
+monotonicSeconds :: IO Double
+monotonicSeconds = (/ 1e9) . fromIntegral <$> getMonotonicTimeNSec
 
 loop ::
-  WindowResources ->
   Desktop ->
   Maybe FilePath ->
   IORef (Int, Double) ->
   IORef [(String, Bool)] ->
   IORef Double ->
+  Input.InputState ->
   Double ->
   Double ->
-  Int ->
   IO Bool
-loop window desktop checkDirectory checkPhase checks pausePosition began previous frame = do
-  now <- R.getTime
-  let elapsed = either (const zeroSeconds) id (seconds (max 0 (now - previous)))
+loop desktop checkDirectory checkPhase checks pausePosition input began previous = do
+  now <- monotonicSeconds
+  let window = desktopWindow desktop
+      elapsed = either (const zeroSeconds) id (seconds (max 0 (now - previous)))
   when (mutedCheck desktop) $ do
     previousState <- readIORef (sessionRef desktop)
-    when
-      ( viewingMode previousState == Resting
-          && restMotion previousState == Gentle
-      )
-      $ modifyIORef' (checkFrameTimes desktop) ((restScene previousState, secondsValue elapsed * 1000) :)
+    when (viewingMode previousState == Resting && restMotion previousState == Gentle) $
+      modifyIORef' (checkFrameTimes desktop) ((restScene previousState, secondsValue elapsed * 1000) :)
   apply desktop (Elapse elapsed)
-  requested <- Native.activationRequested
-  when requested (R.restoreWindow >> R.setWindowFocused >> apply desktop Activity)
-  focused <- R.isWindowFocused
-  wasFocused <- atomicModifyIORef' (focusedRef desktop) (\old -> (focused, old))
-  when (wasFocused && not focused) (apply desktop LeaveRest)
-  -- Hit-test what was visible before this frame's mouse movement wakes controls.
-  -- A first click on a quiet screen must never trigger an invisible button.
-  sBefore <- readIORef (sessionRef desktop)
-  Vector2 dx dy <- R.getMouseDelta
-  onScreen <- R.isCursorOnScreen
-  when (onScreen && (abs dx + abs dy) > 0) $ do
-    apply desktop Activity
-    writeIORef (controlFocusRef desktop) Nothing
-  w <- R.getScreenWidth
-  h <- R.getScreenHeight
-  tabbed <- R.isKeyPressed KeyTab
-  when (tabbed && viewingMode sBefore == Working) $ do
-    apply desktop Activity
-    awake <- readIORef (sessionRef desktop)
-    backwards <- (||) <$> R.isKeyDown KeyLeftShift <*> R.isKeyDown KeyRightShift
-    modifyIORef' (controlFocusRef desktop) (UI.nextFocus backwards (UI.controls w h awake))
-  focus <- readIORef (controlFocusRef desktop)
-  current <- readIORef (sessionRef desktop)
-  let activeFocus = focus >>= (\value -> if any ((== value) . UI.action) (UI.controls w h current) then Just value else Nothing)
-  activated <- (||) <$> R.isKeyPressed KeyEnter <*> R.isKeyPressed KeySpace
-  let keyboardAction = if activated then activeFocus else Nothing
-  actions <- keyboard sBefore (isJust activeFocus)
-  mapM_ (apply desktop) actions
-  forM_ keyboardAction $ \action -> case action of UI.Intent event -> apply desktop event; UI.Quit -> pure ()
-  Vector2 mx my <- R.getMousePosition
-  clicked <- R.isMouseButtonPressed MouseButtonLeft
-  when clicked (writeIORef (controlFocusRef desktop) Nothing)
-  let click = if clicked then View.hitTest w h sBefore (mx, my) else Nothing
-  case click of
-    Just (View.Intent event) -> apply desktop event
-    _ -> when clicked (apply desktop Activity)
-  receiveMusic window desktop
-  receivePicture window desktop
-  Audio.pump (engine desktop)
+  forM_ (applicationInstance desktop) $ \instanceValue -> do
+    requested <- Native.activationRequested instanceValue
+    when requested (Native.activateWindow window >> apply desktop Activity)
+  events <- Platform.pollWindowEventsStamped window
+  before <- readIORef (sessionRef desktop)
+  extent <- Platform.windowFramebufferSize window
+  (currentInput, changes, closed) <- desktopInput desktop extent before input events
+  receiveMusic desktop
+  receivePicture desktop
   finished <- case checkDirectory of
     Nothing -> pure False
-    Just directory -> checkStep window desktop directory checkPhase checks pausePosition (now - began)
-  state <- readIORef (sessionRef desktop)
-  when (viewingMode state == Resting) (writeIORef (controlFocusRef desktop) Nothing)
-  drawFocus <- readIORef (controlFocusRef desktop)
-  sound <- Audio.snapshot (engine desktop)
-  font <- readIORef (fontRef desktop)
-  notice <- readIORef (noticeRef desktop)
-  picture <- readIORef (pictureRef desktop)
-  entries <- readIORef (picturesRef desktop)
-  when (viewingMode sBefore == Resting && viewingMode state == Resting && restScene state == RailJourney && (focused || isJust checkDirectory)) $
-    Journey.update
-      (Rest.journey (restAssets desktop))
-      (secondsValue elapsed)
-      (clicked && viewingMode sBefore == Resting)
-      (dx, dy)
-  ambience <- if viewingMode state == Resting && restScene state == RailJourney && journeySound state
-    then Just <$> Journey.soundscape (Rest.journey (restAssets desktop))
-    else pure Nothing
-  Audio.setAmbience (engine desktop) ambience
-  let shown = controlsVisible state
-  hidden <- R.isCursorHidden
-  let journeyRest = viewingMode state == Resting && restScene state == RailJourney
-      hide = not shown && not journeyRest && focused && onScreen
-  captured <- Journey.isCaptured (Rest.journey (restAssets desktop))
-  when (not captured && hidden /= hide) (if hide then R.hideCursor else R.showCursor)
-  -- A mode/monitor action may have resized the surface since hit testing.
-  drawWidth <- R.getScreenWidth
-  drawHeight <- R.getScreenHeight
-  invisible <- (||) <$> R.isWindowMinimized <*> R.isWindowHidden
-  let landscapePreview = settingsOpen state && settingsPage state == RestSettings && sceneCollection (restScene state) /= Atmospheres
-  R.setTargetFPS (if invisible || viewingMode state == Resting || landscapePreview then 30 else 60)
-  R.beginDrawing
-  let caption = case picture of
-        Nothing -> if language state == Japanese then "画像を追加してください" else "Add a background image"
-        Just (entry, _) ->
-          let position = length (takeWhile ((/= Pictures.pictureKey entry) . Pictures.pictureKey) entries) + 1
-              name = case Pictures.pictureKey entry of
-                "bundled:open-water.png" -> if language state == Japanese then "ひらけた湖" else "Open water"
-                "bundled:first-light.png" -> if language state == Japanese then "朝霧の森" else "First light"
-                "bundled:honey-mist.png" -> if language state == Japanese then "暖かな水面" else "Honey mist"
-                "bundled:blue-distance.png" -> if language state == Japanese then "青い稜線" else "Blue distance"
-                "bundled:01-mist-lake.png" -> if language state == Japanese then "霧の湖" else "Mist lake"
-                "bundled:02-quiet-forest.png" -> if language state == Japanese then "静かな森" else "Quiet forest"
-                "bundled:03-soft-dunes.png" -> if language state == Japanese then "砂丘" else "Soft dunes"
-                "bundled:04-night-field.png" -> if language state == Japanese then "夜の抽象画" else "Night field"
-                "bundled:05-afternoon-lake.png" -> if language state == Japanese then "午後の湖" else "Afternoon lake"
-                "bundled:06-woodland-pond.png" -> if language state == Japanese then "森の池" else "Woodland pond"
-                _ -> Pictures.pictureName entry
-           in show position ++ " / " ++ show (length entries) ++ "   " ++ name
-  -- EndDrawing still polls input and paces the loop; music is pumped above.
-  when (not invisible || isJust checkDirectory) $
-    View.renderWithFocus font (restAssets desktop) drawWidth drawHeight state (snd <$> picture) caption (if builtInMusic state then presetLabel (language state) (musicPreset state) else Audio.title sound) (notice `orElse` Audio.audioWarning sound) (mx, my) drawFocus
-  R.endDrawing
-  forM_ checkDirectory $ \_ -> do
-    pending <- atomicModifyIORef' (checkSwitchStart desktop) (\value -> (Nothing, value))
-    forM_ pending $ \(scene, startedAt) -> do
-      presentedAt <- R.getTime
-      modifyIORef' (checkSwitchTimes desktop) ((scene, (presentedAt - startedAt) * 1000) :)
-  closed <- R.windowShouldClose
-  if closed || click == Just View.Quit || keyboardAction == Just View.Quit || finished
+    Just directory -> checkStep desktop directory checkPhase checks pausePosition (now - began)
+  if closed || finished
     then do
       save desktop
       Journey.suspend (Rest.journey (restAssets desktop))
       saveJourney desktop
-      R.showCursor
-      Native.setPower Paused Compact
-      results <- readIORef checks
-      pure (all snd results)
-    else loop window desktop checkDirectory checkPhase checks pausePosition began now (frame + 1)
+      Platform.setPointerVisible window True
+      all snd <$> readIORef checks
+    else do
+      state <- readIORef (sessionRef desktop)
+      let journey = Rest.journey (restAssets desktop)
+          journeyRest = viewingMode state == Resting && restScene state == RailJourney
+          focused = Input.hasFocus currentInput
+          clicked = any isClick changes
+          (dx, dy) = foldl pointerDelta (0, 0) changes
+      when (viewingMode state == Resting) (writeIORef (controlFocusRef desktop) Nothing)
+      when (viewingMode before == Resting && journeyRest && (focused || mutedCheck desktop)) $
+        Journey.update journey (secondsValue elapsed) clicked (fromIntegral dx, fromIntegral dy) currentInput changes
+      ambience <- if journeyRest && journeySound state then Just <$> Journey.soundscape journey else pure Nothing
+      Audio.setAmbience (engine desktop) ambience
+      pointer <- Native.clientPointer window
+      captured <- Journey.isCaptured journey
+      let hide = not (controlsVisible state) && not journeyRest && focused && isJust pointer
+      unless captured (Platform.setPointerVisible window (not hide))
+      let mouse = maybe (-1, -1) (\(x, y) -> (fromIntegral x, fromIntegral y)) pointer
+      (status, _) <- renderDesktop desktop False mouse
+      when (status == GPU.FramePresented && mutedCheck desktop) $ do
+        pending <- atomicModifyIORef' (checkSwitchStart desktop) (\value -> (Nothing, value))
+        forM_ pending $ \(scene, startedAt) -> do
+          presentedAt <- monotonicSeconds
+          modifyIORef' (checkSwitchTimes desktop) ((scene, (presentedAt - startedAt) * 1000) :)
+      let preview = settingsOpen state && settingsPage state == RestSettings && sceneCollection (restScene state) /= Atmospheres
+          interval = if status == GPU.FrameMinimized || viewingMode state == Resting || preview then 1 / 30 else 1 / 60
+      done <- monotonicSeconds
+      threadDelay (max 0 (ceiling ((now + interval - done) * 1e6)))
+      loop desktop checkDirectory checkPhase checks pausePosition currentInput began now
   where
-    orElse (Just x) _ = Just x
-    orElse Nothing y = y
+    isClick (Input.InputButton Input.PointerLeft True _ _) = True
+    isClick _ = False
+    pointerDelta :: (Int, Int) -> Input.InputChange -> (Int, Int)
+    pointerDelta (x, y) (Input.InputDelta dx dy) = (x + dx, y + dy)
+    pointerDelta position _ = position
+
+renderDesktop :: Desktop -> Bool -> (Float, Float) -> IO (GPU.FrameStatus, Maybe GPU.FramePixels)
+renderDesktop desktop readback mouse = do
+  (width, height) <- Platform.windowFramebufferSize (desktopWindow desktop)
+  if width == 0 || height == 0 then pure (GPU.FrameMinimized, Nothing) else do
+    state <- readIORef (sessionRef desktop)
+    focus <- readIORef (controlFocusRef desktop)
+    sound <- Audio.snapshot (engine desktop)
+    font <- readIORef (fontRef desktop)
+    notice <- readIORef (noticeRef desktop)
+    picture <- readIORef (pictureRef desktop)
+    entries <- readIORef (picturesRef desktop)
+
+    let caption = case picture of
+          Nothing -> if language state == Japanese then "画像を追加してください" else "Add a background image"
+          Just (entry, _) ->
+            let position = length (takeWhile ((/= Pictures.pictureKey entry) . Pictures.pictureKey) entries) + 1
+                name = case Pictures.pictureKey entry of
+                  "bundled:open-water.png" -> if language state == Japanese then "ひらけた湖" else "Open water"
+                  "bundled:first-light.png" -> if language state == Japanese then "朝霧の森" else "First light"
+                  "bundled:honey-mist.png" -> if language state == Japanese then "暖かな水面" else "Honey mist"
+                  "bundled:blue-distance.png" -> if language state == Japanese then "青い稜線" else "Blue distance"
+                  "bundled:01-mist-lake.png" -> if language state == Japanese then "霧の湖" else "Mist lake"
+                  "bundled:02-quiet-forest.png" -> if language state == Japanese then "静かな森" else "Quiet forest"
+                  "bundled:03-soft-dunes.png" -> if language state == Japanese then "砂丘" else "Soft dunes"
+                  "bundled:04-night-field.png" -> if language state == Japanese then "夜の抽象画" else "Night field"
+                  "bundled:05-afternoon-lake.png" -> if language state == Japanese then "午後の湖" else "Afternoon lake"
+                  "bundled:06-woodland-pond.png" -> if language state == Japanese then "森の池" else "Woodland pond"
+                  _ -> Pictures.pictureName entry
+             in show position ++ " / " ++ show (length entries) ++ "   " ++ name
+    View.renderWithFocus (desktopRenderer desktop) readback font (restAssets desktop) width height state
+      (snd <$> picture) caption
+      (if builtInMusic state then presetLabel (language state) (musicPreset state) else Audio.title sound)
+      (notice <|> Audio.audioWarning sound) mouse focus
+
 
 -- Inject completed work deterministically after a newer selection. This uses
 -- the real completion boundary without relying on filesystem/decode timing.
-checkLateSelections :: WindowResources -> Desktop -> FilePath -> IO [(String, Bool)]
-checkLateSelections window desktop folder = do
+checkLateSelections :: Desktop -> FilePath -> IO [(String, Bool)]
+checkLateSelections desktop folder = do
   entries <- readIORef (picturesRef desktop)
+  selectedPicture <- readIORef (pictureRef desktop)
   let snapshot = do
         state <- readIORef (sessionRef desktop)
         prefs <- readIORef (preferencesRef desktop)
         picture <- readIORef (pictureRef desktop)
         notice <- readIORef (noticeRef desktop)
-        pure (state, prefs, fmap (\(entry, texture) -> (Pictures.pictureKey entry, texture'id texture)) picture, notice)
-      latePicture event = case entries of
+        pure (state, prefs, fmap fst picture, notice)
+      latePicture event = case filter (\entry -> Just entry /= fmap fst selectedPicture) entries of
         [] -> pure False
         entry : _ -> do
           pixels <- Pictures.preparePicture entry
@@ -586,7 +584,7 @@ checkLateSelections window desktop folder = do
               before <- snapshot
               writeIORef (pictureBusy desktop) True
               putMVar (pictureResult desktop) (generation, Right (Just (entry, prepared)))
-              receivePicture window desktop
+              receivePicture desktop
               after <- snapshot
               busy <- readIORef (pictureBusy desktop)
               pure (before == after && not busy)
@@ -599,19 +597,25 @@ checkLateSelections window desktop folder = do
   before <- snapshot
   writeIORef (pickerBusy desktop) True
   putMVar (pickerResult desktop) (generation, Right (Just (folder </> "late-library")))
-  receiveMusic window desktop
+  receiveMusic desktop
   after <- snapshot
   busy <- readIORef (pickerBusy desktop)
   apply desktop LeaveRest
   pure [("late image completion cannot overwrite a newer background", backgroundHeld), ("late image completion cannot change rest or its working picture", restHeld), ("late music picker completion cannot change rest", before == after && not busy)]
 
-checkStep :: WindowResources -> Desktop -> FilePath -> IORef (Int, Double) -> IORef [(String, Bool)] -> IORef Double -> Double -> IO Bool
-checkStep window desktop folder phaseRef checks pausePosition elapsed = do
+checkStep :: Desktop -> FilePath -> IORef (Int, Double) -> IORef [(String, Bool)] -> IORef Double -> Double -> IO Bool
+checkStep desktop folder phaseRef checks pausePosition elapsed = do
   (phase, lastAdvanced) <- readIORef phaseRef
-  now <- R.getTime
+  now <- monotonicSeconds
   sound <- Audio.snapshot (engine desktop)
   let record name success = modifyIORef' checks ((name, success) :)
-      advance = R.getTime >>= \finishedAt -> writeIORef phaseRef (phase + 1, finishedAt)
+      capture file = screenshot file (renderDesktop desktop True (-1, -1))
+      window = desktopWindow desktop
+      advance = do
+        (_, stats) <- Audio.deviceForCheck (engine desktop)
+        modifyIORef' (checkAudioPhases desktop) ((phase, GameAudio.streamStarvedFrames stats) :)
+        finishedAt <- monotonicSeconds
+        writeIORef phaseRef (phase + 1, finishedAt)
       -- PNG encoding can take longer than an absolute phase interval. Wait
       -- after it finishes so at least several fresh frames reach the buffers.
       settled = now - lastAdvanced > 0.4
@@ -621,7 +625,7 @@ checkStep window desktop folder phaseRef checks pausePosition elapsed = do
       entries <- readIORef (picturesRef desktop)
       record "ten bundled pictures are available" (length (filter ((== Pictures.Bundled) . Pictures.pictureOrigin) entries) == 10)
       current <- readIORef (pictureRef desktop)
-      record "startup uploads a valid picture texture" (maybe False (\(_, texture) -> texture'width texture > 0 && texture'height texture > 0) current)
+      record "startup uploads a valid picture texture" (maybe False (\(_, Pictures.PictureTexture width height _) -> width > 0 && height > 0) current)
       forM_ current $ \(entry, _) -> do
         let source = folder </> "登録の検査.PNG"
         BS.readFile (Pictures.picturePath entry) >>= BS.writeFile source
@@ -631,7 +635,7 @@ checkStep window desktop folder phaseRef checks pausePosition elapsed = do
     1 | elapsed > 1.5 -> do
       current <- readIORef (pictureRef desktop)
       record "Unicode image import copies and displays the image" (maybe False (\(entry, _) -> Pictures.pictureOrigin entry == Pictures.Imported && Pictures.picturePath entry /= folder </> "登録の検査.PNG") current)
-      screenshot (folder </> "controls.png")
+      capture (folder </> "controls.png")
       apply desktop TogglePlayback
       Audio.snapshot (engine desktop) >>= writeIORef pausePosition . Audio.position
       advance
@@ -665,19 +669,17 @@ checkStep window desktop folder phaseRef checks pausePosition elapsed = do
       record "automatic next track" (Audio.transitionCount sound >= 1)
       apply desktop UsePresets
       apply desktop ToggleWindow
-      handle <- R.getWindowHandle
       prefs <- readIORef (preferencesRef desktop)
       screens <- Native.monitors
-      matches <- maybe (pure False) (Native.borderlessMatches handle) (find ((== savedScreen prefs) . Native.monitorName) screens)
-      exclusive <- R.isWindowFullscreen
-      record "borderless surface clips exactly to the chosen display" (matches && not exclusive)
+      matches <- maybe (pure False) (Native.borderlessMatches window) (find ((== savedScreen prefs) . Native.monitorName) screens)
+      record "borderless surface clips exactly to the chosen display" matches
       modifyIORef' (sessionRef desktop) (\s -> s {idleSeconds = 10})
       state <- readIORef (sessionRef desktop)
       record "fullscreen hides idle controls" (not (controlsVisible state))
       advance
       pure False
     6 | elapsed > 8.6 -> do
-      screenshot (folder </> "quiet.png")
+      capture (folder </> "quiet.png")
       apply desktop Activity
       state <- readIORef (sessionRef desktop)
       record "activity reveals controls" (controlsVisible state)
@@ -689,8 +691,7 @@ checkStep window desktop folder phaseRef checks pausePosition elapsed = do
     7 | elapsed > 9.3 -> do
       state <- readIORef (sessionRef desktop)
       record "compact mode stays operable" (windowMode state == Compact && controlsVisible state)
-      handle <- R.getWindowHandle
-      Native.isUnclipped handle >>= record "compact mode removes the fullscreen clip"
+      Native.isUnclipped window >>= record "compact mode removes the fullscreen clip"
       apply desktop RemovePicture
       advance
       pure False
@@ -714,9 +715,9 @@ checkStep window desktop folder phaseRef checks pausePosition elapsed = do
       advance
       pure False
     10 | elapsed > 11.4 -> do
-      screenshot (folder </> "pictures-settings.png")
-      checkFontRestart window desktop >>= record "font replacement followed by a failed library can restart and draw"
-      checkLateSelections window desktop folder >>= mapM_ (uncurry record)
+      capture (folder </> "pictures-settings.png")
+      checkFontRestart desktop folder >>= record "font replacement followed by a failed library can restart and draw"
+      checkLateSelections desktop folder >>= mapM_ (uncurry record)
       record "all twelve rest thumbnails are preloaded" (Rest.thumbnailsReady (restAssets desktop))
       state <- readIORef (sessionRef desktop)
       record "rest starts with procedural water" (restScene state == TidalLight)
@@ -724,24 +725,23 @@ checkStep window desktop folder phaseRef checks pausePosition elapsed = do
       advance
       pure False
     11 | elapsed > 11.9 -> do
-      screenshot (folder </> "rest-settings.png")
+      capture (folder </> "rest-settings.png")
       gallery <- readIORef (sessionRef desktop)
-      let cardsWork collection (width, height) = all (\(scene, Rectangle x y rw rh) -> View.hitTest width height gallery {restCollection = collection} (x + rw / 2, y + rh / 2) == Just (View.Intent (ChooseRestScene scene))) (View.galleryCards width height collection)
+      let cardsWork collection (width, height) = all (\(scene, UI.Bounds x y rw rh) -> UI.hitTest width height gallery {restCollection = collection} (x + rw / 2, y + rh / 2) == Just (UI.Intent (ChooseRestScene scene))) (UI.galleryCards width height collection)
       record "all twelve gallery thumbnails select their scene at compact and desktop sizes" (and [cardsWork collection size | collection <- [Journeys, Landscapes, Atmospheres], size <- [(700, 500), (1920, 1080), (2562, 1442)]])
       record "gallery preview advances without entering rest" (viewingMode gallery == Working && restSeconds gallery > 0)
       apply desktop ToggleWindow
       modifyIORef' (sessionRef desktop) (\s -> s {idleSeconds = 10})
       state <- readIORef (sessionRef desktop)
-      w <- R.getScreenWidth
-      h <- R.getScreenHeight
-      let firstClick = View.hitTest w h state (fromIntegral (w - 640) / 2 + 40, fromIntegral h - 110)
-      record "a first click cannot activate a hidden transport control" (firstClick == Just (View.Intent ToggleRest))
-      forM_ firstClick $ \action -> case action of View.Intent event -> apply desktop event; View.Quit -> pure ()
+      (w, h) <- Platform.windowFramebufferSize (desktopWindow desktop)
+      let firstClick = UI.hitTest w h state (fromIntegral (w - 640) / 2 + 40, fromIntegral h - 110)
+      record "a first click cannot activate a hidden transport control" (firstClick == Just (UI.Intent ToggleRest))
+      forM_ firstClick $ \action -> case action of UI.Intent event -> apply desktop event; UI.Quit -> pure ()
       modifyIORef' (sessionRef desktop) (\s -> s {restHintSeconds = 0})
       advance
       pure False
     12 | elapsed > 12.4 -> do
-      screenshot (folder </> "rest-entry-motion-a.png")
+      capture (folder </> "rest-entry-motion-a.png")
       apply desktop Activity
       state <- readIORef (sessionRef desktop)
       record "rest hides controls even after mouse activity" (viewingMode state == Resting && not (controlsVisible state))
@@ -749,7 +749,7 @@ checkStep window desktop folder phaseRef checks pausePosition elapsed = do
       advance
       pure False
     13 | elapsed > 13.4 -> do
-      screenshot (folder </> "rest-entry-motion-b.png")
+      capture (folder </> "rest-entry-motion-b.png")
       before <- readIORef pausePosition
       record "music clock continues through rest and motion" (Audio.audible sound && Audio.position sound > before + 0.3)
       beforeRest <- readIORef (sessionRef desktop)
@@ -765,11 +765,11 @@ checkStep window desktop folder phaseRef checks pausePosition elapsed = do
       advance
       pure False
     14 | elapsed > 13.9 -> do
-      screenshot (folder </> "rest-entry-still-a.png")
+      capture (folder </> "rest-entry-still-a.png")
       advance
       pure False
     15 | elapsed > 14.5 -> do
-      screenshot (folder </> "rest-entry-still-b.png")
+      capture (folder </> "rest-entry-still-b.png")
       apply desktop LeaveRest
       apply desktop (ChooseRestScene Shallows)
       apply desktop ToggleRestMotion
@@ -778,11 +778,11 @@ checkStep window desktop folder phaseRef checks pausePosition elapsed = do
       advance
       pure False
     16 | elapsed > 15.1 -> do
-      screenshot (folder </> "rest-alternate-a.png")
+      capture (folder </> "rest-alternate-a.png")
       advance
       pure False
     17 | elapsed > 16.1 -> do
-      screenshot (folder </> "rest-alternate-b.png")
+      capture (folder </> "rest-alternate-b.png")
       prefs <- readIORef (preferencesRef desktop)
       (reloaded, warning) <- readPreferences (preferencesPath desktop) English
       record "rest preferences persist independently of the working picture" (warning == Nothing && reloaded == prefs && savedRestScene reloaded == Shallows && savedRestMotion reloaded == Gentle && savedBackground reloaded == Picture && savedPictureShade reloaded == Soft)
@@ -791,16 +791,19 @@ checkStep window desktop folder phaseRef checks pausePosition elapsed = do
       record "Esc restores the working background without resizing" (viewingMode state == Working && windowMode state == Fullscreen && background state == Picture && pictureShade state == Soft)
       apply desktop ToggleRest
       resting <- readIORef (sessionRef desktop)
-      let returnClick = View.hitTest 760 500 resting (400, 200)
-      record "click anywhere leaves rest" (returnClick == Just (View.Intent LeaveRest))
-      -- The same event is used by the native focused -> unfocused edge.
-      apply desktop LeaveRest
+      let returnClick = UI.hitTest 760 500 resting (400, 200)
+      record "click anywhere leaves rest" (returnClick == Just (UI.Intent LeaveRest))
+      -- Drive the same reducer and dispatcher as the native focus callback.
+      let focusedEvent = Input.TimedWindowEvent 1 1 (Input.WindowFocusChanged True)
+          lostEvent = Input.TimedWindowEvent 2 2 (Input.WindowFocusChanged False)
+          (active, _) = Input.reduceInput Input.initialInput [focusedEvent]
+      _ <- desktopInput desktop (760, 500) resting active [lostEvent]
       returned <- readIORef (sessionRef desktop)
       record "LeaveRest used on focus loss preserves playback and display mode" (viewingMode returned == Working && transport returned == Playing && windowMode returned == Fullscreen)
       advance
       pure False
     18 | elapsed > 16.7 -> do
-      screenshot (folder </> "rest-return.png")
+      capture (folder </> "rest-return.png")
       ready <- Rest.proceduralReady (restAssets desktop)
       record "procedural shaders compiled" ready
       apply desktop (ChooseRestScene TidalLight)
@@ -809,12 +812,12 @@ checkStep window desktop folder phaseRef checks pausePosition elapsed = do
       advance
       pure False
     19 | elapsed > 17.3 -> do
-      screenshot (folder </> "procedural-water-a.png")
+      capture (folder </> "procedural-water-a.png")
       writeIORef pausePosition (Audio.position sound)
       advance
       pure False
     20 | elapsed > 18.3 -> do
-      screenshot (folder </> "procedural-water-b.png")
+      capture (folder </> "procedural-water-b.png")
       before <- readIORef pausePosition
       record "music advances during procedural rendering" (Audio.audible sound && Audio.position sound > before + 0.3)
       apply desktop LeaveRest
@@ -826,7 +829,7 @@ checkStep window desktop folder phaseRef checks pausePosition elapsed = do
       advance
       pure False
     21 | elapsed > 18.9 -> do
-      screenshot (folder </> "procedural-still-a.png")
+      capture (folder </> "procedural-still-a.png")
       -- The frozen procedural frame must be identical over a different working
       -- background; this catches accidental transparency/image dependence.
       apply desktop LeaveRest
@@ -836,7 +839,7 @@ checkStep window desktop folder phaseRef checks pausePosition elapsed = do
       advance
       pure False
     22 | elapsed > 19.5 -> do
-      screenshot (folder </> "procedural-still-b.png")
+      capture (folder </> "procedural-still-b.png")
       before <- readIORef pausePosition
       state <- readIORef (sessionRef desktop)
       record "procedural still mode holds scene time while music plays" (restSeconds state == before && transport state == Playing)
@@ -849,11 +852,11 @@ checkStep window desktop folder phaseRef checks pausePosition elapsed = do
       advance
       pure False
     23 | elapsed > 20.2 -> do
-      screenshot (folder </> "procedural-veil-a.png")
+      capture (folder </> "procedural-veil-a.png")
       advance
       pure False
     24 | elapsed > 21.2 -> do
-      screenshot (folder </> "procedural-veil-b.png")
+      capture (folder </> "procedural-veil-b.png")
       apply desktop LeaveRest
       apply desktop (ChooseRestScene StarryNight)
       apply desktop ToggleRest
@@ -861,11 +864,11 @@ checkStep window desktop folder phaseRef checks pausePosition elapsed = do
       advance
       pure False
     25 | elapsed > 21.8 -> do
-      screenshot (folder </> "procedural-stars-a.png")
+      capture (folder </> "procedural-stars-a.png")
       advance
       pure False
     26 | elapsed > 22.8 -> do
-      screenshot (folder </> "procedural-stars-b.png")
+      capture (folder </> "procedural-stars-b.png")
       prefs <- readIORef (preferencesRef desktop)
       (reloaded, warning) <- readPreferences (preferencesPath desktop) English
       record "procedural scene preference survives settings reload" (warning == Nothing && reloaded == prefs && savedRestScene reloaded == StarryNight && savedBackground reloaded == Picture)
@@ -882,19 +885,18 @@ checkStep window desktop folder phaseRef checks pausePosition elapsed = do
           apply desktop (ShowRestCollection (sceneCollection choice))
           writeIORef pausePosition (Audio.position sound)
           state <- readIORef (sessionRef desktop)
-          w <- R.getScreenWidth
-          h <- R.getScreenHeight
-          forM_ (lookup choice (View.galleryCards w h (restCollection state))) $ \(Rectangle x y rw rh) ->
-            forM_ (View.hitTest w h state (x + rw / 2, y + rh / 2)) $ \action -> case action of View.Intent event -> apply desktop event; View.Quit -> pure ()
+          (w, h) <- Platform.windowFramebufferSize (desktopWindow desktop)
+          forM_ (lookup choice (UI.galleryCards w h (restCollection state))) $ \(UI.Bounds x y rw rh) ->
+            forM_ (UI.hitTest w h state (x + rw / 2, y + rh / 2)) $ \action -> case action of UI.Intent event -> apply desktop event; UI.Quit -> pure ()
           selected <- readIORef (sessionRef desktop)
           record ("gallery selection works: " ++ name) (restScene selected == choice)
           when (sceneCollection choice == Landscapes) $ do
-            selectedAt <- R.getTime
+            selectedAt <- monotonicSeconds
             writeIORef (checkSwitchStart desktop) (Just (choice, selectedAt))
           apply desktop ToggleRest
           modifyIORef' (sessionRef desktop) (\s -> s {restHintSeconds = 0})
         else do
-          screenshot (folder </> ("procedural-" ++ name ++ (if (p - 27) `mod` 3 == 1 then "-a.png" else "-b.png")))
+          capture (folder </> ("procedural-" ++ name ++ (if (p - 27) `mod` 3 == 1 then "-a.png" else "-b.png")))
           when (sceneCollection choice == Landscapes && (p - 27) `mod` 3 == 2) $ do
             before <- readIORef pausePosition
             ready <- Rest.proceduralReady (restAssets desktop)
@@ -907,13 +909,13 @@ checkStep window desktop folder phaseRef checks pausePosition elapsed = do
       advance
       pure False
     52 -> do
-      screenshot (folder </> "gallery-fullscreen.png")
+      capture (folder </> "gallery-fullscreen.png")
       apply desktop ToggleWindow
       apply desktop ShowRestSettings
       advance
       pure False
     53 -> do
-      screenshot (folder </> "gallery-compact.png")
+      capture (folder </> "gallery-compact.png")
       prefs <- readIORef (preferencesRef desktop)
       (reloaded, warning) <- readPreferences (preferencesPath desktop) English
       record "new scene preference persists and startup returns to work" (warning == Nothing && reloaded == prefs && savedRestScene reloaded == MeadowStream && restCollection (restoreSession reloaded) == Landscapes && viewingMode (restoreSession reloaded) == Working)
@@ -932,12 +934,12 @@ checkStep window desktop folder phaseRef checks pausePosition elapsed = do
           state <- readIORef (sessionRef desktop)
           before <- readIORef pausePosition
           record "journey prepares incrementally while music continues" (issue == Nothing && Audio.audible sound && Audio.position sound > before + 0.3)
-          record "journey input is isolated from music and settings" (View.hitTest 760 500 state (380, 250) == Nothing && null (UI.controls 760 500 state))
+          record "journey input is isolated from music and settings" (UI.hitTest 760 500 state (380, 250) == Nothing && null (UI.controls 760 500 state))
           advance
           pure False
         else pure False
     56 -> do
-      screenshot (folder </> "journey-ride.png")
+      capture (folder </> "journey-ride.png")
       j <- Journey.model (Rest.journey (restAssets desktop))
       record "the integrated journey actually moves along its railway" (Ride.progress (Ride.car j) > 60)
       apply desktop LeaveRest
@@ -970,7 +972,7 @@ checkStep window desktop folder phaseRef checks pausePosition elapsed = do
         then do
           j <- Journey.model (Rest.journey (restAssets desktop))
           record "a new landscape replaces the seed and renders inside settings" (issue == Nothing && Ride.worldSeed j /= World.firstSeed && Ride.progress (Ride.car j) == 60)
-          screenshot (folder </> "journey-new-gallery.png")
+          capture (folder </> "journey-new-gallery.png")
           advance
           pure False
         else pure False
@@ -980,6 +982,8 @@ checkStep window desktop folder phaseRef checks pausePosition elapsed = do
       switches <- reverse <$> readIORef (checkSwitchTimes desktop)
       landscapeDiagnostics <- Rest.landscapeInfo (restAssets desktop)
       journeyDiagnostics <- Journey.info (Rest.journey (restAssets desktop))
+      (worker, audioStats) <- Audio.deviceForCheck (engine desktop)
+      audioPhases <- reverse <$> readIORef (checkAudioPhases desktop)
       let timings scene =
             let samples = sort [ms | (choice, ms) <- frameTimes, choice == scene]
                 percentile fraction = case drop (floor (fraction * fromIntegral (max 0 (length samples - 1)))) samples of
@@ -997,9 +1001,18 @@ checkStep window desktop folder phaseRef checks pausePosition elapsed = do
             ( object
                 [ "passed" .= all snd results,
                   "checks" .= [object ["name" .= name, "passed" .= ok] | (name, ok) <- results],
-                  "selectionToFirstEndDrawingMs" .= [object ["scene" .= show scene, "milliseconds" .= ms] | (scene, ms) <- switches],
+                  "selectionToFirstPresentationMs" .= [object ["scene" .= show scene, "milliseconds" .= ms] | (scene, ms) <- switches],
                   "landscapeDiagnosticsJSON" .= landscapeDiagnostics,
                   "journeyDiagnosticsJSON" .= journeyDiagnostics,
+                  "audioWorkerPid" .= worker,
+                  "audioSourceWorkerPid" .= Audio.sourceWorkerPid (engine desktop),
+                  "audioPackets" .= GameAudio.submittedPackets audioStats,
+                  "emptyDeviceQueueEvents" .= GameAudio.emptyDeviceQueueEvents audioStats,
+                  "streamStarvedFrames" .= GameAudio.streamStarvedFrames audioStats,
+                  "streamStarvedFramesByPhase" .= [object ["phase" .= p, "total" .= total] | (p, total) <- audioPhases],
+                  "exceededPaddingDeadline" .= GameAudio.exceededPaddingDeadline audioStats,
+                  "exceededDevicePeriod" .= GameAudio.exceededDevicePeriod audioStats,
+
                   "renderTimingsIncludingCaptures" .= map timings [minBound .. maxBound]
                 ]
             )
@@ -1009,21 +1022,24 @@ checkStep window desktop folder phaseRef checks pausePosition elapsed = do
     _ -> pure False
 
 -- Exercise font ownership across replacement and failed-library recovery.
-checkFontRestart :: WindowResources -> Desktop -> IO Bool
-checkFontRestart window desktop = do
+checkFontRestart :: Desktop -> FilePath -> IO Bool
+checkFontRestart desktop folder = do
   failed <- tryJust (\failure -> case failure of Audio.NoPlayableTracks -> Just (); _ -> Nothing) $
-    withSessionFont window ["Before"] $ \ref -> do
-      replacement <- View.loadTypeface window ["After 置換"]
+    withSessionFont renderer ["Before"] $ \ref -> do
+      replacement <- View.loadTypeface renderer ["After 置換"]
       previousFont <- atomicModifyIORef' ref (\old -> (replacement, old))
-      View.unloadTypeface window previousFont
+      View.unloadTypeface renderer previousFont
       throwIO Audio.NoPlayableTracks
   case failed of
     Right () -> pure False
-    Left () -> withSessionFont window ["Fallback 復帰"] $ \ref -> do
+    Left () -> withSessionFont renderer ["Fallback 復帰 鉄道"] $ \ref -> do
       font <- readIORef ref
-      w <- R.getScreenWidth
-      h <- R.getScreenHeight
-      R.beginDrawing
-      View.render font (restAssets desktop) w h ((initialSession defaultVolume) {windowMode = Compact}) Nothing "" "Fallback 復帰" Nothing (-1, -1)
-      R.endDrawing
+      (w, h) <- Platform.windowFramebufferSize (desktopWindow desktop)
+      let state = (initialSession defaultVolume) {windowMode = Compact}
+      -- The title uses imported glyphs as well as a character outside the
+      -- preloaded catalogue. Both must survive the rebuilt atlas.
+      screenshot (folder </> "font-replacement.png") $
+        View.render renderer True font (restAssets desktop) w h state Nothing "" "Fallback 復帰 鉄道 🚂" Nothing (-1, -1)
       pure True
+  where
+    renderer = desktopRenderer desktop

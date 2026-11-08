@@ -20,13 +20,13 @@ module Stillroom.Runtime.Audio
     snapshot,
     seekForCheck,
     diagnosticsForCheck,
+    deviceForCheck,
   )
 where
 
 import Control.Exception
-import Control.Concurrent (MVar, ThreadId, forkOSWithUnmask, killThread, myThreadId, newEmptyMVar, newMVar, putMVar, readMVar, takeMVar, threadDelay, withMVar)
+import Control.Concurrent (MVar, ThreadId, forkIOWithUnmask, killThread, myThreadId, newEmptyMVar, newMVar, putMVar, readMVar, takeMVar, threadDelay, withMVar)
 import Control.Monad (when)
-import Data.ByteString qualified as BS
 import Data.Char (toLower)
 import Data.IORef
 import Data.List.NonEmpty (NonEmpty)
@@ -34,23 +34,20 @@ import Data.List.NonEmpty qualified as NE
 import Data.Maybe (isJust)
 import Data.Set qualified as Set
 import Data.Vector.Storable qualified as V
-import Foreign
-import Foreign.C (withCString)
+import Data.Word (Word64)
 import GHC.Clock (getMonotonicTimeNSec)
-import Raylib.Core (c'memFree)
-import Raylib.Core.Audio qualified as A
-import Raylib.Internal.Foreign (pop, withFreeable)
-import Raylib.Types (AudioStream, Music (..), MusicContextType (..))
+import GameIO.Audio qualified as A
 import Stillroom.Domain
 import Stillroom.Audio.Environment (EnvironmentInput)
 import Stillroom.Shuffle
 import Stillroom.Synthesis
 import System.Directory (getFileSize)
-import System.FilePath (takeExtension)
+import System.Environment (getExecutablePath, lookupEnv)
+import System.FilePath ((</>), takeDirectory, takeExtension)
+import System.Timeout (timeout)
 
--- Calls are serialized ordinary Haskell code, never the native device callback.
--- Supply uses the bound worker; synchronous startup/seek/library controls can
--- also render. A source must finish each bounded block and support seeks.
+-- The supplier generates bounded blocks and sends them to the audio process.
+-- Startup, seeks and library changes can also request a block synchronously.
 type BlockSource = Preset -> Integer -> Int -> IO (V.Vector Float)
 
 type AmbienceSource = Maybe EnvironmentInput -> Int -> IO (V.Vector Float)
@@ -59,9 +56,11 @@ blockFrames, queuedFrames :: Int
 blockFrames = 4096
 queuedFrames = 2 * blockFrames
 
-data Voice = Recorded !Music !(Ptr ()) | Generated !AudioStream !Preset !Integer !Integer
+data Voice
+  = Recorded !A.AudioStream !A.PCMSource !A.PCMReader !Int !Int
+  | Generated !A.AudioStream !Preset !Integer !Integer
 
-data Ambience = Ambience {ambienceStream :: !AudioStream, ambienceFrames :: !Integer}
+data Ambience = Ambience {ambienceStream :: !A.AudioStream, ambienceFrames :: !Integer}
 
 data Deck = Deck
   { deckTrack :: !Track,
@@ -71,7 +70,8 @@ data Deck = Deck
   }
 
 data State = State
-  { current :: !Deck,
+  { audioDevice :: !A.Audio,
+    current :: !Deck,
     prepared :: !Deck,
     bag :: !(Bag Track),
     librarySize :: !Int,
@@ -133,9 +133,6 @@ instance Exception AudioFailure
 withEngine :: NonEmpty Track -> Int -> Volume -> (Engine -> IO a) -> IO a
 withEngine = withEngineSource (\preset offset count -> evaluate (renderBlock preset offset count))
 
--- The executable uses -threaded and -N2: a blocking drawing call must not occupy
--- the only capability. Device starvation from OS scheduling, GC or a slow
--- injected source/decoder remains possible; this is not a real-time callback.
 withEngineSource :: BlockSource -> NonEmpty Track -> Int -> Volume -> (Engine -> IO a) -> IO a
 withEngineSource source = withSources Playing source Nothing
 
@@ -151,7 +148,7 @@ withSources initialTransport source ambient tracks seed initialVolume action = b
     acquire = mask $ \restore -> do
       ready <- newEmptyMVar
       bootFinished <- newEmptyMVar
-      supplier <- forkOSWithUnmask $ \unmask -> mask_ $ do
+      supplier <- forkIOWithUnmask $ \unmask -> mask_ $ do
         boot <- try openEngine
         case boot of
           Left e -> putMVar ready (Left (e :: SomeException))
@@ -161,46 +158,59 @@ withSources initialTransport source ambient tracks seed initialVolume action = b
             runSupplier engine (unmask (supplyLoop engine))
         putMVar bootFinished ()
       -- Acquisition may itself be cancelled while a decoder/source is waiting.
-      -- Its bound worker owns cleanup before the caller observes that failure.
+      -- The supplier owns cleanup before the caller observes that failure.
       boot <- restore (takeMVar ready) `onException` (killThread supplier >> readMVar bootFinished)
       either throwIO pure boot
-    -- Device initialization and destruction share one bound OS thread. Stream
-    -- controls may come from the UI under stateLock; raylib serializes those
-    -- buffer operations against its native device thread with its own mutex.
     openEngine = mask_ $ do
-      A.initAudioDevice
-      ready <- A.isAudioDeviceReady
-      when (not ready) (A.closeAudioDevice Nothing >> throwIO (userError "No audio output device is available."))
-      A.setAudioStreamBufferSizeDefault blockFrames
-      let initialBag = newBag seed tracks; n = NE.length tracks
-      (first, b1, bad1) <- selectDeck source n Set.empty initialBag `onException` A.closeAudioDevice Nothing
-      (second, b2, bad2) <- selectDeck source n bad1 b1 `onException` (closeDeck first >> A.closeAudioDevice Nothing)
-      layer <- traverse openAmbience ambient `onException` (closeDeck first >> closeDeck second >> A.closeAudioDevice Nothing)
-      now <- getMonotonicTimeNSec
-      ref <- newIORef (State first second b2 n bad2 Paused initialVolume False Nothing 0 0 layer Nothing 1 now)
-      let closeOwned = closeState ref
+      override <- lookupEnv "GAMEIO_AUDIO_WORKER"
+      worker <- case override of
+        Just path -> pure path
+        Nothing -> (</> "gameio-audio-worker.exe") . takeDirectory <$> getExecutablePath
+      device <- A.openIsolatedAudio worker A.defaultAudioConfig
       (do
+          let initialBag = newBag seed tracks
+              n = NE.length tracks
+          (first, b1, bad1) <- selectDeck device source n Set.empty initialBag
+          (second, b2, bad2) <- selectDeck device source n bad1 b1
+          layer <- traverse (openAmbience device) ambient
+          now <- getMonotonicTimeNSec
+          ref <- newIORef State
+            { audioDevice = device,
+              current = first,
+              prepared = second,
+              bag = b2,
+              librarySize = n,
+              rejected = bad2,
+              playing = Paused,
+              master = initialVolume,
+              blending = False,
+              warning = Nothing,
+              transitions = 0,
+              supplyPasses = 0,
+              ambience = layer,
+              environment = Nothing,
+              musicMultiplier = 1,
+              gainClock = now
+            }
           mutex <- newMVar ()
           initial <- snapshotState ref
           engine <- Engine ref mutex source ambient <$> newIORef initial <*> newIORef False <*> newIORef Nothing <*> newEmptyMVar <*> newEmptyMVar
           setTransport engine initialTransport
           pure engine
-        ) `onException` closeOwned
+        ) `onException` A.closeAudio device
     release engine = mask_ $ do
-      -- An interrupted waiter cannot abandon resource ownership: the supplier
-      -- still observes closing and runs its own finalizer. Normal release joins
-      -- it before returning, and never unloads a stream while supply uses it.
       writeIORef (closing engine) True
-      -- State commits/native submissions are masked. Cancellation is delivered
-      -- at a safe wait or after the current bounded block; a blocked source can
-      -- also be interrupted. The worker then closes state under the same mutex.
-      readMVar (supplierThread engine) >>= killThread
-      readMVar (finished engine) >>= either throwIO pure
+      -- Let the supplier finish its current pipe transaction before shutdown.
+      -- A blocked custom source still has a bounded opportunity to return.
+      completed <- timeout 2000000 (readMVar (finished engine))
+      case completed of
+        Just result -> either throwIO pure result
+        Nothing -> do
+          readMVar (supplierThread engine) >>= killThread
+          readMVar (finished engine) >>= either throwIO pure
 
 closeState :: IORef State -> IO ()
-closeState ref = do
-  s <- readIORef ref
-  closeDeck (current s) `finally` (closeDeck (prepared s) `finally` (mapM_ closeAmbience (ambience s) `finally` A.closeAudioDevice Nothing))
+closeState ref = readIORef ref >>= A.closeAudio . audioDevice
 
 runSupplier :: Engine -> IO () -> IO ()
 runSupplier engine work = mask_ $ do
@@ -245,75 +255,49 @@ refreshSnapshot :: Engine -> IO ()
 refreshSnapshot engine = snapshotState (stateRef engine) >>= writeIORef (latestSnapshot engine)
 
 closeDeck :: Deck -> IO ()
-closeDeck Deck {voice = Recorded music bytes} = releaseMusic music `finally` free bytes
-closeDeck Deck {voice = Generated stream _ _ _} = withFreeable stream A.c'unloadAudioStream
+closeDeck = A.stopVoice . deckVoice
 
--- Compatibility with the exact raylib revision bundled by h-raylib 5.6.0.0:
--- its WAV destructor omits the allocated context. Keep this repair isolated
--- and recheck on dependency updates. FLAC is disabled in this pinned build.
-releaseMusic :: Music -> IO ()
-releaseMusic music = do
-  withFreeable music A.c'unloadMusicStream
-  when (music'ctxType music == MusicAudioWAV) (c'memFree (music'ctxData music))
+deckVoice :: Deck -> A.Voice
+deckVoice deck = A.streamVoice $ case voice deck of
+  Recorded stream _ _ _ _ -> stream
+  Generated stream _ _ _ -> stream
 
-openDeck :: BlockSource -> Track -> IO Deck
-openDeck source track = case trackSource track of
-  Procedural preset -> openGenerated source track preset (Just (secondsValue (presetDuration preset)))
-  Continuous preset -> openGenerated source track preset Nothing
+openDeck :: A.Audio -> BlockSource -> Track -> IO Deck
+openDeck device source track = case trackSource track of
+  Procedural preset -> openGenerated device source track preset (Just (secondsValue (presetDuration preset)))
+  Continuous preset -> openGenerated device source track preset Nothing
   LocalFile file -> mask $ \restore -> do
     size <- getFileSize file
     when (size > 128 * 1024 * 1024) (throwIO RecordingTooLarge)
-    bytes <- restore (BS.readFile file)
-    buffer <- mallocBytes (BS.length bytes)
-    music <-
-      ( do
-          BS.useAsCString bytes $ \input -> copyBytes buffer (castPtr input) (BS.length bytes)
-          withCString (map toLower (takeExtension file)) (\extension -> A.c'loadMusicStreamFromMemory extension (castPtr buffer) (fromIntegral (BS.length bytes))) >>= pop
-      )
-        `onException` free buffer
-    let release = releaseMusic music `finally` free buffer
-    ( do
-        valid <- A.isMusicValid music
-        when (not valid) (throwIO InvalidRecording)
-        lengthSeconds <- realToFrac <$> A.getMusicTimeLength music
-        when (isNaN lengthSeconds || isInfinite lengthSeconds || lengthSeconds <= 0) (throwIO InvalidRecording)
-        A.setMusicVolume music 0
-        let recording = music {music'looping = False}
-        A.playMusicStream recording
-        A.pauseMusicStream recording
-        A.updateMusicStream recording
-        pure (Deck track (Recorded recording buffer) (Just lengthSeconds) False)
-      )
-      `onException` release
+    recording <- restore $ case map toLower (takeExtension file) of
+      ".wav" -> A.loadWavSource file
+      ".mp3" -> A.loadMp3Source file
+      ".ogg" -> A.loadOggVorbisSource file
+      _ -> throwIO InvalidRecording
+    decoder <- A.openPCMReader recording 0
+    stream <- openPausedStream device (A.sourceSampleRate recording) (A.sourceChannels recording)
+    let lengthSeconds = fromIntegral (A.sourceFrames recording) / fromIntegral (A.sourceSampleRate recording)
+        deck = Deck track (Recorded stream recording decoder 0 0) (Just lengthSeconds) False
+    restore (fill source deck) `onException` closeDeck deck
 
-openGenerated :: BlockSource -> Track -> Preset -> Maybe Double -> IO Deck
-openGenerated source track preset extent = mask_ $ do
-  stream <- openPausedStream
-  -- Pinned Play invalidates both queued halves. openPausedStream already did
-  -- Play -> Pause; ordinary starts must only Resume after both halves are full.
-  fill source (Deck track (Generated stream preset 0 0) extent False)
-    `onException` withFreeable stream A.c'unloadAudioStream
+openGenerated :: A.Audio -> BlockSource -> Track -> Preset -> Maybe Double -> IO Deck
+openGenerated device source track preset extent = mask_ $ do
+  stream <- openPausedStream device sampleRate A.Stereo
+  let deck = Deck track (Generated stream preset 0 0) extent False
+  fill source deck `onException` closeDeck deck
 
-openPausedStream :: IO AudioStream
-openPausedStream = mask_ $ do
-  stream <- A.loadAudioStream (fromIntegral sampleRate) 32 2
-  (do
-      valid <- A.isAudioStreamValid stream
-      when (not valid) (throwIO (userError "Cannot create an audio stream."))
-      A.setAudioStreamVolume stream 0
-      A.playAudioStream stream
-      A.pauseAudioStream stream
-      pure stream
-    ) `onException` withFreeable stream A.c'unloadAudioStream
+openPausedStream :: A.Audio -> Int -> A.Channels -> IO A.AudioStream
+openPausedStream device rate channels = mask_ $ do
+  stream <- A.openStream device rate channels queuedFrames
+  let active = A.streamVoice stream
+  A.setVoiceGain active 0 `onException` A.stopVoice active
+  pure stream
 
-openAmbience :: AmbienceSource -> IO Ambience
-openAmbience source = mask_ $ do
-  stream <- openPausedStream
+openAmbience :: A.Audio -> AmbienceSource -> IO Ambience
+openAmbience device source = mask_ $ do
+  stream <- openPausedStream device sampleRate A.Stereo
   fillAmbience source Nothing (Ambience stream 0)
-    `onException` withFreeable stream A.c'unloadAudioStream
-
-closeAmbience :: Ambience -> IO ()
-closeAmbience layer = withFreeable (ambienceStream layer) A.c'unloadAudioStream
+    `onException` A.stopVoice (A.streamVoice stream)
 
 fillAmbience :: AmbienceSource -> Maybe EnvironmentInput -> Ambience -> IO Ambience
 fillAmbience source input layer = do
@@ -324,66 +308,68 @@ fillAmbience source input layer = do
     go remaining cursor
       | remaining <= 0 = pure cursor
       | otherwise = do
-          available <- A.isAudioStreamProcessed stream
-          if not available then pure cursor else do
+          available <- A.streamWritableFrames stream
+          if available < blockFrames then pure cursor else do
             samples <- source input blockFrames
             submitBlock stream samples
             go (remaining - 1) (cursor + fromIntegral blockFrames)
 
 -- Only synchronous decoding/file errors are recoverable. Cancellation is never
 -- swallowed. Every attempt removes a failing TrackId, so failure is bounded.
-selectDeck :: BlockSource -> Int -> Set.Set TrackId -> Bag Track -> IO (Deck, Bag Track, Set.Set TrackId)
-selectDeck renderer remaining bad source
+selectDeck :: A.Audio -> BlockSource -> Int -> Set.Set TrackId -> Bag Track -> IO (Deck, Bag Track, Set.Set TrackId)
+selectDeck device renderer remaining bad source
   | remaining <= 0 = throwIO NoPlayableTracks
   | otherwise = do
       let (track, rest) = draw source
       if Set.member (trackId track) bad
         then reject track bad rest
         else do
-          result <- tryJust recoverable (openDeck renderer track)
+          result <- tryJust recoverable (openDeck device renderer track)
           case result of
             Right deck -> pure (deck, rest, bad)
             Left _ -> reject track (Set.insert (trackId track) bad) rest
   where
     reject track failures rest = case exclude track rest of
       Nothing -> throwIO NoPlayableTracks
-      Just filtered -> selectDeck renderer (remaining - 1) failures filtered
-    recoverable exception = case fromException exception :: Maybe AsyncException of
-      Just _ -> Nothing
-      Nothing -> Just exception
+      Just filtered -> selectDeck device renderer (remaining - 1) failures filtered
+    recoverable exception
+      | Just (_ :: SomeAsyncException) <- fromException exception = Nothing
+      | Just issue <- fromException exception = case issue of
+          A.InvalidWav _ -> Just exception
+          A.UnsupportedWavFormat _ _ _ -> Just exception
+          A.InvalidOgg _ -> Just exception
+          A.InvalidVorbis _ -> Just exception
+          A.UnsupportedVorbis _ -> Just exception
+          A.InvalidMp3 _ -> Just exception
+          A.UnsupportedMp3 _ -> Just exception
+          A.AudioDecodeTooLarge _ -> Just exception
+          A.InvalidSampleRate _ -> Just exception
+          A.InvalidFrameCount _ -> Just exception
+          A.InvalidSample _ -> Just exception
+          A.IncompletePCMFrame -> Just exception
+          _ -> Nothing
+      | otherwise = Just exception
 
 startDeck :: Deck -> IO Deck
 startDeck deck@Deck {running = True} = pure deck
 startDeck deck = do
-  case voice deck of
-    Recorded music _ -> A.resumeMusicStream music
-    Generated stream _ _ _ -> A.resumeAudioStream stream
+  ifVoiceLive (A.resumeVoice (deckVoice deck))
   pure deck {running = True}
 
 pauseDeck :: Deck -> IO Deck
 pauseDeck deck@Deck {running = False} = pure deck
 pauseDeck deck = do
-  case voice deck of
-    Recorded music _ -> A.pauseMusicStream music
-    Generated stream _ _ _ -> A.pauseAudioStream stream
+  ifVoiceLive (A.pauseVoice (deckVoice deck))
   pure deck {running = False}
 
 deckPosition :: Deck -> IO Double
-deckPosition deck = case voice deck of
-  Recorded music _ -> do
-    nativePlaying <- A.isMusicStreamPlaying music
-    if running deck && not nativePlaying
-      then pure (maybe 0 id (deckLength deck))
-      else realToFrac <$> A.getMusicTimePlayed music
-  -- Public AudioStream APIs expose no consumed-frame cursor. Each refill after
-  -- the initial two corresponds to a retired whole subbuffer. This conservative
-  -- block clock cannot run ahead merely because the UI or supplier was stalled.
-  -- It counts retired source PCM, not the hardware output clock. Normally it
-  -- trails by one source block; between observations at most the two queued
-  -- blocks can retire. Device/converter latency is not measured. Raylib can
-  -- raise the requested half size for a large device period and pad our block;
-  -- that silence is deliberately not counted as produced musical PCM.
-  Generated _ _ origin nextFrame -> pure (fromIntegral (max origin (nextFrame - fromIntegral queuedFrames)) / fromIntegral sampleRate)
+deckPosition deck = do
+  progress <- A.readVoice (deckVoice deck)
+  let origin = case voice deck of
+        Recorded _ _ _ first _ -> fromIntegral first
+        Generated _ _ first _ -> first
+      frame = origin + fromIntegral (A.voiceSourceFrame progress)
+  pure (fromIntegral frame / fromIntegral (A.voiceSourceRate progress))
 
 feed :: BlockSource -> Deck -> IO Deck
 feed _ deck@Deck {running = False} = pure deck
@@ -392,7 +378,23 @@ feed source deck = fill source deck
 -- May fill a paused stream during startup/seek. At most two halves per pass;
 -- queue depth and work are bounded even if the device consumes concurrently.
 fill :: BlockSource -> Deck -> IO Deck
-fill _ deck@Deck {voice = Recorded music _} = A.updateMusicStream music >> pure deck
+fill _ deck@Deck {voice = Recorded stream recording decoder origin offset} = do
+  nextFrame <- go (2 :: Int) offset
+  pure deck {voice = Recorded stream recording decoder origin nextFrame}
+  where
+    extent = A.sourceFrames recording
+    go remaining cursor
+      | remaining <= 0 || cursor >= extent = pure cursor
+      | otherwise = do
+          available <- A.streamWritableFrames stream
+          let count = min blockFrames (extent - cursor)
+          if available < count then pure cursor else do
+            chunk <- A.readPCMBlock decoder count >>= maybe (throwIO InvalidRecording) pure
+            written <- A.writeStream stream chunk
+            when (written /= count) (throwIO InvalidRecording)
+            let nextFrame = cursor + written
+            when (nextFrame == extent) (A.finishStream stream)
+            go (remaining - 1) nextFrame
 fill source deck@Deck {voice = Generated stream preset origin offset} = do
   nextFrame <- go (2 :: Int) offset
   pure deck {voice = Generated stream preset origin nextFrame}
@@ -400,21 +402,30 @@ fill source deck@Deck {voice = Generated stream preset origin offset} = do
     go remaining cursor
       | remaining <= 0 = pure cursor
       | otherwise = do
-          available <- A.isAudioStreamProcessed stream
-          if not available then pure cursor else do
+          available <- A.streamWritableFrames stream
+          if available < blockFrames then pure cursor else do
             samples <- source preset cursor blockFrames
             submitBlock stream samples
             go (remaining - 1) (cursor + fromIntegral blockFrames)
 
-submitBlock :: AudioStream -> V.Vector Float -> IO ()
+submitBlock :: A.AudioStream -> V.Vector Float -> IO ()
 submitBlock stream samples = do
-  when (V.length samples /= 2 * blockFrames || V.any (\x -> isNaN x || isInfinite x) samples) (throwIO InvalidGeneratedBlock)
-  V.unsafeWith samples $ \pointer -> A.updateAudioStream stream (castPtr pointer) blockFrames
+  when (V.length samples /= 2 * blockFrames) (throwIO InvalidGeneratedBlock)
+  pcm <- A.generatePCM sampleRate A.Stereo blockFrames (samples V.!) `catch` \issue -> case issue of
+    A.InvalidSample _ -> throwIO InvalidGeneratedBlock
+    _ -> throwIO issue
+  written <- A.writeStream stream pcm
+  -- Each supplier is serialized by stateLock. Capacity can increase while
+  -- synthesis runs and only this producer can consume capacity.
+  when (written /= blockFrames) (throwIO InvalidGeneratedBlock)
 
 gain :: Deck -> Double -> IO ()
-gain deck value = case voice deck of
-  Recorded music _ -> A.setMusicVolume music (realToFrac value)
-  Generated stream _ _ _ -> A.setAudioStreamVolume stream (realToFrac value)
+gain deck value = ifVoiceLive (A.setVoiceGain (deckVoice deck) (realToFrac value))
+
+ifVoiceLive :: IO () -> IO ()
+ifVoiceLive action = action `catch` \issue -> case issue of
+  A.VoiceInactive -> pure ()
+  _ -> throwIO issue
 
 setTransport :: Engine -> Transport -> IO ()
 setTransport engine requested = withState engine $ \ref -> do
@@ -427,7 +438,8 @@ setTransport engine requested = withState engine $ \ref -> do
       applyGains s
       first <- if requested == Playing then startDeck (current s) else pauseDeck (current s)
       second <- if requested == Playing && blending s then startDeck (prepared s) else pauseDeck (prepared s)
-      mapM_ (\layer -> (if requested == Playing then A.resumeAudioStream else A.pauseAudioStream) (ambienceStream layer)) (ambience s)
+      let transport = if requested == Playing then A.resumeVoice else A.pauseVoice
+      mapM_ (transport . A.streamVoice . ambienceStream) (ambience s)
       writeIORef ref s {current = first, prepared = second, playing = requested}
 
 setVolume :: Engine -> Volume -> IO ()
@@ -460,7 +472,7 @@ applyGains s = do
       (outgoing, incoming) = case curve of Solo -> (attack, 0); Crossfade a b -> (a * attack, b); Advance -> (0, 1)
   gain (current s) (level * outgoing)
   gain (prepared s) (level * incoming)
-  mapM_ (\layer -> A.setAudioStreamVolume (ambienceStream layer) (realToFrac (0.66 * volumeValue (master s)))) (ambience s)
+  mapM_ (\layer -> A.setVoiceGain (A.streamVoice (ambienceStream layer)) (realToFrac (0.66 * volumeValue (master s)))) (ambience s)
 
 next :: Engine -> IO ()
 next engine = withState engine (nextState (blockSource engine))
@@ -470,7 +482,7 @@ nextState source ref = mask_ $ do
   s <- readIORef ref
   -- Acquire replacement before releasing the old deck: a failure leaves the
   -- existing state valid and owned by the enclosing bracket.
-  (newDeck, rest, bad) <- selectDeck source (librarySize s) (rejected s) (bag s)
+  (newDeck, rest, bad) <- selectDeck (audioDevice s) source (librarySize s) (rejected s) (bag s)
   gain (prepared s) (0.66 * volumeValue (master s) * musicMultiplier s) `onException` closeDeck newDeck
   first <- (if playing s == Playing then startDeck (prepared s) else pure (prepared s)) `onException` closeDeck newDeck
   writeIORef ref s {current = first, prepared = newDeck, bag = rest, rejected = bad, blending = False, transitions = transitions s + 1}
@@ -480,8 +492,8 @@ replaceLibrary :: Engine -> NonEmpty Track -> Int -> IO ()
 replaceLibrary engine tracks seed = withState engine $ \ref -> do
   s <- readIORef ref
   let count = NE.length tracks
-  (a, b1, bad1) <- selectDeck (blockSource engine) count Set.empty (newBag seed tracks)
-  (b, b2, bad2) <- selectDeck (blockSource engine) count bad1 b1 `onException` closeDeck a
+  (a, b1, bad1) <- selectDeck (audioDevice s) (blockSource engine) count Set.empty (newBag seed tracks)
+  (b, b2, bad2) <- selectDeck (audioDevice s) (blockSource engine) count bad1 b1 `onException` closeDeck a
   a' <- (if playing s == Playing then startDeck a else pure a) `onException` (closeDeck a >> closeDeck b)
   writeIORef
     ref
@@ -553,37 +565,45 @@ seekForCheck engine target = withState engine $ \ref -> do
   when (isNaN target || isInfinite target) (throwIO (userError "Audio seek must be finite."))
   s <- readIORef ref
   let deck = current s; bounded = max 0 (maybe target (\extent -> min (extent - 0.01) target) (deckLength deck))
-  updated <- resetDeck (blockSource engine) bounded deck
-  second <- resetDeck (blockSource engine) 0 (prepared s)
+  let resetAt = resetDeck (audioDevice s) (blockSource engine)
+  updated <- resetAt bounded deck
+  second <- resetAt 0 (prepared s) `onException` closeDeck updated
   let reset = s {current = updated, prepared = second, blending = False}
-  writeIORef ref reset
-  applyGains reset
-  first <- if playing s == Playing then startDeck updated else pure updated
+      start = if playing s == Playing then startDeck updated else pure updated
+  first <- (applyGains reset >> start) `onException` (closeDeck updated `finally` closeDeck second)
   writeIORef ref reset {current = first}
+  closeDeck (current s) `finally` closeDeck (prepared s)
   pumpState (blockSource engine) (ambienceSource engine) ref
 
--- Reset invalidates queued PCM before changing the dry cursor. This source API
--- is random-access; stateful renderers must implement their own deterministic
--- reset/reconstruction for the requested offset.
-resetDeck :: BlockSource -> Double -> Deck -> IO Deck
-resetDeck source target deck = do
-  gain deck 0
-  case voice deck of
-    Recorded music _ -> do
-      A.playMusicStream music
-      A.pauseMusicStream music
-      A.seekMusicStream music (realToFrac target)
-      fill source deck {running = False}
-    Generated stream preset _ _ -> do
-      A.playAudioStream stream
-      A.pauseAudioStream stream
+-- The replacement owns its own queue. A failed seek leaves the old deck live.
+resetDeck :: A.Audio -> BlockSource -> Double -> Deck -> IO Deck
+resetDeck device source target deck = do
+  replacement <- case voice deck of
+    Recorded _ recording _ _ _ -> do
+      let rate = A.sourceSampleRate recording
+          cursor = floor (target * fromIntegral rate)
+      decoder <- A.openPCMReader recording cursor
+      stream <- openPausedStream device rate (A.sourceChannels recording)
+      pure deck {voice = Recorded stream recording decoder cursor cursor, running = False}
+    Generated _ preset _ _ -> do
+      replacement <- openPausedStream device sampleRate A.Stereo
       let cursor = floor (target * fromIntegral sampleRate)
-      fill source deck {voice = Generated stream preset cursor cursor, running = False}
+      pure deck {voice = Generated replacement preset cursor cursor, running = False}
+  fill source replacement `onException` closeDeck replacement
 
 diagnosticsForCheck :: Engine -> IO AudioDiagnostics
 diagnosticsForCheck engine = withState engine $ \ref -> do
   s <- readIORef ref
-  let (nextFrame, completed) = case voice (current s) of
-        Generated _ _ origin cursor -> (Just cursor, Just (max origin (cursor - fromIntegral queuedFrames)))
-        Recorded _ _ -> (Nothing, Nothing)
+  (nextFrame, completed) <- case voice (current s) of
+    Generated stream _ origin cursor -> do
+      progress <- A.readVoice (A.streamVoice stream)
+      pure (Just cursor, Just (origin + fromIntegral (A.voiceSourceFrame progress)))
+    Recorded _ _ _ _ _ -> pure (Nothing, Nothing)
   pure (AudioDiagnostics (supplyPasses s) nextFrame completed queuedFrames (ambienceFrames <$> ambience s) (isJust (environment s)) (musicMultiplier s))
+
+deviceForCheck :: Engine -> IO (Maybe Int, A.AudioStats)
+deviceForCheck engine = do
+  checkEngine engine
+  device <- audioDevice <$> readIORef (stateRef engine)
+  stats <- A.readAudioStats device
+  pure (A.audioWorkerPid device, stats)

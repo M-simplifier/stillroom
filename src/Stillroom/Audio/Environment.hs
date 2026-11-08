@@ -5,6 +5,7 @@
 module Stillroom.Audio.Environment
   ( EnvironmentInput,
     environmentInput,
+    environmentSensors,
     EnvironmentState,
     initialEnvironment,
     EnvironmentBank,
@@ -37,6 +38,11 @@ environmentInput aboard speed forest shore =
     (finiteClamp 0 maximumSpeed 0 speed)
     (finiteClamp 0 1 0 forest)
     (finiteClamp 0 34 34 shore)
+
+-- | Values after sensor validation, for transport to the audio process.
+environmentSensors :: EnvironmentInput -> (Bool, Double, Double, Double)
+environmentSensors (EnvironmentInput travel speed forest shore) =
+  (travel == Aboard, speed, forest, shore)
 
 -- Samples are interleaved stereo at 44100 Hz. Frame count and finite PCM are
 -- established at preparation, before the sample-reading hot path.

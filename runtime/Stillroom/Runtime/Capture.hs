@@ -1,21 +1,18 @@
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE PatternSynonyms #-}
 
--- | Deterministic UI inspection through the production renderer. No audio
--- device, user preferences, native acceptance sequence or personal files.
+-- | Deterministic UI inspection through the production Vulkan renderer.
 module Stillroom.Runtime.Capture (runCapture, screenshot) where
 
-import Control.Exception (bracket, bracket_, finally, throwIO)
-import Control.Monad (forM, replicateM_, unless, when)
+import Control.Concurrent (threadDelay)
+import Control.Exception (bracket, throwIO)
+import Control.Monad (forM, replicateM_, unless, void, when)
 import Data.Aeson (encode, object, (.=))
 import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as BL
-import Foreign (alloca, castPtr, free, nullPtr, peek)
-import Foreign.C (withCString)
-import Raylib.Core qualified as R
-import Raylib.Core.Textures (c'exportImageToMemory, c'loadImageFromScreen, unloadTexture)
-import Raylib.Internal.Foreign (c'free)
-import Raylib.Types
+import GameIO.Graphics qualified as GPU
+import GameIO.Image (encodePng, rgbaImage)
+import GameIO.Platform qualified as Platform
+import GHC.Clock (getMonotonicTimeNSec)
 import Stillroom.Domain
 import Stillroom.Interface qualified as UI
 import Stillroom.Runtime.Pictures qualified as Pictures
@@ -31,82 +28,73 @@ runCapture folder = do
   let report = folder </> "ui-capture.json"
   exists <- doesFileExist report
   when exists (removeFile report)
-  R.setTraceLogLevel LogWarning
-  R.setConfigFlags [WindowHidden, WindowUndecorated, WindowAlwaysRun]
-  bracket (R.initWindow 700 500 "Stillroom UI capture") (R.closeWindow . Just) $ \window -> do
-    R.setTargetFPS 0
-    started <- R.getTime
-    bracket (View.loadTypeface window ["Soft piano"]) (View.unloadTypeface window) $ \font -> do
-      Rest.withRestAssets window $ \assets -> do
-        ready <- Rest.proceduralReady assets
-        unless (ready && Rest.thumbnailsReady assets) $
-          throwIO (userError "UI capture requires the procedural shader and all thumbnails.")
-        entries <- Pictures.discoverPictures (folder </> "backgrounds")
-        entry <-
-          maybe (throwIO (userError "UI capture requires the bundled open water image.")) pure $
-            Pictures.findPicture (Just "bundled:open-water.png") entries
-        prepared <- Pictures.preparePicture entry >>= either throwIO pure
-        texture <- Pictures.uploadPicture window prepared
-        frames <- forM views $ \(name, lang, page, opened, w, h, scene, mode) -> do
-          R.setWindowSize w h
-          let state =
-                (initialSession defaultVolume)
-                  { language = lang,
-                    settingsPage = page,
-                    settingsOpen = opened,
-                    windowMode = Compact,
-                    background = Picture,
-                    restSeconds = 12,
-                    restHintSeconds = 0,
-                    restScene = scene,
-                    restCollection = sceneCollection scene,
-                    viewingMode = mode,
-                    restShade = Original
-                  }
-              caption = "1 / " ++ show (length entries) ++ UI.local state "   Open water" "   ひらけた水辺"
-              focus = if page == MusicSettings then Just (UI.Intent OpenMusic) else Nothing
-              draw =
-                bracket_ R.beginDrawing R.endDrawing $
-                  View.renderWithFocus font assets w h state (Just texture) caption (presetLabel lang Linen) Nothing (-1, -1) focus
-              file = name ++ ".png"
-          -- Lazy journey loading uses the same bounded steps as the app.
-          -- These deterministic captures have no music device to pump.
-          when (scene == RailJourney) (replicateM_ 82 draw)
-          draw >> draw
-          actual <- (,) <$> R.getScreenWidth <*> R.getScreenHeight
-          unless (actual == (w, h)) (throwIO (userError "UI capture surface has unexpected dimensions."))
-          readyNow <- Rest.proceduralReady assets
-          unless readyNow (throwIO (userError "Landscape rendering failed"))
-          screenshot (folder </> file)
-          pure (object ["file" .= file, "width" .= w, "height" .= h, "language" .= show lang])
-        -- Exercise decoding, native texture upload and cover-cropping for every
-        -- bundled wallpaper using the production renderer, not a file preview.
-        wallpaperFrames <- forM (filter ((== Pictures.Bundled) . Pictures.pictureOrigin) entries) $ \wallpaper -> do
-          pixels <- Pictures.preparePicture wallpaper >>= either throwIO pure
-          bracket (Pictures.uploadPicture window pixels) (\t -> unloadTexture t window) $ \wallpaperTexture -> do
-            R.setWindowSize 1280 720
-            let state = (initialSession defaultVolume) {background = Picture, idleSeconds = 10}
-                draw = bracket_ R.beginDrawing R.endDrawing $
-                  View.render font assets 1280 720 state (Just wallpaperTexture) "" "Linen" Nothing (-1, -1)
-                file = "wallpaper-" ++ Pictures.pictureName wallpaper ++ ".png"
-            draw >> draw
-            screenshot (folder </> file)
-            pure (object ["file" .= file, "width" .= (1280 :: Int), "height" .= (720 :: Int), "pictureKey" .= Pictures.pictureKey wallpaper])
-        finished <- R.getTime
-        BL.writeFile
-          report
-          ( encode
-              ( object
-                  [ "completed" .= True,
-                    "captures" .= (frames ++ wallpaperFrames),
-                    "count" .= length (frames ++ wallpaperFrames),
-                    "elapsedSeconds" .= (finished - started),
-                    "audioOpened" .= False,
-                    "personalSettingsRead" .= False
-                  ]
-              )
-          )
-        pure True
+  Platform.withWindowVisibility False (Platform.WindowConfig "Stillroom UI capture" 700 500) $ \window ->
+    GPU.withRenderer window $ \renderer -> do
+      started <- getMonotonicTimeNSec
+      bracket (View.loadTypeface renderer ["Soft piano"]) (View.unloadTypeface renderer) $ \font ->
+        Rest.withRestAssets window renderer $ \assets -> do
+          ready <- Rest.proceduralReady assets
+          unless (ready && Rest.thumbnailsReady assets) $
+            throwIO (userError "UI capture requires the procedural shaders and all thumbnails.")
+          entries <- Pictures.discoverPictures (folder </> "backgrounds")
+          entry <-
+            maybe (throwIO (userError "UI capture requires the bundled open water image.")) pure $
+              Pictures.findPicture (Just "bundled:open-water.png") entries
+          prepared <- Pictures.preparePicture entry >>= either throwIO pure
+          bracket (Pictures.uploadPicture renderer prepared) (Pictures.unloadPicture renderer) $ \texture -> do
+            frames <- forM views $ \(name, lang, page, opened, w, h, scene, mode) -> do
+              Platform.resizeWindow window w h
+              void (Platform.pollWindowEvents window)
+              let state =
+                    (initialSession defaultVolume)
+                      { language = lang,
+                        settingsPage = page,
+                        settingsOpen = opened,
+                        windowMode = Compact,
+                        background = Picture,
+                        restSeconds = 12,
+                        restHintSeconds = 0,
+                        restScene = scene,
+                        restCollection = sceneCollection scene,
+                        viewingMode = mode,
+                        restShade = Original
+                      }
+                  caption = "1 / " ++ show (length entries) ++ UI.local state "   Open water" "   ひらけた水辺"
+                  focus = if page == MusicSettings then Just (UI.Intent OpenMusic) else Nothing
+                  draw readback =
+                    View.renderWithFocus renderer readback font assets w h state (Just texture) caption (presetLabel lang Linen) Nothing (-1, -1) focus
+                  file = name ++ ".png"
+              -- Let the production Journey loader complete its bounded uploads.
+              when (scene == RailJourney) (replicateM_ 82 (void (draw False)))
+              actual <- Platform.windowFramebufferSize window
+              unless (actual == (w, h)) (throwIO (userError "UI capture surface has unexpected dimensions."))
+              screenshot (folder </> file) (draw True)
+              readyNow <- Rest.proceduralReady assets
+              unless readyNow (throwIO (userError "Landscape rendering failed."))
+              pure (object ["file" .= file, "width" .= w, "height" .= h, "language" .= show lang])
+            -- Exercise the actual image decoder, upload and cover crop for all
+            -- bundled wallpapers.
+            wallpaperFrames <- forM (filter ((== Pictures.Bundled) . Pictures.pictureOrigin) entries) $ \wallpaper -> do
+              pixels <- Pictures.preparePicture wallpaper >>= either throwIO pure
+              bracket (Pictures.uploadPicture renderer pixels) (Pictures.unloadPicture renderer) $ \wallpaperTexture -> do
+                Platform.resizeWindow window 1280 720
+                void (Platform.pollWindowEvents window)
+                let state = (initialSession defaultVolume) {background = Picture, idleSeconds = 10}
+                    draw = View.render renderer True font assets 1280 720 state (Just wallpaperTexture) "" "Linen" Nothing (-1, -1)
+                    file = "wallpaper-" ++ Pictures.pictureName wallpaper ++ ".png"
+                screenshot (folder </> file) draw
+                pure (object ["file" .= file, "width" .= (1280 :: Int), "height" .= (720 :: Int), "pictureKey" .= Pictures.pictureKey wallpaper])
+            finished <- getMonotonicTimeNSec
+            BL.writeFile report $ encode $ object
+              [ "completed" .= True,
+                "captures" .= (frames ++ wallpaperFrames),
+                "count" .= length (frames ++ wallpaperFrames),
+                "elapsedSeconds" .= (fromIntegral (finished - started) / 1e9 :: Double),
+                "audioOpened" .= False,
+                "personalSettingsRead" .= False
+              ]
+            pure True
+
   where
     views :: [(String, Language, SettingsPage, Bool, Int, Int, RestScene, ViewingMode)]
     views =
@@ -125,14 +113,17 @@ runCapture folder = do
         ++ [("journey-gallery-desktop", Japanese, RestSettings, True, 1280, 800, RailJourney, Working)]
         ++ [("journey-ride", Japanese, RestSettings, False, 1280, 720, RailJourney, Resting)]
 
--- Encode through native memory; Haskell owns the Unicode output path. Keep
--- decoded and encoded byte buffers out of h-raylib's linked Haskell byte lists.
-screenshot :: FilePath -> IO ()
-screenshot file = bracket c'loadImageFromScreen release $ \picture ->
-  withCString ".png" $ \extension -> alloca $ \size ->
-    bracket (c'exportImageToMemory picture extension size) (c'free . castPtr) $ \bytes -> do
-      count <- fromIntegral <$> peek size
-      when (bytes == nullPtr || count <= 0) (throwIO (userError "Screenshot encoding failed."))
-      BS.packCStringLen (castPtr bytes, count) >>= BS.writeFile file
+
+-- Wait for a presented frame at the current extent. A deferred acquisition
+-- can occur immediately after resize, even when the renderer remains healthy.
+screenshot :: FilePath -> IO (GPU.FrameStatus, Maybe GPU.FramePixels) -> IO ()
+screenshot file draw = tryFrame (120 :: Int)
   where
-    release raw = (c'free . castPtr =<< peek (p'image'data raw)) `finally` free raw
+    tryFrame 0 = throwIO (userError "Screenshot did not acquire a presentable surface.")
+    tryFrame attempts = do
+      (status, pixels) <- draw
+      case (status, pixels) of
+        (GPU.FramePresented, Just (GPU.FramePixels w h bytes)) ->
+          either (throwIO . userError . show) (BS.writeFile file . encodePng) (rgbaImage w h bytes)
+        (GPU.FramePresented, Nothing) -> throwIO (userError "Screenshot readback returned no pixels.")
+        _ -> threadDelay 1000 >> tryFrame (attempts - 1)

@@ -1,103 +1,59 @@
--- | The effect boundary for quality. Only completed queries affect the pure
--- governor; settings previews and frozen/hidden frames cannot bias it upward.
-module Stillroom.Runtime.Graphics (Graphics, withGraphics, choose, measured, diagnostics) where
+-- Feed the original quality governor completed GPU observations from the same
+-- full-size scene. UI frames, previews and unrelated captures carry different
+-- submission numbers and cannot enter its sample window.
+module Stillroom.Runtime.Graphics (Graphics, withGraphics, choose, notePresented, diagnostics) where
 
-import Control.Exception (bracket, bracket_, mask_)
 import Control.Monad (when)
 import Data.IORef
-import Foreign
-import Foreign.C (CUInt, CInt)
-import Raylib.Util.RLGL qualified as RL
-import Stillroom.Runtime.Graphics.GL qualified as GL
+import Data.Word (Word64)
+import GameIO.Graphics qualified as GPU
 import Stillroom.Domain (RestScene)
 import Stillroom.Graphics
 
-data Timer = Timer !GL.QueryFunctions ![CUInt] !(IORef ([Int], Maybe Int, Int))
-data Graphics = Graphics !(Maybe Timer) !(IORef (Maybe (GraphicsQuality, RestScene, Int, Int), Governor)) !(IORef (Int, Double))
+type Context = (GraphicsQuality, RestScene, Int, Int)
 
-open :: IO (Maybe Timer)
-open = mask_ $ do
-  functions <- GL.queryFunctions
-  case functions of
-    Nothing -> pure Nothing
-    Just f -> allocaArray 4 $ \p -> do
-      GL.generateQueries f 4 p
-      ids <- peekArray 4 p
-      Just . Timer f ids <$> newIORef ([], Nothing, 0)
+data Graphics = Graphics
+  !GPU.Renderer !(IORef (Maybe Context, Governor)) !(IORef (Maybe (Context, Word64))) !(IORef (Int, Double))
 
-close :: Maybe Timer -> IO ()
-close Nothing = pure ()
-close (Just (Timer functions ids ref)) = mask_ $ do
-  (_,active,_) <- readIORef ref
-  when (active /= Nothing) (GL.endQuery functions 0x88bf)
-  withArray ids (GL.deleteQueries functions 4)
-
-sample :: Maybe Timer -> IO Double
-sample Nothing = pure (-1)
-sample (Just (Timer functions ids ref)) = do
-  (pending,active,cursor) <- readIORef ref
-  case pending of
-    [] -> pure (-1)
-    first:rest -> case drop first ids of
-      query:_ -> alloca $ \done -> do
-        GL.queryAvailable functions query 0x8867 done
-        available <- peek done :: IO CInt
-        if available == 0 then pure (-1) else alloca $ \result -> do
-          GL.queryResult functions query 0x8866 result
-          ns <- peek result
-          writeIORef ref (rest,active,cursor)
-          pure (fromIntegral ns / 1000000)
-      [] -> pure (-1)
-
-begin :: Maybe Timer -> IO ()
-begin Nothing = pure ()
-begin (Just (Timer functions ids ref)) = do
-  (pending,active,cursor) <- readIORef ref
-  when (active == Nothing && cursor `notElem` pending) $ case drop cursor ids of
-    query:_ -> do
-      RL.rlDrawRenderBatchActive
-      GL.beginQuery functions 0x88bf query
-      writeIORef ref (pending,Just cursor,cursor)
-    [] -> pure ()
-
-end :: Maybe Timer -> IO ()
-end Nothing = pure ()
-end (Just (Timer functions _ ref)) = do
-  (pending,active,cursor) <- readIORef ref
-  case active of
-    Nothing -> pure ()
-    Just slot -> do
-      RL.rlDrawRenderBatchActive
-      GL.endQuery functions 0x88bf
-      writeIORef ref (pending++[slot],Nothing,(cursor+1) `mod` 4)
-
-withGraphics :: (Graphics -> IO a) -> IO a
-withGraphics action = bracket open close $ \timer -> do
+withGraphics :: GPU.Renderer -> (Graphics -> IO a) -> IO a
+withGraphics renderer action = do
   state <- newIORef (Nothing, initialGovernor)
-  counts <- newIORef (0, 0)
-  action (Graphics timer state counts)
+  pending <- newIORef Nothing
+  samples <- newIORef (0, 0)
+  action (Graphics renderer state pending samples)
 
 choose :: Graphics -> GraphicsQuality -> RestScene -> Int -> Int -> Bool -> IO Tier
-choose (Graphics timer state counts) preference scene w h adaptive = do
-  (oldKey, old) <- readIORef state
-  let key = (preference, scene, w, h)
-      same = oldKey == Just key
-      current = if same then old else initialGovernor
-  ms <- sample timer
-  let updated = if same && adaptive && preference == Automatic then observe ms current else current
-  if adaptive && preference == Automatic && ms > 0 && same
-    then modifyIORef' counts (\(n, _) -> (n + 1, ms))
-    else pure ()
-  -- Previews don't replace the full-size context. The settling interval also
-  -- excludes any query submitted before a preference/viewport transition.
-  writeIORef state (Just key, updated)
-  pure (maybe (if adaptive || same then tier updated else Balanced) id (fixedTier preference))
+choose (Graphics _ state _ _) preference scene width height adaptive = do
+  (key, old) <- readIORef state
+  let nextKey = (preference, scene, width, height)
+  let same = key == Just nextKey
+  let governor = if same then old else initialGovernor
+  writeIORef state (Just nextKey, governor)
+  pure (maybe (if adaptive || same then tier governor else Balanced) id (fixedTier preference))
 
-measured :: Graphics -> Bool -> IO a -> IO a
-measured (Graphics timer _ _) enabled = if enabled then bracket_ (begin timer) (end timer) else id
+notePresented :: Graphics -> Bool -> GPU.FrameStatus -> IO ()
+notePresented (Graphics renderer state pending samples) adaptive status = when (status == GPU.FramePresented) $ do
+  (context, governor) <- readIORef state
+  serial <- GPU.rendererLastSubmission renderer
+  earlier <- readIORef pending
+  completed <- GPU.rendererLastMetrics renderer
+  let next = case context of
+        Just key@(Automatic, _, _, _) | adaptive -> Just (key, serial)
+        _ -> Nothing
+  writeIORef pending next
+  case (next, earlier, completed) of
+    (Just (key, _), Just (previous, index), Just metrics)
+      | key == previous, GPU.frameSubmissionIndex metrics == index
+      , Just nanoseconds <- GPU.frameGPUNSec metrics, nanoseconds > 0 -> do
+          let ms = nanoseconds / 1000000
+          writeIORef state (context, observe ms governor)
+          modifyIORef' samples (\(count, _) -> (count+1, ms))
+    _ -> pure ()
 
 diagnostics :: Graphics -> IO (Bool, Tier, Int, Double)
-diagnostics (Graphics timer state counts) = do
-  (_, g) <- readIORef state
-  (n, ms) <- readIORef counts
-  pure (case timer of Nothing -> False; Just _ -> True, tier g, n, ms)
+diagnostics (Graphics renderer state _ samples) = do
+  (_, governor) <- readIORef state
+  (count, latest) <- readIORef samples
+  metrics <- GPU.rendererLastMetrics renderer
+  let hasGPUTime = case metrics >>= GPU.frameGPUNSec of Just _ -> True; Nothing -> False
+  pure (hasGPUTime, tier governor, count, latest)

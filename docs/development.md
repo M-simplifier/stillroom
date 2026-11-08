@@ -1,7 +1,7 @@
 # Development and verification
 
-Use PowerShell on Windows x64 with GHC 9.6.7, Cabal 3.12.1.0 and GHCup's MSYS2
-tools installed. The script discovers the pinned versions in GHCup locations
+Use PowerShell on Windows x64 with GHC 9.6.7, Cabal 3.12.1.0, Git, Python 3, and
+GHCup's MSYS2 tools. The script discovers the pinned versions in GHCup locations
 or PATH; `-Ghc` and `-Cabal` accept explicit executable paths. It does not install
 tools. Run from the repository root:
 
@@ -13,8 +13,8 @@ tools. Run from the repository root:
 `-Online` updates the pinned package index and allows missing dependencies to be
 downloaded. Omit it after the first successful build. Every development action
 performs an incremental build of the current source, checks package metadata and
-GMP linkage and the NVIDIA/AMD GPU preference exports, and supplies the source
-assets. It restores PATH and `stillroom_datadir` on success and failure, including
+the app and audio worker's GMP linkage, and supplies the source assets. It
+restores PATH and `stillroom_datadir` on success and failure, including
 an initially absent override.
 No action reads or writes your normal Stillroom settings.
 
@@ -77,9 +77,9 @@ fresh directory, and test that extracted executable:
 ./tools/dev.ps1 CheckPackage -Executable C:/path/to/extracted/stillroom.exe -MusicFolder C:/path/to/music
 ```
 
-`CheckPackage` clears the development data override, restricts PATH to Windows
-system directories and checks the font, wallpapers, shader, icon and GMP DLL
-beside the executable before launching. The caller's environment is restored
+`CheckPackage` clears development data and audio-worker overrides, restricts
+PATH to Windows system directories, and checks the font, wallpapers, journey
+poster, icon, audio worker, and GMP DLL. The caller's environment is restored
 afterward. `tools/verify-native.ps1` enforces the same package boundary by default;
 only the development `Check` action opts into `-DevelopmentAssetRoot`.
 
@@ -111,9 +111,9 @@ Set-Location C:/path/to/source
 The build may reuse the pinned dependency cache. It verifies the GMP package
 and corresponding source by SHA-256; they are external build dependencies,
 not project assets copied from an untracked working directory. Packaging copies
-the complete bundled assets and notices, supplies the replaceable GMP DLL and
-source, and writes `SHA256SUMS.txt` beside the ZIP. Check the final executable's
-DLL imports and NVIDIA/AMD preference exports as part of the build.
+the bundled assets and notices, supplies the audio worker and replaceable GMP
+DLL with its source, and writes `SHA256SUMS.txt` beside the ZIP. Both executable
+import tables are checked during the build.
 
 Extract that ZIP into a fresh directory and run `CheckPackage` there, using the
 commands above. Keep the source commit, executable and ZIP hashes with the
@@ -149,7 +149,7 @@ fixed qualities, exercises frozen caches and resizing, measures the automatic
 selector in paced lake/journey runs, and injects allocation limits to check
 fallback. `stillroom.exe --quality-capture OUTPUT` compares identical journey
 poses and geometry fingerprints across qualities. Both use isolated state and
-require a real OpenGL device. See [graphics quality](graphics-quality.md) for
+require a real Vulkan device. See [graphics quality](graphics-quality.md) for
 interpretation; capture throughput is not a real-time frame-rate measurement.
 
 Renderer reports identify the grass path as `grassRenderingPath: "instanced"`

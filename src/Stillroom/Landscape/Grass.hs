@@ -1,8 +1,9 @@
 module Stillroom.Landscape.Grass
   ( GrassBlade, GrassCorner, GrassUV (..), GrassVertex (..),
     grassBlade, bladeRoot, bladeHeight, bladeWidth, bladeSide, bladeCurve,
-    bladeColor, bladeVertexOffset, grassCorners, grassVertex, foldGrassVertices,
+    bladeColor, bladeVertexOffset, grassCorners, grassCornerValues, grassVertex, foldGrassVertices,
     grassShapeGLSL, grassPositionComparisonTolerance,
+    Kernel.BladeInputs (..), Kernel.CornerInputs (..), Kernel.BladeAttributes (..), Kernel.bladeCorner,
   ) where
 
 import Data.Vector.Storable qualified as V
@@ -22,6 +23,9 @@ data GrassBlade = GrassBlade
   deriving (Eq, Show)
 
 data GrassCorner = GrassCorner !Float !Float !Float deriving (Eq, Show)
+
+grassCornerValues :: GrassCorner -> (Float, Float, Float)
+grassCornerValues (GrassCorner t profile sideSign) = (t, profile, sideSign)
 
 data GrassVertex = GrassVertex
   { grassPosition :: !(Float,Float,Float), grassNormal :: !(Float,Float,Float),
